@@ -22,6 +22,8 @@ core
 tags
 .DS_Store
 .directory
+.vs/
+Debug/
 *.debug
 Makefile*
 *.prl
