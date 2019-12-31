@@ -12,7 +12,7 @@ namespace wudi_server
 	namespace utilities
 	{
 		std::string decode_url( boost::string_view const& encoded_string );
-		std::vector<std::string> split_string( boost::string_view const& str, char const* delimeter );
+		std::vector<boost::string_view> split_string( boost::string_view const& str, char const* delimeter );
 		struct command_line_interface
 		{
 			std::size_t thread_count{};
@@ -37,7 +37,7 @@ namespace wudi_server
 		};
 	}
 
-	using Callback = std::function<void( http::request<http::string_body> const&, std::string const & )>;
+	using Callback = std::function<void( http::request<http::string_body> const&, std::string_view const & )>;
 	
 	struct Rule
 	{
@@ -54,7 +54,8 @@ namespace wudi_server
 		using iterator = std::map<std::string, Rule>::iterator;
 	public:
 		void add_endpoint( std::string const&, std::initializer_list<http::verb>, Callback&&  );
-		std::optional<iterator> get_rules( std::string const& target );
+		std::optional<Endpoint::iterator> get_rules( std::string const& target );
+		std::optional<iterator> get_rules( boost::string_view const& target );
 	};
 
 }

@@ -1,5 +1,6 @@
 #include "utilities.hpp"
 #include <vector>
+#include <iostream>
 
 namespace wudi_server
 {
@@ -44,18 +45,19 @@ namespace wudi_server
 			return src;
 		}
 
-		std::vector<std::string> split_string( boost::string_view const& str, char const* delimeter )
+		std::vector<boost::string_view> split_string( boost::string_view const& str, char const* delimeter )
 		{
 			std::string::size_type from_pos{};
 			std::string::size_type index{ str.find( delimeter, from_pos ) };
-			if( index == std::string::npos ) return std::vector<std::string>{ std::string{ str.begin(), str.end() }};
-			std::vector<std::string> result{};
+			if( index == std::string::npos ) return { str };
+			std::vector<boost::string_view> result{};
 			while( index != std::string::npos ) {
-				result.push_back( std::string{ str.begin() + from_pos, str.begin() + ( index - from_pos ) } );
+				result.push_back( boost::string_view{ str.begin() + from_pos, (index - from_pos) } );
 				from_pos = index + 1;
 				index = str.find( delimeter, from_pos );
 			}
-			if( from_pos < str.length() ) result.push_back( std::string{ str.cbegin() + from_pos, str.cend() } );
+			if( from_pos < str.length() ) 
+				result.push_back( boost::string_view{ str.cbegin() + from_pos, str.size() - from_pos } );
 			return result;
 		}
 	}
@@ -79,5 +81,10 @@ namespace wudi_server
 		auto iter = endpoints.find( target );
 		if( iter == endpoints.end() ) return std::nullopt;
 		return iter;
+	}
+
+	std::optional<Endpoint::iterator> Endpoint::get_rules( boost::string_view const& target )
+	{
+		return get_rules( std::string( target.data(), target.size() ) );
 	}
 }

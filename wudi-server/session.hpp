@@ -13,7 +13,7 @@ namespace wudi_server
 	using utilities::command_line_interface;
 	using string_response = http::response<http::string_body>;
 	using string_request = http::request<http::string_body>;
-	using dynamic_request = http::request_parser<http::dynamic_body>;
+	using dynamic_request = http::request_parser<http::string_body>;
 	using utilities::ErrorType;
 
 	class session
@@ -36,13 +36,16 @@ namespace wudi_server
 		void binary_data_read( beast::error_code ec, std::size_t bytes_transferred );
 		void on_data_read( beast::error_code ec, std::size_t const );
 		void shutdown_socket();
-		void error_handler( string_response&& response );
+		void send_response( string_response&& response );
+		void error_handler( string_response&& response, bool close_socket = false );
 		void on_data_written( beast::error_code ec, std::size_t const bytes_written );
-		void login_handler( string_request const& request, std::string const &query );
-		void index_page_handler( string_request const& request, std::string const & query );
-		void upload_handler( string_request const& request, std::string const& optional_query );
+		void login_handler( string_request const& request, std::string_view const &query );
+		void index_page_handler( string_request const& request, std::string_view const & query );
+		void upload_handler( string_request const& request, std::string_view const& optional_query );
 		void handle_requests( string_request const& request );
 		session* shared_from_this() { return this; }
+
+		static string_response success( std::string const&, string_request const& );
 		static string_response bad_request( std::string const& message, string_request const & );
 		static string_response not_found( string_request const & );
 		static string_response method_not_allowed( string_request const& request );
@@ -50,6 +53,8 @@ namespace wudi_server
 		static string_response get_error( std::string const&, ErrorType, http::status, string_request const& );
 	public:
 		session( asio::ip::tcp::socket&& socket, command_line_interface const& args );
+		void schedule_task_handler( string_request const& request, std::string_view const& query );
+		void website_handler( string_request const&, std::string_view const& );
 		void run();
 	};
 }
