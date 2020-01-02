@@ -1,5 +1,4 @@
 #include "session.hpp"
-#include <nlohmann_json.hpp>
 #include <boost/algorithm/string.hpp>
 #include <iostream>
 #include <fstream>
@@ -7,8 +6,6 @@
 
 namespace wudi_server
 {
-	using nlohmann::json;
-
 	void session::http_read_data()
 	{
 		buffer_.clear();
@@ -37,6 +34,11 @@ namespace wudi_server
 				return shutdown_socket();
 			}
 		}
+	}
+
+	void to_json( json& j, utilities::UploadResult const& item )
+	{
+		j = json{ { "id", item.upload_id }, { "alias", item.upload_alias }, { "filename", item.filename } };
 	}
 
 	void session::binary_data_read( beast::error_code ec, std::size_t bytes_transferred )
@@ -98,11 +100,32 @@ namespace wudi_server
 
 	void session::login_handler( string_request const& request, std::string_view const& optional_query )
 	{
+		if( request.method() == http::verb::get ) {
+			json::object_t result_obj{};
+			result_obj["status"] = ErrorType::NoError;
+			result_obj["message"] = "username, password";
+			json result{ result_obj };
+
+			string_response response{ http::status::ok, request.version() };
+			response.set( http::field::server, "wudi-custom-server" );
+			response.set( http::field::content_type, "application/json" );
+			response.keep_alive( request.keep_alive() );
+			response.body() = result.dump();
+			response.prepare_payload();
+			return send_response( std::move( response ) );
+		}
+
 		try {
 			json json_body{ json::parse( request.body() ) };
 			json::object_t login_info{ json_body.get<json::object_t>() };
-			return error_handler( get_error( login_info["username"],
-				ErrorType::NoError, http::status::ok, request ) );
+			auto& username = login_info["username"];
+			auto& password = login_info["password"];
+			auto [id, role] = db_connector->get_login_role( username, password );
+			if( id == -1 ) {
+				return error_handler( get_error( "invalid username or password", ErrorType::NoError, http::status::ok, request ) );
+			} else {
+				return send_response( successful_login( id, role, request ) );
+			}
 		}
 		catch( std::exception const& exception ) {
 			fputs( exception.what(), stderr );
@@ -118,27 +141,48 @@ namespace wudi_server
 
 	void session::upload_handler( string_request const& request, std::string_view const& optional_query )
 	{
-		boost::string_view const filename_view = dynamic_body_parser->get()["filename"];
-		if( filename_view.empty() ) return error_handler( bad_request( "filename missing", string_request{} ) );
-		auto& body = request.body();
-		std::string filename{ std::string( filename_view.data(), filename_view.size() ) + ".json" };
-		std::ofstream out_file{ filename };
-		if( !out_file ) return error_handler( server_error( "unable to save file", ErrorType::ServerError, request ) );
-		try {
-			std::string decompressed_json = gzip::decompress( const_cast< char const* >( body.data() ), body.size() );
-			out_file << decompressed_json;
-			out_file.flush();
-			return send_response( success( "ok", request ) );
-		}
-		catch( std::exception const& e ) {
-			std::fprintf( stderr, "%s\n", e.what() );
-			return error_handler( bad_request( "unable to decompress file", request ) );
+		if( request.method() == http::verb::post ) {
+			boost::string_view const filename_view = dynamic_body_parser->get()["filename"];
+			if( filename_view.empty() ) return error_handler( bad_request( "filename missing", string_request{} ) );
+			auto& body = request.body();
+			std::string filename{ std::string( filename_view.data(), filename_view.size() ) + ".json" };
+			std::ofstream out_file{ filename };
+			if( !out_file ) return error_handler( server_error( "unable to save file", ErrorType::ServerError, request ) );
+			try {
+				std::string decompressed_json = gzip::decompress( const_cast< char const* >( body.data() ), body.size() );
+				out_file << decompressed_json;
+				out_file.flush();
+				return send_response( success( "ok", request ) );
+			}
+			catch( std::exception const& e ) {
+				std::fprintf( stderr, "%s\n", e.what() );
+				return error_handler( bad_request( "unable to decompress file", request ) );
+			}
+		} else {
+			std::vector<boost::string_view> ids{};
+			if( !optional_query.empty() ) {
+				boost::string_view query{ optional_query.data(), optional_query.size() };
+				auto queries = utilities::split_string( query, "&" );
+				if( queries[0] != query ) {
+					for( auto const& q : queries ) {
+						std::string_view::size_type find_index = q.find( "=" );
+						if( find_index == std::string_view::npos ) continue;
+						boost::string_view const key( q.data(), find_index );
+						boost::string_view const value( q.data() + find_index + 1, q.size() - find_index );
+						if( key == "id" ) {
+							ids = utilities::split_string( value, "|" );
+						}
+					}
+				}
+			}
+			json json_result{ db_connector->get_uploads( ids ) };
+			return send_response( success( json_result.dump(), request ) );
 		}
 	}
 
 	void session::handle_requests( string_request const& request )
 	{
-		boost::string_view const request_target{ request.target() };
+		std::string const request_target{ utilities::decode_url( request.target() ) };
 		auto method = request.method();
 		if( request_target.empty() ) return index_page_handler( request, "" );
 		auto split = utilities::split_string( request_target, "?" );
@@ -155,8 +199,8 @@ namespace wudi_server
 		}
 	}
 
-	session::session( asio::ip::tcp::socket&& socket, command_line_interface const& args ) :
-		tcp_stream_{ std::move( socket ) }, args_{ args }
+	session::session( asio::ip::tcp::socket&& socket, command_line_interface const& args, std::shared_ptr<DatabaseConnector> db ) :
+		tcp_stream_{ std::move( socket ) }, args_{ args }, db_connector{ db }
 	{
 		add_endpoint_interfaces();
 	}
@@ -172,7 +216,7 @@ namespace wudi_server
 			&session::upload_handler, shared_from_this() ) );
 		endpoint_apis_.add_endpoint( "/website", { verb::post, verb::get },
 			beast::bind_front_handler( &session::website_handler, shared_from_this() ) );
-		endpoint_apis_.add_endpoint( "/schedule_task", { verb::post, verb::post },
+		endpoint_apis_.add_endpoint( "/schedule_task", { verb::post, verb::get },
 			beast::bind_front_handler( &session::schedule_task_handler, shared_from_this() ) );
 	}
 
@@ -217,6 +261,24 @@ namespace wudi_server
 			http::status::method_not_allowed, req );
 	}
 
+	string_response session::successful_login( int const id, int const role, string_request const& req )
+	{
+		json::object_t result_obj{};
+		result_obj["status"] = ErrorType::NoError;
+		result_obj["message"] = "success";
+		result_obj["id"] = id;
+		result_obj["role"] = role;
+		json result{ result_obj };
+
+		string_response response{ http::status::ok, req.version() };
+		response.set( http::field::server, "wudi-custom-server" );
+		response.set( http::field::content_type, "application/json" );
+		response.keep_alive( req.keep_alive() );
+		response.body() = result.dump();
+		response.prepare_payload();
+		return response;
+	}
+
 	string_response session::get_error( std::string const& error_message,
 		utilities::ErrorType type, http::status status, string_request const& req )
 	{
@@ -234,11 +296,11 @@ namespace wudi_server
 		return response;
 	}
 
-	string_response session::success( std::string const& error_message, string_request const& req )
+	string_response session::success( std::string const& message, string_request const& req )
 	{
 		json::object_t result_obj{};
 		result_obj["status"] = ErrorType::NoError;
-		result_obj["message"] = error_message;
+		result_obj["message"] = message;
 		json result{ result_obj };
 
 		string_response response{ http::status::ok, req.version() };

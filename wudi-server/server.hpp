@@ -8,7 +8,7 @@
 namespace wudi_server
 {
 	using utilities::command_line_interface;
-
+	
 	class server : public std::enable_shared_from_this<server>
 	{
 		asio::io_context& io_context_;
@@ -17,8 +17,9 @@ namespace wudi_server
 		bool is_open{ false };
 		command_line_interface const& args_;
 		std::list<std::shared_ptr<session>> sessions_;
+		std::shared_ptr<DatabaseConnector> db_;
 	public:
-		server( asio::io_context& context, command_line_interface const& args );
+		server( asio::io_context& context, command_line_interface const& args, std::shared_ptr<DatabaseConnector>db );
 		void run();
 	private_functions:
 		void accept_connections();

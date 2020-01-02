@@ -2,6 +2,7 @@
 
 #include <boost/asio.hpp>
 #include <memory>
+#include <nlohmann_json.hpp>
 #include "utilities.hpp"
 
 #define private_functions private
@@ -15,6 +16,9 @@ namespace wudi_server
 	using string_request = http::request<http::string_body>;
 	using dynamic_request = http::request_parser<http::string_body>;
 	using utilities::ErrorType;
+	using nlohmann::json;
+
+	void to_json( json& j, utilities::UploadResult const& item );
 
 	class session
 	{
@@ -29,6 +33,7 @@ namespace wudi_server
 		string_body_ptr client_request_{};
 		std::shared_ptr<void> resp_;
 		Endpoint endpoint_apis_;
+		std::shared_ptr<DatabaseConnector> db_connector;
 	private_functions:
 		void add_endpoint_interfaces();
 		void http_read_data();
@@ -49,10 +54,11 @@ namespace wudi_server
 		static string_response bad_request( std::string const& message, string_request const & );
 		static string_response not_found( string_request const & );
 		static string_response method_not_allowed( string_request const& request );
+		static string_response successful_login( int const id, int const role, string_request const& req );
 		static string_response server_error( std::string const &, ErrorType, string_request const & );
 		static string_response get_error( std::string const&, ErrorType, http::status, string_request const& );
 	public:
-		session( asio::ip::tcp::socket&& socket, command_line_interface const& args );
+		session( asio::ip::tcp::socket&& socket, command_line_interface const& args, std::shared_ptr<DatabaseConnector> );
 		void schedule_task_handler( string_request const& request, std::string_view const& query );
 		void website_handler( string_request const&, std::string_view const& );
 		void run();

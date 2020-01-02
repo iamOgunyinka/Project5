@@ -1,31 +1,32 @@
 #include "server.hpp"
-#include <iostream>
+#include <spdlog/spdlog.h>
 
 namespace wudi_server
 {
-	server::server( asio::io_context& context, command_line_interface const& args ) :
-		io_context_{ context }, endpoint_{ asio::ip::make_address( args.ip_address ), args.port },
-		acceptor_{ asio::make_strand( io_context_ ) }, args_{ args }
+	server::server( asio::io_context& context, command_line_interface const& args, 
+		std::shared_ptr<DatabaseConnector> db ) : io_context_{ context }, 
+		endpoint_{ asio::ip::make_address( args.ip_address ), args.port },
+		acceptor_{ asio::make_strand( io_context_ ) }, args_{ args }, db_{ db }
 	{
 		beast::error_code ec{}; // used when we don't need to throw all around
 		acceptor_.open( endpoint_.protocol(), ec );
 		if( ec ) {
-			std::cerr << "could not open socket: " << ec.message() << "\n";
+			spdlog::error( "Could not open socket: {}", ec.message() );
 			return;
 		}
 		acceptor_.set_option( asio::socket_base::reuse_address( true ), ec );
 		if( ec ) {
-			std::cerr << "set_option failed: " << ec.message() << "\n";
+			spdlog::error( "set_option failed: {}", ec.message() );
 			return;
 		}
 		acceptor_.bind( endpoint_, ec );
 		if( ec ) {
-			std::cerr << "bind failed: " << ec.message() << "\n";
+			spdlog::error( "binding failed: {}", ec.message() );
 			return;
 		}
 		acceptor_.listen( asio::socket_base::max_listen_connections, ec );
 		if( ec ) {
-			std::cerr << "not listening: " << ec.message() << "\n";
+			spdlog::error( "not able to listen: {}", ec.message() );
 			return;
 		}
 		is_open = true;
@@ -40,9 +41,10 @@ namespace wudi_server
 	void server::on_connection_accepted( beast::error_code const& ec, asio::ip::tcp::socket socket )
 	{
 		if( ec ) {
-			std::cerr << "Error on connection: " << ec.message() << "\n";
+			spdlog::error( "error on connection: {}", ec.message() );
 		} else {
-			sessions_.push_back( std::make_shared<session>( std::move( socket ), args_ ) );
+			spdlog::info( "connected to: {}", socket.remote_endpoint().address().to_string() );
+			sessions_.push_back( std::make_shared<session>( std::move( socket ), args_, db_ ) );
 			sessions_.back()->run();
 		}
 		accept_connections();
