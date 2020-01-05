@@ -2,10 +2,14 @@
 #include <boost/algorithm/string.hpp>
 #include <iostream>
 #include <fstream>
+#include <filesystem>
 #include <gzip/decompress.hpp>
+#include <spdlog/spdlog.h>
 
 namespace wudi_server
 {
+	using namespace fmt::v6::literals;
+
 	void session::http_read_data()
 	{
 		buffer_.clear();
@@ -22,11 +26,11 @@ namespace wudi_server
 			fputc( '\n', stderr );
 			return error_handler( server_error( ec.message(), ErrorType::ServerError, string_request{} ), true );
 		} else {
-			auto const content_type = empty_body_parser_->get()[http::field::content_type];
-			if( content_type == "application/json" ) {
+			content_type_ = empty_body_parser_->get()[http::field::content_type];
+			if( content_type_ == "application/json" ) {
 				client_request_ = std::make_unique<http::request_parser<http::string_body>>( std::move( *empty_body_parser_ ) );
 				http::async_read( tcp_stream_, buffer_, *client_request_, beast::bind_front_handler( &session::on_data_read, shared_from_this() ) );
-			} else if( content_type == "application/gzip" ) {
+			} else if( content_type_ == "application/gzip" ) {
 				dynamic_body_parser = std::make_unique<dynamic_request>( std::move( *empty_body_parser_ ) );
 				dynamic_body_parser->body_limit( utilities::FiftyMegabytes );
 				http::async_read( tcp_stream_, buffer_, *dynamic_body_parser, beast::bind_front_handler( &session::binary_data_read, shared_from_this() ) );
@@ -34,11 +38,6 @@ namespace wudi_server
 				return shutdown_socket();
 			}
 		}
-	}
-
-	void to_json( json& j, utilities::UploadResult const& item )
-	{
-		j = json{ { "id", item.upload_id }, { "alias", item.upload_alias }, { "filename", item.filename } };
 	}
 
 	void session::binary_data_read( beast::error_code ec, std::size_t bytes_transferred )
@@ -141,42 +140,84 @@ namespace wudi_server
 
 	void session::upload_handler( string_request const& request, std::string_view const& optional_query )
 	{
-		if( request.method() == http::verb::post ) {
-			boost::string_view const filename_view = dynamic_body_parser->get()["filename"];
-			if( filename_view.empty() ) return error_handler( bad_request( "filename missing", string_request{} ) );
+		spdlog::info( "[/upload_handler] -> {}", request.target() );
+		auto const query_pairs{ split_optional_queries( optional_query ) };
+		static std::string uploads_directory{ "uploads/" };
+		auto const method = request.method();
+		auto const find_query_key = []( auto& query_pairs, boost::string_view const& key ) {
+			return std::find_if( query_pairs.cbegin(), query_pairs.cend(),
+				[=]( string_view_pair const& str )
+				{
+					return str.first == key;
+				} );
+		};
+
+		if( method == http::verb::post ) {
+			bool const is_zipped = content_type_ == "application/gzip";
+			auto& parser = is_zipped ? dynamic_body_parser->get() : client_request_->get();
+
+			if( !std::filesystem::exists( uploads_directory ) ) {
+				std::error_code ec{};
+				std::filesystem::create_directory( uploads_directory, ec );
+			}
+			spdlog::info( "[/upload_handler(type)] -> {}", content_type_ );
+			boost::string_view filename_view = parser["filename"];
+			auto total_iter = find_query_key( query_pairs, "total" );
+			auto uploader_iter = find_query_key( query_pairs, "uploader" );
+			auto time_iter = find_query_key( query_pairs, "time" );
+			if( filename_view.empty() || utilities::any_of( query_pairs, total_iter, uploader_iter, time_iter ) ) {
+				return error_handler( bad_request( "key parameters is missing", request ) );
+			}
+
 			auto& body = request.body();
-			std::string filename{ std::string( filename_view.data(), filename_view.size() ) + ".json" };
-			std::ofstream out_file{ filename };
+			std::string file_path{ "{}{}.txt"_format( uploads_directory, filename_view ) };
+			std::size_t counter{ 1 };
+			while( std::filesystem::exists( file_path ) ) {
+				file_path = "{}{}_{}.txt"_format( uploads_directory, filename_view, counter++ );
+			}
+			std::ofstream out_file{ file_path };
 			if( !out_file ) return error_handler( server_error( "unable to save file", ErrorType::ServerError, request ) );
 			try {
-				std::string decompressed_json = gzip::decompress( const_cast< char const* >( body.data() ), body.size() );
-				out_file << decompressed_json;
-				out_file.flush();
+				if( is_zipped ) {
+					counter = std::stol( total_iter->second.to_string() );
+					out_file << gzip::decompress( const_cast< char const* >( body.data() ), body.size() );
+				} else {
+					counter = 0;
+					json json_root = json::parse( std::string_view( body.data(), body.size() ) );
+					json::array_t list_of_numbers = json_root.get<json::array_t>();
+					for( auto const& number : list_of_numbers ) {
+						out_file << number.get<json::string_t>() << "\n";
+						++counter;
+					}
+				}
+				out_file.close();
+				std::string time_str{};
+				std::size_t const t{ std::stoul( time_iter->second.to_string() ) };
+				if( !utilities::timet_to_string( time_str, t ) ) time_str = time_iter->second.to_string();
+				utilities::UploadRequest upload_request{ filename_view, file_path, uploader_iter->second,
+					time_str, counter };
+				if( !db_connector->add_upload( upload_request ) ) {
+					std::error_code ec{};
+					std::filesystem::remove( file_path, ec );
+					return error_handler( server_error( "unable to save file to database", ErrorType::ServerError, request ) );
+				}
 				return send_response( success( "ok", request ) );
 			}
 			catch( std::exception const& e ) {
-				std::fprintf( stderr, "%s\n", e.what() );
-				return error_handler( bad_request( "unable to decompress file", request ) );
+				if( out_file ) out_file.close();
+				spdlog::error( e.what() );
+				return error_handler( bad_request( "unable to process file", request ) );
 			}
-		} else {
+		} else if( method == http::verb::get ) { // get method
 			std::vector<boost::string_view> ids{};
-			if( !optional_query.empty() ) {
-				boost::string_view query{ optional_query.data(), optional_query.size() };
-				auto queries = utilities::split_string( query, "&" );
-				if( queries[0] != query ) {
-					for( auto const& q : queries ) {
-						std::string_view::size_type find_index = q.find( "=" );
-						if( find_index == std::string_view::npos ) continue;
-						boost::string_view const key( q.data(), find_index );
-						boost::string_view const value( q.data() + find_index + 1, q.size() - find_index );
-						if( key == "id" ) {
-							ids = utilities::split_string( value, "|" );
-						}
-					}
-				}
+			auto const id_iter = find_query_key( query_pairs, "id" );
+			if( id_iter != query_pairs.cend() ) {
+				ids = utilities::split_string( id_iter->second, "|" );
 			}
-			json json_result{ db_connector->get_uploads( ids ) };
-			return send_response( success( json_result.dump(), request ) );
+			json json_result = db_connector->get_uploads( ids );
+			return send_response( success( "", json_result, request ) );
+		} else { // a delete method
+
 		}
 	}
 
@@ -212,25 +253,68 @@ namespace wudi_server
 			beast::bind_front_handler( &session::index_page_handler, shared_from_this() ) );
 		endpoint_apis_.add_endpoint( "/login", { verb::get, verb::post },
 			beast::bind_front_handler( &session::login_handler, shared_from_this() ) );
-		endpoint_apis_.add_endpoint( "/upload", { verb::post }, beast::bind_front_handler(
-			&session::upload_handler, shared_from_this() ) );
+		endpoint_apis_.add_endpoint( "/upload", { verb::post, verb::delete_, verb::get },
+			beast::bind_front_handler( &session::upload_handler, shared_from_this() ) );
 		endpoint_apis_.add_endpoint( "/website", { verb::post, verb::get },
 			beast::bind_front_handler( &session::website_handler, shared_from_this() ) );
-		endpoint_apis_.add_endpoint( "/schedule_task", { verb::post, verb::get },
+		endpoint_apis_.add_endpoint( "/schedule_task", { verb::post, verb::get, verb::delete_ },
 			beast::bind_front_handler( &session::schedule_task_handler, shared_from_this() ) );
 	}
 
 	void session::schedule_task_handler( string_request const& request, std::string_view const& query )
 	{
 		using http::verb;
-		if( request.method() == verb::get ) {
+		auto const method = request.method();
+		if( method == verb::get ) {
+			json json_result = db_connector->get_all_tasks();
+			return send_response( success( "", json_result, request ) );
+		} else if( method == verb::post ) {
+			if( content_type_ != "application/json" ) {
+				return error_handler( bad_request( "invalid content-type", request ) );
+			}
+			json json_root = json::parse( request.body() );
+			json::object_t task_object = json_root.get<json::object_t>();
+			json::array_t websites_ids = task_object["websites"].get<json::array_t>();
+			json::array_t number_ids = task_object["numbers"].get<json::array_t>();
+			utilities::ScheduledTask task{};
+			task.scheduled_dt = task_object["date"].get<json::number_integer_t>();
+			task.scheduler_id = task_object["scheduler"].get<json::number_integer_t>();
 
+			for( auto const& number_id : number_ids ) {
+				task.number_ids.push_back( number_id.get<json::number_integer_t>() );
+			}
+			for( auto const& website_id : websites_ids ) {
+				task.website_ids.push_back( website_id.get<json::number_integer_t>() );
+			}
+			if( !db_connector->add_task( task ) ) {
+				return error_handler( server_error( "unable to schedule task",
+					ErrorType::ServerError, request ) );
+			}
+			json::object_t obj;
+			obj["id"] = task.task_id;
+			json j = obj;
+			return send_response( success( "ok", j, request ) );
 		}
 	}
 
 	void session::website_handler( string_request const& request, std::string_view const& query )
 	{
-
+		if( request.method() == http::verb::get ) {
+			json j = db_connector->get_websites( {} );
+			return send_response( success( "", j, request ) );
+		} else {
+			if( content_type_ != "application/json" )
+				return error_handler( bad_request( "expects a JSON body", request ) );
+			try {
+				json json_root = json::parse( request.body() );
+				json::object_t obj = json_root.get<json::object_t>();
+				//boost::string_view 
+			}
+			catch( std::exception const& e ) {
+				spdlog::error( e.what() );
+				return error_handler( bad_request( "cannot parse body", request ) );
+			}
+		}
 	}
 
 	void session::run()
@@ -318,5 +402,20 @@ namespace wudi_server
 		resp_ = resp;
 		http::async_write( tcp_stream_, *resp,
 			beast::bind_front_handler( &session::on_data_written, shared_from_this() ) );
+	}
+
+	string_view_pair_list session::split_optional_queries( std::string_view const& optional_query )
+	{
+		string_view_pair_list result{};
+		if( !optional_query.empty() ) {
+			boost::string_view query{ optional_query.data(), optional_query.size() };
+			auto queries = utilities::split_string( query, "&" );
+			for( auto const& q : queries ) {
+				auto split = utilities::split_string( q, "=" );
+				if( q == split[0] ) continue;
+				result.emplace_back( split[0], split[1] );
+			}
+		}
+		return result;
 	}
 }

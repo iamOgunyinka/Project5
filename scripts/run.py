@@ -19,16 +19,16 @@ class User(db.Model):
 class Website(db.Model):
 	__tablename__ = 'tb_websites'
 	id= db.Column(db.Integer, primary_key=True, unique=True, index=True)
-	website_nickname = db.Column(db.String(64), nullable=False, unique=True)
-	website_address = db.Column(db.String(256), nullable=False, unique=True)
+	nickname = db.Column(db.String(64), nullable=False, unique=True)
+	address = db.Column(db.String(256), nullable=False, unique=True)
 
 class Task(db.Model):
 	__tablename__ = 'tb_tasks'
 	id = db.Column(db.Integer, primary_key=True, unique=True, index=True)
 	scheduler_id = db.Column(db.Integer, db.ForeignKey('tb_users.id'), nullable=False)
-	date_scheduled = db.Column(db.DateTime, nullable=False, unique=True)
-	websites = db.relationship('Website', backref='task')
-	uploads = db.relationship('Upload', backref='task')
+	date_scheduled = db.Column(db.String(32), nullable=False, unique=True)
+	websites = db.Column(db.Text, nullable=False)
+	uploads = db.Column(db.Text, nullable=False)
 	progress = db.Column(db.Integer, nullable=False, default=0, unique=False)
 
 class Upload(db.Model):
@@ -36,8 +36,9 @@ class Upload(db.Model):
 	id = db.Column(db.Integer, primary_key=True, unique=True, index=True)
 	uploader_id = db.Column(db.Integer, db.ForeignKey('tb_users.id'), nullable=False)
 	filename = db.Column(db.String(128), nullable=False)
-	upload_date = db.Column(db.DateTime, nullable=False)
-	upload_code = db.Column(db.String(32), nullable=True)
+	name_on_disk = db.Column(db.String(128), nullable=False)
+	upload_date = db.Column(db.String(32), nullable=False)
+	total_numbers = db.Column(db.Integer, nullable=False)
 	numbers = db.relationship('Number', backref='upload')
 
 class Number(db.Model):
