@@ -1,6 +1,5 @@
 #include "session.hpp"
 #include <boost/algorithm/string.hpp>
-#include <iostream>
 #include <fstream>
 #include <filesystem>
 #include <gzip/decompress.hpp>
@@ -99,48 +98,41 @@ namespace wudi_server
 
 	void session::login_handler( string_request const& request, std::string_view const& optional_query )
 	{
+		spdlog::info( "[login_handler] {}", request.target() );
 		if( request.method() == http::verb::get ) {
-			json::object_t result_obj{};
-			result_obj["status"] = ErrorType::NoError;
-			result_obj["message"] = "username, password";
-			json result{ result_obj };
-
-			string_response response{ http::status::ok, request.version() };
-			response.set( http::field::server, "wudi-custom-server" );
-			response.set( http::field::content_type, "application/json" );
-			response.keep_alive( request.keep_alive() );
-			response.body() = result.dump();
-			response.prepare_payload();
-			return send_response( std::move( response ) );
+			return error_handler( bad_request( "POST username && password", request ) );
 		}
-
+		// respond to POST request
 		try {
-			json json_body{ json::parse( request.body() ) };
+			json json_body = json::parse( request.body() );
 			json::object_t login_info{ json_body.get<json::object_t>() };
 			auto& username = login_info["username"];
 			auto& password = login_info["password"];
 			auto [id, role] = db_connector->get_login_role( username, password );
 			if( id == -1 ) {
-				return error_handler( get_error( "invalid username or password", ErrorType::NoError, http::status::ok, request ) );
-			} else {
-				return send_response( successful_login( id, role, request ) );
+				spdlog::error( "[login.POST] {} {} is invalid", username.get<json::string_t>(), 
+					password.get<json::string_t>() );
+				return error_handler( get_error( "invalid username or password",
+					ErrorType::Unauthorized, http::status::unauthorized, request ) );
 			}
+			return send_response( successful_login( id, role, request ) );
 		}
 		catch( std::exception const& exception ) {
-			fputs( exception.what(), stderr );
+			spdlog::error( exception.what() );
 			return error_handler( bad_request( "json object not valid", request ) );
 		}
 	}
 
 	void session::index_page_handler( string_request const& request, std::string_view const& optional_query )
 	{
+		spdlog::info( "[index_page_handler] {}", request.target() );
 		return error_handler( get_error( "login",
 			ErrorType::NoError, http::status::ok, request ) );
 	}
 
 	void session::upload_handler( string_request const& request, std::string_view const& optional_query )
 	{
-		spdlog::info( "[/upload_handler] -> {}", request.target() );
+		spdlog::info( "[/upload_handler] {}", request.target() );
 		auto const query_pairs{ split_optional_queries( optional_query ) };
 		static std::string uploads_directory{ "uploads/" };
 		auto const method = request.method();
@@ -193,9 +185,13 @@ namespace wudi_server
 				out_file.close();
 				std::string time_str{};
 				std::size_t const t{ std::stoul( time_iter->second.to_string() ) };
-				if( !utilities::timet_to_string( time_str, t ) ) time_str = time_iter->second.to_string();
+				if( int const count = utilities::timet_to_string( time_str, t ); count > 0 ) {
+					time_str.resize( count );
+				} else {
+					time_str = time_iter->second.to_string();
+				}
 				utilities::UploadRequest upload_request{ filename_view, file_path, uploader_iter->second,
-					time_str, counter };
+					boost::string_view( time_str.data(), time_str.size()), counter};
 				if( !db_connector->add_upload( upload_request ) ) {
 					std::error_code ec{};
 					std::filesystem::remove( file_path, ec );
@@ -215,7 +211,7 @@ namespace wudi_server
 				ids = utilities::split_string( id_iter->second, "|" );
 			}
 			json json_result = db_connector->get_uploads( ids );
-			return send_response( success( "", json_result, request ) );
+			return send_response( json_success( json_result, request ) );
 		} else { // a delete method
 
 		}
@@ -264,56 +260,76 @@ namespace wudi_server
 	void session::schedule_task_handler( string_request const& request, std::string_view const& query )
 	{
 		using http::verb;
+		using utilities::get_scheduled_tasks;
+
 		auto const method = request.method();
 		if( method == verb::get ) {
 			json json_result = db_connector->get_all_tasks();
-			return send_response( success( "", json_result, request ) );
+			return send_response( json_success( json_result, request ) );
 		} else if( method == verb::post ) {
 			if( content_type_ != "application/json" ) {
 				return error_handler( bad_request( "invalid content-type", request ) );
 			}
-			json json_root = json::parse( request.body() );
-			json::object_t task_object = json_root.get<json::object_t>();
-			json::array_t websites_ids = task_object["websites"].get<json::array_t>();
-			json::array_t number_ids = task_object["numbers"].get<json::array_t>();
-			utilities::ScheduledTask task{};
-			task.scheduled_dt = task_object["date"].get<json::number_integer_t>();
-			task.scheduler_id = task_object["scheduler"].get<json::number_integer_t>();
+			try {
+				json json_root = json::parse( request.body() );
+				json::object_t task_object = json_root.get<json::object_t>();
+				json::array_t websites_ids = task_object["websites"].get<json::array_t>();
+				json::array_t number_ids = task_object["numbers"].get<json::array_t>();
+				utilities::ScheduledTask task{};
+				task.scheduled_dt = task_object["date"].get<json::number_integer_t>();
+				task.scheduler_id = task_object["scheduler"].get<json::number_integer_t>();
 
-			for( auto const& number_id : number_ids ) {
-				task.number_ids.push_back( number_id.get<json::number_integer_t>() );
+				for( auto const& number_id : number_ids ) {
+					task.number_ids.push_back( number_id.get<json::number_integer_t>() );
+				}
+				for( auto const& website_id : websites_ids ) {
+					task.website_ids.push_back( website_id.get<json::number_integer_t>() );
+				}
+				if( !db_connector->add_task( task ) ) {
+					return error_handler( server_error( "unable to schedule task",
+						ErrorType::ServerError, request ) );
+				}
+				spdlog::info( "Added new task" );
+				std::deque<utilities::ScheduledTask>& tasks{ get_scheduled_tasks() };
+				tasks.push_back( std::move( task ) );
+				json::object_t obj;
+				obj["id"] = task.task_id;
+				json j = obj;
+				return send_response( json_success( j, request ) );
 			}
-			for( auto const& website_id : websites_ids ) {
-				task.website_ids.push_back( website_id.get<json::number_integer_t>() );
+			catch( std::exception const& e ) {
+				spdlog::error( e.what() );
+				return error_handler( bad_request( "json object is not parsable", request ) );
 			}
-			if( !db_connector->add_task( task ) ) {
-				return error_handler( server_error( "unable to schedule task",
-					ErrorType::ServerError, request ) );
-			}
-			json::object_t obj;
-			obj["id"] = task.task_id;
-			json j = obj;
-			return send_response( success( "ok", j, request ) );
 		}
 	}
 
 	void session::website_handler( string_request const& request, std::string_view const& query )
 	{
+		spdlog::info( "[website_handler] {}", request.target() );
 		if( request.method() == http::verb::get ) {
 			json j = db_connector->get_websites( {} );
-			return send_response( success( "", j, request ) );
-		} else {
-			if( content_type_ != "application/json" )
-				return error_handler( bad_request( "expects a JSON body", request ) );
-			try {
-				json json_root = json::parse( request.body() );
-				json::object_t obj = json_root.get<json::object_t>();
-				//boost::string_view 
+			return send_response( json_success( j, request ) );
+		}
+		if( content_type_ != "application/json" ) {
+			spdlog::error( "[website.POST] Wrong content-type: {}", content_type_ );
+			return error_handler( bad_request( "expects a JSON body", request ) );
+		}
+		try {
+			json json_root = json::parse( request.body() );
+			json::object_t obj = json_root.get<json::object_t>();
+			auto& address = obj["address"];
+			auto& alias = obj["alias"];
+			if( !db_connector->add_website( address, alias ) ) {
+				spdlog::error( "[website_handler] could not add website" );
+				return error_handler( server_error( "could not add website",
+					ErrorType::ServerError, request ) );
 			}
-			catch( std::exception const& e ) {
-				spdlog::error( e.what() );
-				return error_handler( bad_request( "cannot parse body", request ) );
-			}
+			return send_response( success( "ok", request ) );
+		}
+		catch( std::exception const& e ) {
+			spdlog::error( e.what() );
+			return error_handler( bad_request( "cannot parse body", request ) );
 		}
 	}
 
@@ -352,7 +368,7 @@ namespace wudi_server
 		result_obj["message"] = "success";
 		result_obj["id"] = id;
 		result_obj["role"] = role;
-		json result{ result_obj };
+		json result = result_obj;
 
 		string_response response{ http::status::ok, req.version() };
 		response.set( http::field::server, "wudi-custom-server" );
@@ -380,7 +396,18 @@ namespace wudi_server
 		return response;
 	}
 
-	string_response session::success( std::string const& message, string_request const& req )
+	string_response session::json_success( json const& body, string_request const& req )
+	{
+		string_response response{ http::status::ok, req.version() };
+		response.set( http::field::server, "wudi-custom-server" );
+		response.set( http::field::content_type, "application/json" );
+		response.keep_alive( req.keep_alive() );
+		response.body() = body.dump();
+		response.prepare_payload();
+		return response;
+	}
+
+	string_response session::success( char const* message, string_request const& req )
 	{
 		json::object_t result_obj{};
 		result_obj["status"] = ErrorType::NoError;

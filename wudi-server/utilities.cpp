@@ -42,13 +42,13 @@ namespace wudi_server
 			{ "username", item.scheduler_username }, { "date", item.scheduled_date } };
 		}
 
-		void to_json( json& j, WebsiteResult const&result )
+		void to_json( json& j, WebsiteResult const& result )
 		{
 			j = json{ { "id", result.id }, { "alias", result.alias },
 			{ "address", result.address } };
 		}
 
-		void display_sql_error( otl_exception const& exception )
+		void log_sql_error( otl_exception const& exception )
 		{
 			spdlog::error( "SQLError code: {}", exception.code );
 			spdlog::error( "SQLError stmt: {}", exception.stm_text );
@@ -280,15 +280,14 @@ namespace wudi_server
 			return scheduled_tasks;
 		}
 
-		bool timet_to_string( std::string& output, std::size_t t, char const* format )
+		int timet_to_string( std::string& output, std::size_t t, char const* format )
 		{
 			std::time_t current_time{ t };
 			auto tm_t = std::localtime( &current_time );
-			if( !tm_t ) return false;
+			if( !tm_t ) return -1;
 			output.clear();
 			output.resize( 32 );
-			std::size_t write_count{ std::strftime( output.data(), output.size(), format, tm_t ) };
-			return write_count != 0;
+			return std::strftime( output.data(), output.size(), format, tm_t );
 		}
 	}
 
@@ -358,7 +357,7 @@ namespace wudi_server
 				spdlog::info( "OTL Busy server says: {}", dir );
 			}
 			catch( otl_exception const& exception ) {
-				utilities::display_sql_error( exception );
+				utilities::log_sql_error( exception );
 				otl_connector_.logoff();
 				otl_connector_.rlogon( "{}/{}@mysql8017"_format( db_config.username, db_config.password ).c_str() );
 				std::this_thread::sleep_for( std::chrono::seconds( 1 ) );
@@ -384,12 +383,12 @@ namespace wudi_server
 			return is_running;
 		}
 		catch( otl_exception const& exception ) {
-			utilities::display_sql_error( exception );
+			utilities::log_sql_error( exception );
 			return is_running;
 		}
 	}
 
-	std::pair<int, int> DatabaseConnector::get_login_role( std::string const& username, std::string const& password )
+	std::pair<int, int> DatabaseConnector::get_login_role( std::string_view const username, std::string_view const password )
 	{
 		std::string const sql_statement{ "select id, role from tb_users where "
 			"username = '{}' and password = '{}'"_format( username, password ) };
@@ -399,7 +398,7 @@ namespace wudi_server
 			db_stream >> id_role_pair.first >> id_role_pair.second;
 		}
 		catch( otl_exception const& e ) {
-			utilities::display_sql_error( e );
+			utilities::log_sql_error( e );
 		}
 		return id_role_pair;
 	}
@@ -407,7 +406,7 @@ namespace wudi_server
 	bool DatabaseConnector::add_upload( utilities::UploadRequest const& upload_request )
 	{
 		std::string const sql_statement{ "insert into tb_uploads (uploader_id, filename, upload_date, "
-			"total_numbers, name_on_disk ) VALUES( {}, \"{}\", {}, {}, \"{}\" )"_format(
+			"total_numbers, name_on_disk ) VALUES( {}, \"{}\", \"{}\", {}, \"{}\" )"_format(
 				upload_request.uploader_id, upload_request.upload_filename, upload_request.upload_date,
 				upload_request.total_numbers, upload_request.name_on_disk ) };
 		try {
@@ -415,21 +414,26 @@ namespace wudi_server
 			return true;
 		}
 		catch( otl_exception const& e ) {
-			utilities::display_sql_error( e );
+			utilities::log_sql_error( e );
 			return false;
 		}
 	}
 
 	bool DatabaseConnector::add_task( utilities::ScheduledTask& task )
 	{
-		std::string date_out{};
-		if( !utilities::timet_to_string( date_out, task.scheduled_dt ) ) return false;
+		std::string time_str{};
+		if( int const count = utilities::timet_to_string( time_str, task.scheduled_dt ); count > 0 ) {
+			time_str.resize( count );
+		} else {
+			time_str = std::to_string( task.scheduled_dt );
+		}
 
 		std::string sql_statement{
 			"INSERT INTO tb_tasks (scheduler_id, date_scheduled, websites, uploads, progress)"
-			"VALUES( {}, \"{}\", \"{}\", \"{}\", 0 )"_format( task.scheduler_id, date_out, task.website_ids,
+			"VALUES( {}, \"{}\", \"{}\", \"{}\", 0 )"_format( task.scheduler_id, time_str, task.website_ids,
 				task.number_ids )
 		};
+		spdlog::info( sql_statement );
 		try {
 			otl_cursor::direct_exec( otl_connector_, sql_statement.c_str(), otl_exception::enabled );
 			otl_stream stream( 1, "SELECT MAX(id) FROM tb_tasks", otl_connector_ );
@@ -437,7 +441,7 @@ namespace wudi_server
 			return true;
 		}
 		catch( otl_exception const& e ) {
-			utilities::display_sql_error( e );
+			utilities::log_sql_error( e );
 			return false;
 		}
 	}
@@ -446,16 +450,16 @@ namespace wudi_server
 	{
 		char const* sql_statement = "SELECT tb_tasks.id, username, date_scheduled, websites, "
 			"uploads, progress FROM tb_tasks INNER JOIN tb_users";
-			std::vector<utilities::TaskResult> result{};
+		std::vector<utilities::TaskResult> result{};
 		try {
-			otl_stream db_stream( 100'000, sql_statement, otl_connector_ );
+			otl_stream db_stream( 1'000, sql_statement, otl_connector_ );
 			utilities::TaskResult item{};
 			while( db_stream >> item ) {
 				result.push_back( std::move( item ) );
 			}
 		}
 		catch( otl_exception const& e ) {
-			utilities::display_sql_error( e );
+			utilities::log_sql_error( e );
 		}
 		return result;
 	}
@@ -477,9 +481,23 @@ namespace wudi_server
 			}
 		}
 		catch( otl_exception const& e ) {
-			utilities::display_sql_error( e );
+			utilities::log_sql_error( e );
 		}
 		return results;
+	}
+
+	bool DatabaseConnector::add_website( std::string_view const address, std::string_view const alias )
+	{
+		std::string sql_statement = "INSERT INTO tb_websites (nickame, address) VALUES (\"{}\", "
+			"\"{}\""_format( alias, address );
+		try {
+			otl_cursor::direct_exec( otl_connector_, sql_statement.c_str(), otl_exception::enabled );
+			return true;
+		}
+		catch( otl_exception const& e ) {
+			utilities::log_sql_error( e );
+			return false;
+		}
 	}
 
 	std::string DatabaseConnector::svector_to_string( std::vector<boost::string_view> const& vec )

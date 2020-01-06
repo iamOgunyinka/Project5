@@ -19,7 +19,6 @@ namespace wudi_server
 	using string_view_pair = std::pair<boost::string_view, boost::string_view>;
 	using string_view_pair_list = std::vector<string_view_pair>;
 
-
 	class session
 	{
 		using dynamic_body_ptr = std::unique_ptr<dynamic_request>;
@@ -52,19 +51,8 @@ namespace wudi_server
 		void handle_requests( string_request const& request );
 		session* shared_from_this() { return this; }
 
-		template<typename T>
-		static string_response success( std::string const&, T const& body, string_request const&req )
-		{
-			string_response response{ http::status::ok, req.version() };
-			response.set( http::field::server, "wudi-custom-server" );
-			response.set( http::field::content_type, "application/json" );
-			response.keep_alive( req.keep_alive() );
-			response.body() = body.dump();
-			response.prepare_payload();
-			return response;
-		}
-
-		static string_response success( std::string const& message, string_request const& );
+		static string_response json_success( json const& body, string_request const& req );
+		static string_response success( char const* message, string_request const& );
 		static string_response bad_request( std::string const& message, string_request const& );
 		static string_response not_found( string_request const& );
 		static string_response method_not_allowed( string_request const& request );
@@ -80,3 +68,4 @@ namespace wudi_server
 	};
 }
 
+#undef private_functions

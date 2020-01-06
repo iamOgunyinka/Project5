@@ -36,10 +36,8 @@ int main( int argc, char* argv[] )
 		using wudi_server::utilities::background_task_executor;
 		using namespace wudi_server::utilities;
 
-		if( !read_task_file( args.scheduled_snapshot ) ) {
-			spdlog::error( "unable to read scheduled task snapshot" );
-			return -1;
-		}
+		read_task_file( args.scheduled_snapshot );
+
 		for( int i = 0; i != WorkerThreadCount; ++i ) {
 			std::thread t{ background_task_executor, std::ref( stop ), std::ref( task_mutex ),
 				std::ref( database_connector ) };

@@ -1,11 +1,10 @@
 #ifndef SAFE_PROXY_HPP
 #define SAFE_PROXY_HPP
-/*
 #include <optional>
 #include <boost/beast.hpp>
 #include <boost/asio.hpp>
 #include <memory>
-
+/*
 namespace wudi_server
 {
     namespace beast = boost::beast;
@@ -46,7 +45,7 @@ namespace wudi_server
         std::atomic_bool is_free = true;
         std::atomic_bool has_error = false;
     public:
-        safe_proxy( MainDialog* parent );
+        safe_proxy();
         void clear();
         void push_back( custom_endpoint ep );
         std::optional<endpoint_ptr> next_endpoint();

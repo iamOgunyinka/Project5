@@ -51,7 +51,7 @@ namespace fmt
 				return format_to( ctx.out(), "" );
 			}
 			std::ostringstream stream{};
-			for( std::size_t i = 0; i != integer_list.size(); ++i ) {
+			for( std::size_t i = 0; i < integer_list.size() - 1; ++i ) {
 				stream << integer_list[i] << ", ";
 			}
 			stream << integer_list.back();
@@ -63,6 +63,8 @@ namespace fmt
 namespace wudi_server
 {
 	namespace http = boost::beast::http;
+	namespace net = boost::asio;
+
 	using nlohmann::json;
 	using namespace fmt::v6::literals;
 	struct DatabaseConnector;
@@ -81,9 +83,10 @@ namespace wudi_server
 			NoError = 0,
 			ResourceNotFound = 1,
 			RequiresUpdate = 2,
-			BadRequest = 3,
-			ServerError = 4,
-			MethodNotAllowed
+			BadRequest,
+			ServerError,
+			MethodNotAllowed,
+			Unauthorized
 		};
 
 		enum Constants
@@ -137,8 +140,8 @@ namespace wudi_server
 		struct UploadResult
 		{
 			std::size_t upload_id;
-			std::size_t upload_date;
 			std::size_t total_numbers;
+			std::string upload_date;
 			std::string filename;
 		};
 
@@ -160,7 +163,7 @@ namespace wudi_server
 			std::string scheduler_username;
 			std::string scheduled_date;
 		};
-
+		
 		struct WebsiteResult
 		{
 			std::size_t id{};
@@ -258,13 +261,13 @@ namespace wudi_server
 		void to_json( json& j, UploadResult const& item );
 		void to_json( json& j, TaskResult const& );
 		void to_json( json& j, WebsiteResult const& );
-		void display_sql_error( otl_exception const& exception );
+		void log_sql_error( otl_exception const& exception );
 		[[nodiscard]] std::string view_to_string( boost::string_view const& str_view );
 		[[nodiscard]] DbConfig parse_database_file( std::string const& filename, std::string const& config_name );
 		std::string get_random_agent();
 		void background_task_executor( std::atomic_bool& stopped, std::mutex&, std::shared_ptr<DatabaseConnector>& );
-		static std::deque<ScheduledTask>& get_scheduled_tasks();
-		bool timet_to_string( std::string&, std::size_t, char const* = "%y-%m-%d %H:%M:%S" );
+		std::deque<ScheduledTask>& get_scheduled_tasks();
+		int timet_to_string( std::string&, std::size_t, char const* = "%Y-%m-%d %H:%M:%S" );
 		bool read_task_file( std::string_view );
 	}
 
@@ -306,9 +309,10 @@ namespace wudi_server
 
 	public:
 		std::vector<utilities::WebsiteResult> get_websites( std::vector<std::size_t> const& ids );
+		bool add_website( std::string_view const address, std::string_view const alias );
 		bool add_task( utilities::ScheduledTask& task );
 		std::vector<utilities::TaskResult> get_all_tasks();
-		std::pair<int, int> get_login_role( std::string const& username, std::string const& password );
+		std::pair<int, int> get_login_role( std::string_view const, std::string_view const );
 		bool add_upload( utilities::UploadRequest const& upload_request );
 
 		template<typename T>
@@ -319,10 +323,10 @@ namespace wudi_server
 				sql_statement = "SELECT id, filename, total_numbers, upload_date FROM tb_uploads";
 			} else {
 				if constexpr( std::is_same_v<T, boost::string_view> ) {
-					sql_statement = "SELECT id, filename, total_numbers, upoload_date FROM tb_uploads WHERE id IN "
+					sql_statement = "SELECT id, filename, total_numbers, upload_date FROM tb_uploads WHERE id IN "
 						"({})"_format( svector_to_string( ids ) );
 				} else {
-					sql_statement = "SELECT id, filename, total_numbers, upoload_date FROM tb_uploads WHERE id IN "
+					sql_statement = "SELECT id, filename, total_numbers, upload_date FROM tb_uploads WHERE id IN "
 						"({})"_format( ids );
 				}
 			}
@@ -335,7 +339,7 @@ namespace wudi_server
 				}
 			}
 			catch( otl_exception const& e ) {
-				utilities::display_sql_error( e );
+				utilities::log_sql_error( e );
 			}
 			return result;
 		}

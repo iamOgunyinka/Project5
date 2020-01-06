@@ -1,9 +1,9 @@
+/*
 #include <vector>
 #include <map>
 #include <string>
 #include <spdlog/spdlog.h>
 #include "http_socket.hpp"
-/*
 enum Constants
 {
 	PROXY_REQUIRES_AUTHENTICATION = 407
