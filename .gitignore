@@ -24,7 +24,11 @@ tags
 .directory
 .vs/
 Debug/
+logs/
+CMakeFiles/
+wudi-server/woody
 *.debug
+*.cmake
 Makefile*
 *.prl
 *.app

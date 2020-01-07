@@ -13,7 +13,7 @@
 #define OTL_BIG_INT long long
 #define OTL_ODBC_MYSQL
 #define OTL_STL
-#define OTL_ODBC_WINDOWS
+#define OTL_ODBC_UNIX
 #define OTL_SAFE_EXCEPTION_ON
 #include <otlv4/otlv4.h>
 
@@ -36,7 +36,7 @@ namespace fmt
 	};
 
 	template<>
-	struct formatter<std::vector<std::size_t>>
+	struct formatter<std::vector<int32_t>>
 	{
 		template<typename ParseContext>
 		constexpr auto parse( ParseContext& ctxt )
@@ -45,7 +45,7 @@ namespace fmt
 		}
 
 		template<typename FormatContext>
-		auto format( std::vector<std::size_t> const& integer_list, FormatContext& ctx )
+		auto format( std::vector<int32_t> const& integer_list, FormatContext& ctx )
 		{
 			if( integer_list.empty() ) {
 				return format_to( ctx.out(), "" );
@@ -106,12 +106,12 @@ namespace wudi_server
 
 		struct ScheduledTask
 		{
-			std::size_t task_id{};
-			std::size_t progress{};
-			std::size_t scheduler_id{};
-			std::size_t scheduled_dt{};
-			std::vector<std::size_t> website_ids{};
-			std::vector<std::size_t> number_ids{};
+			int32_t task_id{};
+			int32_t progress{};
+			int32_t scheduler_id{};
+			int32_t scheduled_dt{};
+			std::vector<int32_t> website_ids{};
+			std::vector<int32_t> number_ids{};
 			std::string last_processed_number{};
 		};
 
@@ -122,6 +122,7 @@ namespace wudi_server
 			uint16_t timeout_mins{ 15 };
 			std::string ip_address{ "127.0.0.1" };
 			std::string scheduled_snapshot;
+			std::string launch_type;
 			std::string database_config_filename{ "../scripts/config/database.ini" };
 		};
 
@@ -139,8 +140,8 @@ namespace wudi_server
 
 		struct UploadResult
 		{
-			std::size_t upload_id;
-			std::size_t total_numbers;
+			int32_t upload_id;
+			int32_t total_numbers;
 			std::string upload_date;
 			std::string filename;
 		};
@@ -156,8 +157,8 @@ namespace wudi_server
 
 		struct TaskResult
 		{
-			std::size_t id;
-			std::size_t progress;
+			int32_t id;
+			int32_t progress;
 			std::string website_ids;
 			std::string numbers;
 			std::string scheduler_username;
@@ -166,7 +167,7 @@ namespace wudi_server
 		
 		struct WebsiteResult
 		{
-			std::size_t id{};
+			int32_t id{};
 			std::string address{};
 			std::string alias;
 		};
@@ -263,7 +264,9 @@ namespace wudi_server
 		void to_json( json& j, WebsiteResult const& );
 		void log_sql_error( otl_exception const& exception );
 		[[nodiscard]] std::string view_to_string( boost::string_view const& str_view );
+                [[nodiscard]] std::string intlist_to_string( std::vector<int32_t> const & vec );
 		[[nodiscard]] DbConfig parse_database_file( std::string const& filename, std::string const& config_name );
+                [[nodiscard]] std::string_view bv2sv( boost::string_view );
 		std::string get_random_agent();
 		void background_task_executor( std::atomic_bool& stopped, std::mutex&, std::shared_ptr<DatabaseConnector>& );
 		std::deque<ScheduledTask>& get_scheduled_tasks();
@@ -308,7 +311,7 @@ namespace wudi_server
 		bool connect();
 
 	public:
-		std::vector<utilities::WebsiteResult> get_websites( std::vector<std::size_t> const& ids );
+		std::vector<utilities::WebsiteResult> get_websites( std::vector<int32_t> const& ids );
 		bool add_website( std::string_view const address, std::string_view const alias );
 		bool add_task( utilities::ScheduledTask& task );
 		std::vector<utilities::TaskResult> get_all_tasks();
@@ -327,7 +330,7 @@ namespace wudi_server
 						"({})"_format( svector_to_string( ids ) );
 				} else {
 					sql_statement = "SELECT id, filename, total_numbers, upload_date FROM tb_uploads WHERE id IN "
-						"({})"_format( ids );
+						"({})"_format( utilities::intlist_to_string( ids ) );
 				}
 			}
 			std::vector<utilities::UploadResult> result{};

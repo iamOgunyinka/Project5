@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <random>
 #include <filesystem>
-#include <charconv>
 #include <boost/algorithm/string.hpp>
 
 namespace wudi_server
@@ -141,6 +140,22 @@ namespace wudi_server
 			std::string str{ str_view.begin(), str_view.end() };
 			boost::trim( str );
 			return str;
+		}
+
+		std::string_view bv2sv( boost::string_view view )
+		{
+			return std::string_view( view.data(), view.size() );
+		}
+		
+                std::string intlist_to_string( std::vector<int32_t> const & vec )
+		{
+			std::ostringstream ss {};
+			if( vec.empty() ) return {};
+			for( std::size_t i = 0; i != vec.size() - 1; ++i ){
+				ss << vec[i] << ", ";
+			}
+			ss << vec.back();
+			return ss.str();
 		}
 
 		DbConfig parse_database_file( std::string const& filename, std::string const& config_name )
@@ -282,7 +297,7 @@ namespace wudi_server
 
 		int timet_to_string( std::string& output, std::size_t t, char const* format )
 		{
-			std::time_t current_time{ t };
+			std::time_t current_time = t;
 			auto tm_t = std::localtime( &current_time );
 			if( !tm_t ) return -1;
 			output.clear();
@@ -353,13 +368,13 @@ namespace wudi_server
 		std::thread sql_thread{
 			[this] {
 			try {
-				auto dir = otl_cursor::direct_exec( otl_connector_, "select count(*) from mysql.user", true );
+				auto dir = otl_cursor::direct_exec( otl_connector_, "select 1", true );
 				spdlog::info( "OTL Busy server says: {}", dir );
 			}
 			catch( otl_exception const& exception ) {
 				utilities::log_sql_error( exception );
 				otl_connector_.logoff();
-				otl_connector_.rlogon( "{}/{}@mysql8017"_format( db_config.username, db_config.password ).c_str() );
+				otl_connector_.rlogon( "{}/{}@{}"_format( db_config.username, db_config.password, db_config.db_dns ).c_str() );
 				std::this_thread::sleep_for( std::chrono::seconds( 1 ) );
 			}
 			std::this_thread::sleep_for( std::chrono::minutes( 30 ) );
@@ -375,7 +390,8 @@ namespace wudi_server
 		}
 		if( is_running ) return is_running;
 
-		std::string const login_str{ "{}/{}@mysql8017"_format( db_config.username, db_config.password ) };// db_config.database_name_ )
+		std::string const login_str{ "{}/{}@{}"_format( db_config.username, db_config.password, db_config.db_dns ) };
+		spdlog::info( login_str );
 		try {
 			this->otl_connector_.rlogon( login_str.c_str() );
 			keep_sql_server_busy();
@@ -405,10 +421,12 @@ namespace wudi_server
 
 	bool DatabaseConnector::add_upload( utilities::UploadRequest const& upload_request )
 	{
+		using utilities::bv2sv;
 		std::string const sql_statement{ "insert into tb_uploads (uploader_id, filename, upload_date, "
 			"total_numbers, name_on_disk ) VALUES( {}, \"{}\", \"{}\", {}, \"{}\" )"_format(
-				upload_request.uploader_id, upload_request.upload_filename, upload_request.upload_date,
-				upload_request.total_numbers, upload_request.name_on_disk ) };
+				bv2sv(upload_request.uploader_id), bv2sv(upload_request.upload_filename), 
+				bv2sv(upload_request.upload_date),
+				upload_request.total_numbers, bv2sv(upload_request.name_on_disk) ) };
 		try {
 			otl_cursor::direct_exec( otl_connector_, sql_statement.c_str(), otl_exception::enabled );
 			return true;
@@ -427,11 +445,12 @@ namespace wudi_server
 		} else {
 			time_str = std::to_string( task.scheduled_dt );
 		}
-
+		using utilities::intlist_to_string;
 		std::string sql_statement{
 			"INSERT INTO tb_tasks (scheduler_id, date_scheduled, websites, uploads, progress)"
-			"VALUES( {}, \"{}\", \"{}\", \"{}\", 0 )"_format( task.scheduler_id, time_str, task.website_ids,
-				task.number_ids )
+			"VALUES( {}, \"{}\", \"{}\", \"{}\", 0 )"_format( task.scheduler_id, time_str, 
+				intlist_to_string( task.website_ids ),
+				intlist_to_string( task.number_ids ) )
 		};
 		spdlog::info( sql_statement );
 		try {
@@ -464,13 +483,15 @@ namespace wudi_server
 		return result;
 	}
 
-	std::vector<utilities::WebsiteResult> DatabaseConnector::get_websites( std::vector<std::size_t> const& ids )
+	std::vector<utilities::WebsiteResult> DatabaseConnector::get_websites( std::vector<int32_t> const& ids )
 	{
 		std::string sql_statement{};
+		using utilities::intlist_to_string;
 		if( ids.empty() ) {
 			sql_statement = "SELECT id, address, nickname FROM tb_websites";
 		} else {
-			sql_statement = "SELECT id, address, nickname FROM tb_websites WHERE ID in ({})"_format( ids );
+			sql_statement = "SELECT id, address, nickname FROM tb_websites WHERE ID in ({})"_format( 
+				intlist_to_string( ids ) );
 		}
 		std::vector<utilities::WebsiteResult> results{};
 		try {

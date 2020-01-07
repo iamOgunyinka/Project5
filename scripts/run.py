@@ -50,9 +50,8 @@ class Number(db.Model):
 
 def create_app(config_name):
 	app = Flask(__name__)
-	curr_dir = r'D:\Visual Studio Projects\wudi-server\scripts'
 	# apply configuration
-	cfg = os.path.join(curr_dir, 'config', config_name + '.py')
+	cfg = os.path.join(os.getcwd(), 'config', config_name + '.py')
 	app.config.from_pyfile(cfg)
 	
 	# initialize extensions

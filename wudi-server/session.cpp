@@ -34,7 +34,7 @@ namespace wudi_server
 				dynamic_body_parser->body_limit( utilities::FiftyMegabytes );
 				http::async_read( tcp_stream_, buffer_, *dynamic_body_parser, beast::bind_front_handler( &session::binary_data_read, shared_from_this() ) );
 			} else {
-				return shutdown_socket();
+				return error_handler( bad_request("contact your admin for proper request format", string_request{}));
 			}
 		}
 	}
@@ -106,12 +106,11 @@ namespace wudi_server
 		try {
 			json json_body = json::parse( request.body() );
 			json::object_t login_info{ json_body.get<json::object_t>() };
-			auto& username = login_info["username"];
-			auto& password = login_info["password"];
+			auto username = login_info["username"].get<json::string_t>();
+			auto password = login_info["password"].get<json::string_t>();
 			auto [id, role] = db_connector->get_login_role( username, password );
 			if( id == -1 ) {
-				spdlog::error( "[login.POST] {} {} is invalid", username.get<json::string_t>(), 
-					password.get<json::string_t>() );
+				spdlog::error( "[login.POST] {} {} is invalid", username, password );
 				return error_handler( get_error( "invalid username or password",
 					ErrorType::Unauthorized, http::status::unauthorized, request ) );
 			}
@@ -162,10 +161,11 @@ namespace wudi_server
 			}
 
 			auto& body = request.body();
-			std::string file_path{ "{}{}.txt"_format( uploads_directory, filename_view ) };
+                        std::string_view temp_filename_view( filename_view.data(), filename_view.size() );
+			std::string file_path{ "{}{}.txt"_format( uploads_directory, temp_filename_view ) };
 			std::size_t counter{ 1 };
 			while( std::filesystem::exists( file_path ) ) {
-				file_path = "{}{}_{}.txt"_format( uploads_directory, filename_view, counter++ );
+				file_path = "{}{}_{}.txt"_format( uploads_directory, temp_filename_view, counter++ );
 			}
 			std::ofstream out_file{ file_path };
 			if( !out_file ) return error_handler( server_error( "unable to save file", ErrorType::ServerError, request ) );
@@ -246,15 +246,15 @@ namespace wudi_server
 	{
 		using http::verb;
 		endpoint_apis_.add_endpoint( "/", { verb::get },
-			beast::bind_front_handler( &session::index_page_handler, shared_from_this() ) );
+			std::bind( &session::index_page_handler, shared_from_this(), std::placeholders::_1, std::placeholders::_2 ) );
 		endpoint_apis_.add_endpoint( "/login", { verb::get, verb::post },
-			beast::bind_front_handler( &session::login_handler, shared_from_this() ) );
-		endpoint_apis_.add_endpoint( "/upload", { verb::post, verb::delete_, verb::get },
-			beast::bind_front_handler( &session::upload_handler, shared_from_this() ) );
+			std::bind( &session::login_handler, shared_from_this(), std::placeholders::_1, std::placeholders::_2 ) );
+                endpoint_apis_.add_endpoint( "/upload", { verb::post, verb::delete_, verb::get },
+			std::bind( &session::upload_handler, shared_from_this(),std::placeholders::_1, std::placeholders::_2 ) );
 		endpoint_apis_.add_endpoint( "/website", { verb::post, verb::get },
-			beast::bind_front_handler( &session::website_handler, shared_from_this() ) );
+			std::bind( &session::website_handler, shared_from_this(),std::placeholders::_1, std::placeholders::_2 ) );
 		endpoint_apis_.add_endpoint( "/schedule_task", { verb::post, verb::get, verb::delete_ },
-			beast::bind_front_handler( &session::schedule_task_handler, shared_from_this() ) );
+			std::bind( &session::schedule_task_handler, shared_from_this(), std::placeholders::_1, std::placeholders::_2 ) );
 	}
 
 	void session::schedule_task_handler( string_request const& request, std::string_view const& query )
@@ -318,8 +318,8 @@ namespace wudi_server
 		try {
 			json json_root = json::parse( request.body() );
 			json::object_t obj = json_root.get<json::object_t>();
-			auto& address = obj["address"];
-			auto& alias = obj["alias"];
+			auto address = obj["address"].get<json::string_t>();
+			auto alias = obj["alias"].get<json::string_t>();
 			if( !db_connector->add_website( address, alias ) ) {
 				spdlog::error( "[website_handler] could not add website" );
 				return error_handler( server_error( "could not add website",

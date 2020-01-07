@@ -4,9 +4,6 @@
 #include <atomic>
 #include "server.hpp"
 
-#ifndef WUDI_BUILD_TYPE
-#define WUDI_BUILD_TYPE "development"
-#endif // !WUDI_BUILD_TYPE
 
 int main( int argc, char* argv[] )
 {
@@ -20,10 +17,11 @@ int main( int argc, char* argv[] )
 	cli_parser.add_option( "-t", args.thread_count, "Number of threads to use", true );
 	cli_parser.add_option( "-d", args.database_config_filename, "Database config filename", true );
 	cli_parser.add_option( "--tL", args.scheduled_snapshot, "Scheduled task snapshot" );
+	cli_parser.add_option( "-y", args.launch_type, "Launch type(production, development)", false );
 	CLI11_PARSE( cli_parser, argc, argv );
 
 	auto database_connector{ wudi_server::DatabaseConnector::GetDBConnector() };
-	auto db_config = wudi_server::utilities::parse_database_file( args.database_config_filename, WUDI_BUILD_TYPE );
+	auto db_config = wudi_server::utilities::parse_database_file( args.database_config_filename, args.launch_type );
 	if( !db_config ) {
 		std::cerr << "Unable to get database configuration values\n";
 		return EXIT_FAILURE;
