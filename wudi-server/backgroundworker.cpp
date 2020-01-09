@@ -1,34 +1,133 @@
 #include "backgroundworker.hpp"
-/*
-namespace farasha
-{
-    BackgroundWorker::BackgroundWorker( std::string const & address, std::vector<QString>&& numbers,
-                                        safe_proxy& proxy_provider, QObject* parent ):
-        QObject{ parent }, numbers_{ std::move( numbers ) }, proxy_provider_{ proxy_provider },
-        address_{ address }
-    {
-    }
+#include "auto_home_sock.hpp"
+#include "web_base.hpp"
 
-    void BackgroundWorker::fetch_result( int const socket_count )
-    {
+namespace wudi_server {
 
-    }
+std::map<std::string, website_type> website_map{
+    {"account.autohome.com.cn", website_type::AutoHomeRegister}};
 
-    void BackgroundWorker::run()
-    {
-        auto& context{ get_network_context() };
-        std::list<std::unique_ptr<http_socket>> sockets{};
-        for( int i = 0; i != utilities::MAX_OPEN_SOCKET; ++i ){
-            sockets.push_back( std::make_unique<http_socket>( context, proxy_provider_, numbers_,
-                                                              address_ ) );
-            QObject::connect( sockets.back().get(), &http_socket::result_available,
-                              [=]( SearchResultType t, QString const & number )
-            {
-                emit result_available( t, number );
-            });
-            sockets.back()->start_connect();
-        }
-        context.run();
-    }
+std::string const BackgroundWorker::http_proxy_filename{
+    "./http_proxy_servers.txt"};
+
+BackgroundWorker::BackgroundWorker(std::vector<WebsiteResult> &&websites,
+                                   std::vector<UploadResult> &&uploads,
+                                   net::io_context &context)
+    : websites_info_{std::move(websites)},
+      uploads_info_{std::move(uploads)}, context_{context} {
+  make_proxy_providers();
 }
-*/
+
+void BackgroundWorker::make_proxy_providers() {
+  using utilities::uri;
+  for (auto const &website : websites_info_) {
+    std::string const host_address = uri{website.address}.host();
+    if (safe_proxies_.find(host_address) == safe_proxies_.cend()) {
+      safe_proxies_[host_address] = std::make_shared<safe_proxy>(context_);
+    }
+  }
+}
+
+void BackgroundWorker::on_data_result_obtained(utilities::SearchResultType type,
+                                               std::string_view number) {
+  ++curr_website_number_counter_;
+  ++current_count_;
+  if (curr_website_number_counter_ == web_uploads_ptr_->get_total()) {
+    curr_website_number_counter_ = 0;
+    return run_number_crawler(++counter_);
+  }
+}
+
+void BackgroundWorker::run_number_crawler(std::size_t &index) {
+  if (index >= websites_info_.size())
+    return;
+  using utilities::get_file_content;
+  using utilities::is_valid_number;
+  using utilities::threadsafe_vector;
+
+  auto callback = std::bind(&BackgroundWorker::on_data_result_obtained, this,
+                            std::placeholders::_1, std::placeholders::_2);
+
+  auto numbers = get_file_content<std::string>(
+      uploads_info_[index].name_on_disk, is_valid_number);
+  if (numbers.empty())
+    return run_number_crawler(++index);
+
+  web_uploads_ptr_ =
+      std::make_unique<threadsafe_vector<std::string>>(std::move(numbers));
+  std::size_t const socket_count =
+      std::max(2U,
+               utilities::MaxOpenSockets /
+                   websites_info_.size()); // sockets to use per website
+
+  std::list<std::shared_ptr<void>> sockets{};
+  std::size_t website_counter = 0;
+  for (int i = 0; i != socket_count; ++i) {
+    if (website_counter == websites_info_.size())
+      website_counter = 0;
+    std::string const &address = websites_info_[website_counter].address;
+    if (auto iter = website_map.find(address); iter != website_map.cend()) {
+      switch (iter->second) {
+      case website_type::AutoHomeRegister: {
+        auto socket_ptr = std::make_shared<auto_home_socket>(
+            context_, *safe_proxies_[address], *web_uploads_ptr_, address,
+            callback);
+        sockets.push_back(socket_ptr); // keep a type-erased copy
+        socket_ptr->start_connect();
+      } break;
+      default:
+        break;
+      }
+    }
+  }
+  context_.run();
+}
+
+void BackgroundWorker::make_mapper() {
+  total_numbers_ = std::accumulate(uploads_info_.cbegin(), uploads_info_.cend(),
+                                   0, [](auto const &init, auto const &upload) {
+                                     return upload.total_numbers + init;
+                                   });
+
+  if (websites_info_.empty() || uploads_info_.empty())
+    return;
+  counter_ = 0;
+  run_number_crawler(counter_);
+}
+
+void BackgroundWorker::run() { make_mapper(); }
+
+namespace utilities {
+void background_task_executor(
+    std::atomic_bool &stopped, std::mutex &mutex,
+    std::shared_ptr<DatabaseConnector> &db_connector) {
+  auto &scheduled_tasks = get_scheduled_tasks();
+  while (!stopped) {
+    mutex.lock();
+    if (scheduled_tasks.empty()) {
+      mutex.unlock();
+      std::this_thread::sleep_for(std::chrono::seconds(SleepTimeoutSec));
+      continue;
+    }
+    ScheduledTask task = std::move(scheduled_tasks.front());
+    scheduled_tasks.pop_front();
+    mutex.unlock();
+    if (task.progress >= 100)
+      continue;
+    mutex.lock();
+    std::vector<WebsiteResult> websites =
+        db_connector->get_websites(task.website_ids);
+    std::vector<UploadResult> numbers =
+        db_connector->get_uploads(task.number_ids);
+    mutex.unlock();
+    if (websites.empty() || numbers.empty()) {
+      spdlog::error("");
+    }
+    BackgroundWorker background_worker{std::move(websites), std::move(numbers),
+                                       get_network_context()};
+    background_worker.run();
+    // if we are here, we are done.
+  }
+}
+} // namespace utilities
+} // namespace wudi_server
