@@ -16,7 +16,7 @@ set(PROJECT_NAME woody)
 
 include_directories(${PROJECT_DIR}/third-party/)
 link_directories(/usr/lib)
-link_libraries(pthread ssl crypto odbc z stdc++fs)
+link_libraries(pthread ssl crypto odbc z stdc++fs curl)
 
 # Outputs
 set(OUTPUT_DEBUG ${PROJECT_DIR}/bin)
@@ -62,7 +62,7 @@ message("${PROJECT_NAME}: CURR BIN DIR: ${CMAKE_CURRENT_BINARY_DIR}")
 # Source Files
 set(SRC_FILES
     ./backgroundworker.cpp
-    ./auto_home_socket.cpp
+    ./auto_home_sock.cpp
     ./main.cpp
     ./safe_proxy.cpp
     ./server.cpp
@@ -77,11 +77,11 @@ set(HEADERS_FILES
     backgroundworker.hpp
     safe_proxy.hpp
     server.hpp
-    auto_home_socket.hpp
+    auto_home_sock.hpp
     session.hpp
     utilities.hpp
-	web_base.hpp
-	jj_games_socket.hpp
+    web_base.hpp
+    jj_games_socket.hpp
 )
 source_group("Headers" FILES ${HEADERS_FILES})
 

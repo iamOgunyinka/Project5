@@ -1,6 +1,7 @@
 #include "backgroundworker.hpp"
 #include "auto_home_sock.hpp"
 #include "jj_games_socket.hpp"
+#include <list>
 
 namespace wudi_server {
 

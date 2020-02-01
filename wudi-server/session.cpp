@@ -293,6 +293,10 @@ void session::add_endpoint_interfaces() {
       "/schedule_task", {verb::post, verb::get, verb::delete_},
       std::bind(&session::schedule_task_handler, shared_from_this(),
                 std::placeholders::_1, std::placeholders::_2));
+  endpoint_apis_.add_endpoint(
+      "/task", {verb::post, verb::get, verb::delete_},
+      std::bind(&session::schedule_task_handler, shared_from_this(),
+                std::placeholders::_1, std::placeholders::_2));
 }
 
 void session::schedule_task_handler(string_request const &request,
@@ -301,10 +305,7 @@ void session::schedule_task_handler(string_request const &request,
   using wudi_server::utilities::get_scheduled_tasks;
 
   auto const method = request.method();
-  if (method == verb::get) {
-    json json_result = db_connector->get_all_tasks();
-    return send_response(json_success(json_result, request));
-  } else if (method == verb::post) {
+  if (method == verb::post) {
     if (content_type_ != "application/json") {
       return error_handler(bad_request("invalid content-type", request));
     }
@@ -342,6 +343,10 @@ void session::schedule_task_handler(string_request const &request,
       spdlog::error(e.what());
       return error_handler(bad_request("json object is not parsable", request));
     }
+  } else if( method == http::verb::delete_ ){
+    return error_handler(server_error("not implemented yet", ErrorType::ServerError, request));
+  } else {
+    return error_handler(bad_request("only accessible through websocket", request));
   }
 }
 

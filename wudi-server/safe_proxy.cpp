@@ -15,7 +15,7 @@ std::string const safe_proxy::http_proxy_filename{"./http_proxy_servers.txt"};
 std::string const safe_proxy::https_proxy_filename{"./https_proxy_servers.txt"};
 
 safe_proxy::safe_proxy(net::io_context &context)
-    : context_{context}, http_tcp_stream_{net::make_strand(context_)} {
+    : context_{context}, http_tcp_stream_{net::make_strand(context)} {
   load_proxy_file();
 }
 
