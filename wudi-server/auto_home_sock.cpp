@@ -15,7 +15,7 @@ std::string const auto_home_socket::password_base64_hash{
 
 auto_home_socket::auto_home_socket(
     net::io_context &io_context, safe_proxy &proxy_provider,
-    utilities::threadsafe_vector<std::string> &numbers,
+    utilities::threadsafe_container<std::string> &numbers,
     std::string const &address, result_callback callback)
     : web_base(io_context, proxy_provider, numbers), address_{address},
       callback_{std::move(callback)} {}
@@ -50,10 +50,14 @@ void auto_home_socket::result_available(SearchResultType type,
 
 void auto_home_socket::on_data_received(beast::error_code ec,
                                         std::size_t const) {
+
   static std::array<std::size_t, 10> redirect_codes{300, 301, 302, 303, 304,
-                                                    305, 306, 307, 308, 400};
+                                                    305, 306, 307, 308};
   if (ec) {
-    current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
+    if (ec != http::error::end_of_stream) {
+      current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
+      tcp_stream_.close();
+    }
     choose_next_proxy();
     connect();
     return;
@@ -79,16 +83,16 @@ void auto_home_socket::on_data_received(beast::error_code ec,
   try {
     document = json::parse(body);
   } catch (std::exception const &exception) {
-    std::size_t const opening_brace_index = body.find('{');
-    std::size_t const closing_brace_index = body.find('}');
+    std::size_t const opening_brace_index = body.find_last_of('{');
+    std::size_t const closing_brace_index = body.find_last_of('}');
 
     if (status_code != 200 || opening_brace_index == std::string::npos) {
-      emit result_available(SearchResultType::Unknown, current_number_);
+      callback_(SearchResultType::Unknown, current_number_);
       send_next();
       return;
     } else {
       if (closing_brace_index == std::string::npos) {
-        emit result_available(SearchResultType::Unknown, current_number_);
+        callback_(SearchResultType::Unknown, current_number_);
         send_next();
         return;
       } else {
@@ -97,22 +101,32 @@ void auto_home_socket::on_data_received(beast::error_code ec,
         try {
           document = json::parse(body);
         } catch (std::exception const &) {
-          emit result_available(SearchResultType::Unknown, current_number_);
+          callback_(SearchResultType::Unknown, current_number_);
           send_next();
           return;
         }
       }
     }
   }
-
   try {
     json::object_t object = document.get<json::object_t>();
-    auto result{object["success"].get<json::number_integer_t>()};
-    emit result_available(result == 0 ? SearchResultType::Registered
-                                      : SearchResultType::NotRegistered,
-                          current_number_);
+    if (object.find("success") != object.end()) {
+      auto const code = object["success"].get<json::number_integer_t>();
+      std::string const msg = object["success"].get<json::string_t>();
+      if (msg == "Msg.MobileExist") {
+        callback_(SearchResultType::Registered, current_number_);
+      } else if (code == 1 && msg == "Msg.MobileSuccess") {
+        callback_(SearchResultType::NotRegistered, current_number_);
+      } else if (code == 0 && msg == "Msg.MobileExist") {
+        callback_(SearchResultType::Registered, current_number_);
+      } else {
+        callback_(SearchResultType::Unknown, current_number_);
+      }
+    } else {
+      callback_(SearchResultType::Unknown, current_number_);
+    }
   } catch (...) {
-    emit result_available(SearchResultType::Unknown, current_number_);
+    callback_(SearchResultType::Unknown, current_number_);
   }
   send_next();
 }

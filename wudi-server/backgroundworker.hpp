@@ -12,7 +12,7 @@ using utilities::WebsiteResult;
 namespace asio = boost::asio;
 namespace http = boost::beast::http;
 
-enum class website_type { AutoHomeRegister };
+enum class website_type { AutoHomeRegister, JJGames };
 
 class BackgroundWorker {
   static std::map<std::string, website_type> website_maps;
@@ -32,7 +32,7 @@ private:
   std::vector<WebsiteResult> const websites_info_;
   std::vector<UploadResult> const uploads_info_;
   net::io_context &context_;
-  std::unique_ptr<utilities::threadsafe_vector<std::string>> web_uploads_ptr_{};
+  std::unique_ptr<utilities::threadsafe_container<std::string>> web_uploads_ptr_{};
   std::map<std::string, std::shared_ptr<safe_proxy>> safe_proxies_;
   std::size_t counter_;
   std::size_t curr_website_number_counter_{};

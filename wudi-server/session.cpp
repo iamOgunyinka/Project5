@@ -22,8 +22,7 @@ void session::http_read_data() {
 
 void session::on_header_read(beast::error_code ec, std::size_t const) {
   if (ec) {
-    fputs(ec.message().c_str(), stderr);
-    fputc('\n', stderr);
+    spdlog::info(ec.message());
     return error_handler(
         server_error(ec.message(), ErrorType::ServerError, string_request{}),
         true);
@@ -53,7 +52,7 @@ void session::on_header_read(beast::error_code ec, std::size_t const) {
 void session::binary_data_read(beast::error_code ec,
                                std::size_t bytes_transferred) {
   if (ec) {
-    fprintf(stderr, "%s\n", ec.message().c_str());
+    spdlog::error(ec.message());
     return error_handler(bad_request("invalid content-type", string_request{}));
   }
   auto &request = dynamic_body_parser->get();
@@ -104,8 +103,7 @@ void session::error_handler(string_response &&response, bool close_socket) {
 void session::on_data_written(beast::error_code ec,
                               std::size_t const bytes_written) {
   if (ec) {
-    fputs(ec.message().c_str(), stderr);
-    fputc('\n', stderr);
+    spdlog::error(ec.message());
     return;
   }
   resp_ = nullptr;
@@ -235,11 +233,11 @@ void session::upload_handler(string_request const &request,
     std::vector<boost::string_view> ids{};
     auto const id_iter = find_query_key(query_pairs, "id");
     if (id_iter != query_pairs.cend()) {
-      ids = utilities::split_string(id_iter->second, "|");
+      ids = utilities::split_string_view(id_iter->second, "|");
     }
     json json_result = db_connector->get_uploads(ids);
     return send_response(json_success(json_result, request));
-  } else { // a delete method
+  } else { // a DELETE request
   }
 }
 
@@ -248,7 +246,7 @@ void session::handle_requests(string_request const &request) {
   auto method = request.method();
   if (request_target.empty())
     return index_page_handler(request, "");
-  auto split = utilities::split_string(request_target, "?");
+  auto split = utilities::split_string_view(request_target, "?");
   if (auto iter = endpoint_apis_.get_rules(split[0]); iter.has_value()) {
     auto iter_end =
         iter.value()->second.verbs_.cbegin() + iter.value()->second.num_verbs_;
@@ -300,7 +298,7 @@ void session::add_endpoint_interfaces() {
 void session::schedule_task_handler(string_request const &request,
                                     std::string_view const &query) {
   using http::verb;
-  using utilities::get_scheduled_tasks;
+  using wudi_server::utilities::get_scheduled_tasks;
 
   auto const method = request.method();
   if (method == verb::get) {
@@ -331,7 +329,7 @@ void session::schedule_task_handler(string_request const &request,
                                           ErrorType::ServerError, request));
       }
       spdlog::info("Added new task");
-      std::deque<utilities::ScheduledTask> &tasks{get_scheduled_tasks()};
+      auto &tasks{get_scheduled_tasks()};
       tasks.push_back(std::move(task));
       json::object_t obj;
       obj["id"] = task.task_id;
@@ -468,9 +466,9 @@ session::split_optional_queries(std::string_view const &optional_query) {
   string_view_pair_list result{};
   if (!optional_query.empty()) {
     boost::string_view query{optional_query.data(), optional_query.size()};
-    auto queries = utilities::split_string(query, "&");
+    auto queries = utilities::split_string_view(query, "&");
     for (auto const &q : queries) {
-      auto split = utilities::split_string(q, "=");
+      auto split = utilities::split_string_view(q, "=");
       if (q == split[0])
         continue;
       result.emplace_back(split[0], split[1]);

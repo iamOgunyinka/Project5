@@ -1,3 +1,4 @@
+#include "jj_games_socket.hpp"
 #include "server.hpp"
 #include <CLI11/CLI11.hpp>
 #include <atomic>
@@ -5,9 +6,10 @@
 #include <thread>
 
 int main(int argc, char *argv[]) {
+  custom_curl::LibCurlRAII curl_global{};
   CLI::App cli_parser{"Wu-di: an asynchronous web server for Farasha trading"};
   wudi_server::command_line_interface args{};
-  int const thread_count = std::thread::hardware_concurrency();
+  auto const thread_count = std::thread::hardware_concurrency();
   args.thread_count = thread_count;
 
   cli_parser.add_option("-p", args.port, "port to bind server to", true);
@@ -52,7 +54,7 @@ int main(int argc, char *argv[]) {
     stop = true;
     return EXIT_FAILURE;
   }
-  wudi_server::asio::io_context context{thread_count};
+  wudi_server::asio::io_context context{ static_cast<int>( thread_count )};
   auto server_instance =
       std::make_shared<wudi_server::server>(context, args, database_connector);
   server_instance->run();

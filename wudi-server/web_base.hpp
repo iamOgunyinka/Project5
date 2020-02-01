@@ -29,7 +29,7 @@ protected:
   std::size_t connect_count_{};
   std::size_t send_count_{};
   bool tried_unresposiveness_{false};
-  utilities::threadsafe_vector<std::string> &numbers_;
+  utilities::threadsafe_container<std::string> &numbers_;
   EndpointList temp_list_;
   safe_proxy &proxy_provider_;
   endpoint_ptr current_endpoint_;
@@ -56,7 +56,7 @@ protected:
 
 public:
   web_base(net::io_context &, safe_proxy &,
-           utilities::threadsafe_vector<std::string> &);
+           utilities::threadsafe_container<std::string> &);
   void start_connect();
   virtual ~web_base() = default;
 };
@@ -88,6 +88,8 @@ void web_base<T>::on_data_sent(beast::error_code ec, std::size_t const) {
 template <typename T> void web_base<T>::receive_data() {
   tcp_stream_.expires_after(
       std::chrono::milliseconds(utilities::TimeoutMilliseconds * 3)); // 3*3secs
+  response_ = {};
+  buffer_ = {};
   http::async_read(
       tcp_stream_, buffer_, response_,
       beast::bind_front_handler(&web_base::on_data_received, this));
@@ -174,7 +176,7 @@ inline void web_base<T>::on_data_received(beast::error_code ec,
 
 template <typename T>
 web_base<T>::web_base(net::io_context &io_context, safe_proxy &proxy_provider,
-                      utilities::threadsafe_vector<std::string> &numbers)
+                      utilities::threadsafe_container<std::string> &numbers)
     : io_{io_context}, tcp_stream_{net::make_strand(io_)}, numbers_{numbers},
       proxy_provider_{proxy_provider} {}
 

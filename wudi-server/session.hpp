@@ -2,6 +2,7 @@
 
 #include "utilities.hpp"
 #include <boost/asio.hpp>
+#include <boost/beast.hpp>
 #include <memory>
 
 #define private_functions private

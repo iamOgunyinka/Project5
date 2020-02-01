@@ -90,7 +90,7 @@ enum Constants {
 enum Anonymous {
   MaxRetries = 3,
   LenUserAgents = 18,
-  MaxOpenSockets = 0x100,
+  MaxOpenSockets = 50,
   TimeoutMilliseconds = 3'000
 };
 
@@ -181,20 +181,21 @@ struct empty_container_exception : public std::runtime_error {
   empty_container_exception() : std::runtime_error("") {}
 };
 
-template <typename T> struct threadsafe_vector {
+template <typename T, typename Container = std::deque<T>>
+struct threadsafe_container {
 private:
   std::mutex mutex_{};
-  std::deque<T> container_{};
+  Container container_{};
   std::size_t total_{};
 
 public:
-  threadsafe_vector(std::deque<T> &&container)
+  threadsafe_container(Container &&container)
       : container_{std::move(container)}, total_{container_.size()} {}
-  threadsafe_vector() = default;
-  threadsafe_vector(threadsafe_vector &&);
-  threadsafe_vector &operator=(threadsafe_vector &&) = delete;
-  threadsafe_vector(threadsafe_vector const &) = delete;
-  threadsafe_vector &operator=(threadsafe_vector const &) = delete;
+  threadsafe_container() = default;
+  threadsafe_container(threadsafe_container &&);
+  threadsafe_container &operator=(threadsafe_container &&) = delete;
+  threadsafe_container(threadsafe_container const &) = delete;
+  threadsafe_container &operator=(threadsafe_container const &) = delete;
 
   T get() {
     std::lock_guard<std::mutex> lock{mutex_};
@@ -211,12 +212,20 @@ public:
     container_.push_back(std::forward<T>(data));
     total_ = container_.size();
   }
-
+  bool empty() {
+    std::lock_guard<std::mutex> lock_{mutex_};
+    return container_.empty();
+  }
   std::size_t get_total() const { return total_; }
+  std::size_t size() {
+    std::lock_guard<std::mutex> lock_{mutex_};
+    return container_.size();
+  }
 };
 
-template <typename T>
-threadsafe_vector<T>::threadsafe_vector(threadsafe_vector<T> &&vec)
+template <typename T, typename Container>
+threadsafe_container<T, Container>::threadsafe_container(
+    threadsafe_container<T, Container> &&vec)
     : mutex_{std::move(vec.mutex_)},
       container_{std::move(vec.container_)}, total_{vec.total_} {}
 
@@ -256,7 +265,7 @@ otl_stream &operator>>(otl_stream &, TaskResult &);
 otl_stream &operator>>(otl_stream &, WebsiteResult &);
 std::string decode_url(boost::string_view const &encoded_string);
 bool is_valid_number(std::string_view const, std::string &);
-std::vector<boost::string_view> split_string(boost::string_view const &str,
+std::vector<boost::string_view> split_string_view(boost::string_view const &str,
                                              char const *delimeter);
 void to_json(json &j, UploadResult const &item);
 void to_json(json &j, TaskResult const &);
@@ -270,7 +279,7 @@ void log_sql_error(otl_exception const &exception);
 std::string get_random_agent();
 void background_task_executor(std::atomic_bool &stopped, std::mutex &,
                               std::shared_ptr<DatabaseConnector> &);
-std::deque<ScheduledTask> &get_scheduled_tasks();
+threadsafe_container<ScheduledTask> &get_scheduled_tasks();
 int timet_to_string(std::string &, std::size_t,
                     char const * = "%Y-%m-%d %H:%M:%S");
 bool read_task_file(std::string_view);

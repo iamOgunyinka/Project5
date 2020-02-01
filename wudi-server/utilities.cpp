@@ -199,7 +199,7 @@ DbConfig parse_database_file(std::string const &filename,
       found = config_name == line.c_str() + 2;
       continue;
     } else if (found) {
-      auto name_pair = split_string(line, ":");
+      auto name_pair = split_string_view(line, ":");
       if (name_pair.size() != 2)
         continue;
 
@@ -216,22 +216,23 @@ DbConfig parse_database_file(std::string const &filename,
   return db_config;
 }
 
-std::vector<boost::string_view> split_string(boost::string_view const &str,
-                                             char const *delimeter) {
-  std::string::size_type from_pos{};
-  std::string::size_type index{str.find(delimeter, from_pos)};
-  if (index == std::string::npos)
-    return {str};
-  std::vector<boost::string_view> result{};
-  while (index != std::string::npos) {
-    result.emplace_back(str.data() + from_pos, index - from_pos);
-    from_pos = index + 1;
-    index = str.find(delimeter, from_pos);
-  }
-  if (from_pos < str.length())
-    result.push_back(
-        boost::string_view{str.cbegin() + from_pos, str.size() - from_pos});
-  return result;
+std::vector<boost::string_view> split_string_view( boost::string_view const& str,
+    char const* delim )
+{
+    std::size_t const delim_length = std::strlen( delim );
+    std::size_t from_pos{};
+    std::size_t index{ str.find( delim, from_pos ) };
+    if( index == std::string::npos )
+        return {str};
+    std::vector<boost::string_view> result{};
+    while( index != std::string::npos ) {
+        result.emplace_back( str.data() + from_pos, index - from_pos );
+        from_pos = index + delim_length;
+        index = str.find( delim, from_pos );
+    }
+    if( from_pos < str.length() )
+        result.emplace_back( str.data() + from_pos, str.size() - from_pos );
+    return result;
 }
 
 std::array<char const *, LenUserAgents> const request_handler::user_agents = {
@@ -298,9 +299,10 @@ std::string get_random_agent() {
   return request_handler::user_agents[uid(gen)];
 }
 
-std::deque<ScheduledTask> &get_scheduled_tasks() {
-  static std::deque<ScheduledTask> scheduled_tasks{};
-  return scheduled_tasks;
+threadsafe_container<ScheduledTask>& get_scheduled_tasks()
+{
+    static threadsafe_container<ScheduledTask> tasks{};
+    return tasks;
 }
 
 int timet_to_string(std::string &output, std::size_t t, char const *format) {
@@ -322,6 +324,7 @@ Rule::Rule(std::initializer_list<http::verb> &&verbs, Callback callback)
     verbs_[i] = *(verbs.begin() + i);
   }
 }
+
 void Endpoint::add_endpoint(std::string const &route,
                             std::initializer_list<http::verb> verbs,
                             Callback &&callback) {

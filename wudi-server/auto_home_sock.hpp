@@ -5,10 +5,6 @@
 #include "web_base.hpp"
 #include <boost/asio.hpp>
 
-#ifndef emit
-#define emit
-#endif
-
 namespace wudi_server {
 namespace net = boost::asio;
 using tcp = boost::asio::ip::tcp;
@@ -26,7 +22,7 @@ public:
   void prepare_request_data(bool use_authentication_header);
   void result_available(SearchResultType, std::string_view);
   auto_home_socket(net::io_context &io, safe_proxy &proxy_provider,
-                   utilities::threadsafe_vector<std::string> &numbers,
+                   utilities::threadsafe_container<std::string> &numbers,
                    std::string const &address, result_callback callback);
   ~auto_home_socket() = default;
 };

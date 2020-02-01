@@ -1,11 +1,12 @@
 #include "backgroundworker.hpp"
 #include "auto_home_sock.hpp"
-#include "web_base.hpp"
+#include "jj_games_socket.hpp"
 
 namespace wudi_server {
 
 std::map<std::string, website_type> website_map{
-    {"account.autohome.com.cn", website_type::AutoHomeRegister}};
+    {"autohome", website_type::AutoHomeRegister},
+    {"jjgames", website_type::JJGames}};
 
 std::string const BackgroundWorker::http_proxy_filename{
     "./http_proxy_servers.txt"};
@@ -43,7 +44,7 @@ void BackgroundWorker::run_number_crawler(std::size_t &index) {
     return;
   using utilities::get_file_content;
   using utilities::is_valid_number;
-  using utilities::threadsafe_vector;
+  using utilities::threadsafe_container;
 
   auto callback = std::bind(&BackgroundWorker::on_data_result_obtained, this,
                             std::placeholders::_1, std::placeholders::_2);
@@ -54,41 +55,44 @@ void BackgroundWorker::run_number_crawler(std::size_t &index) {
     return run_number_crawler(++index);
 
   web_uploads_ptr_ =
-      std::make_unique<threadsafe_vector<std::string>>(std::move(numbers));
-  std::size_t const socket_count =
-      std::max(2U,
-               utilities::MaxOpenSockets /
-                   websites_info_.size()); // sockets to use per website
+      std::make_unique<threadsafe_container<std::string>>(std::move(numbers));
+  std::size_t const socket_count = // sockets to use per website
+      std::max(static_cast<std::size_t>(2),
+               utilities::MaxOpenSockets / websites_info_.size());
 
   std::list<std::shared_ptr<void>> sockets{};
   std::size_t website_counter = 0;
-  for (int i = 0; i != socket_count; ++i) {
-    if (website_counter == websites_info_.size())
-      website_counter = 0;
-    std::string const &address = websites_info_[website_counter].address;
+
+  for (auto const &website_info : websites_info_) {
+    std::string const &address = website_info.address;
     if (auto iter = website_map.find(address); iter != website_map.cend()) {
-      switch (iter->second) {
-      case website_type::AutoHomeRegister: {
-        auto socket_ptr = std::make_shared<auto_home_socket>(
+      if (iter->second == website_type::JJGames) {
+        // we only make one socket of this type
+        auto socket_ptr = std::make_shared<jj_games_socket>(
             context_, *safe_proxies_[address], *web_uploads_ptr_, address,
             callback);
         sockets.push_back(socket_ptr); // keep a type-erased copy
         socket_ptr->start_connect();
-      } break;
-      default:
-        break;
+      } else if (iter->second == website_type::AutoHomeRegister) {
+        for (int i = 0; i != socket_count; ++i) {
+          auto socket_ptr = std::make_shared<auto_home_socket>(
+              context_, *safe_proxies_[address], *web_uploads_ptr_, address,
+              callback);
+          sockets.push_back(socket_ptr); // keep a type-erased copy
+          socket_ptr->start_connect();
+        }
+        context_.run();
       }
     }
   }
-  context_.run();
 }
 
 void BackgroundWorker::make_mapper() {
-  total_numbers_ = std::accumulate(uploads_info_.cbegin(), uploads_info_.cend(),
-                                   0, [](auto const &init, auto const &upload) {
-                                     return upload.total_numbers + init;
-                                   });
-
+  total_numbers_ =
+      std::accumulate(uploads_info_.cbegin(), uploads_info_.cend(), 0ULL,
+                      [](auto const &init, auto const &upload) {
+                        return upload.total_numbers + init;
+                      });
   if (websites_info_.empty() || uploads_info_.empty())
     return;
   counter_ = 0;
@@ -103,15 +107,11 @@ void background_task_executor(
     std::shared_ptr<DatabaseConnector> &db_connector) {
   auto &scheduled_tasks = get_scheduled_tasks();
   while (!stopped) {
-    mutex.lock();
     if (scheduled_tasks.empty()) {
-      mutex.unlock();
       std::this_thread::sleep_for(std::chrono::seconds(SleepTimeoutSec));
       continue;
     }
-    ScheduledTask task = std::move(scheduled_tasks.front());
-    scheduled_tasks.pop_front();
-    mutex.unlock();
+    ScheduledTask task = std::move(scheduled_tasks.get());
     if (task.progress >= 100)
       continue;
     mutex.lock();
