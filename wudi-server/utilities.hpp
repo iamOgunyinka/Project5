@@ -280,7 +280,7 @@ std::string get_random_agent();
 void background_task_executor(std::atomic_bool &stopped, std::mutex &,
                               std::shared_ptr<DatabaseConnector> &);
 threadsafe_container<ScheduledTask> &get_scheduled_tasks();
-int timet_to_string(std::string &, std::size_t,
+std::size_t timet_to_string(std::string &, std::size_t,
                     char const * = "%Y-%m-%d %H:%M:%S");
 bool read_task_file(std::string_view);
 } // namespace utilities

@@ -82,7 +82,7 @@ void auto_home_socket::on_data_received(beast::error_code ec,
   json document;
   try {
     document = json::parse(body);
-  } catch (std::exception const &exception) {
+  } catch (std::exception const &) {
     std::size_t const opening_brace_index = body.find_last_of('{');
     std::size_t const closing_brace_index = body.find_last_of('}');
 

@@ -6,7 +6,7 @@ namespace wudi_server {
 jj_games_socket::jj_games_socket(
     net::io_context &io, safe_proxy &proxy_provider,
     utilities::threadsafe_container<std::string> &numbers,
-    std::string const &address, result_callback callback)
+    result_callback callback)
     : io_{io}, numbers_{numbers}, timer_{io}, proxy_provider_{proxy_provider},
       callback_{std::move(callback)}, thread_data_{} {}
 void jj_games_socket::start_connect() {
@@ -149,7 +149,7 @@ void jj_games_socket::process_result(CURLcode code,
         callback_(SearchResultType::Unknown, connection_info->phone_number);
       }
     }
-  } catch (std::exception const &e) {
+  } catch (std::exception const &) {
   }
   send_next(connection_info);
 }
@@ -164,8 +164,8 @@ void jj_games_socket::select_proxy(ConnectInfo *connect_info) {
   if (auto proxy = proxy_provider_.next_endpoint(); proxy.has_value()) {
     connect_info->proxy = proxy.value();
   } else {
-    connect_info = nullptr;
-    callback_(utilities::SearchResultType::Unknown, connect_info->phone_number);
+    connect_info->proxy = nullptr;
+    callback_(utilities::SearchResultType::Unknown, connect_info->phone_number );
   }
 }
 

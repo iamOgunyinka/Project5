@@ -143,7 +143,7 @@ class jj_games_socket {
 public:
   jj_games_socket(net::io_context &io, safe_proxy &proxy_provider,
                   utilities::threadsafe_container<std::string> &numbers,
-                  std::string const &address, result_callback callback);
+                  result_callback callback);
   ~jj_games_socket();
   CURLM *curlm_async_interface();
   void start_connect();

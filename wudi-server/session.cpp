@@ -314,15 +314,18 @@ void session::schedule_task_handler(string_request const &request,
       json::array_t websites_ids = task_object["websites"].get<json::array_t>();
       json::array_t number_ids = task_object["numbers"].get<json::array_t>();
       utilities::ScheduledTask task{};
-      task.scheduled_dt = task_object["date"].get<json::number_integer_t>();
-      task.scheduler_id =
-          task_object["scheduler"].get<json::number_integer_t>();
+      task.scheduled_dt =
+          static_cast<int>(task_object["date"].get<json::number_integer_t>());
+      task.scheduler_id = static_cast<int>(
+          task_object["scheduler"].get<json::number_integer_t>());
 
       for (auto const &number_id : number_ids) {
-        task.number_ids.push_back(number_id.get<json::number_integer_t>());
+        task.number_ids.push_back(
+            static_cast<int>(number_id.get<json::number_integer_t>()));
       }
       for (auto const &website_id : websites_ids) {
-        task.website_ids.push_back(website_id.get<json::number_integer_t>());
+        task.website_ids.push_back(
+            static_cast<int>(website_id.get<json::number_integer_t>()));
       }
       if (!db_connector->add_task(task)) {
         return error_handler(server_error("unable to schedule task",

@@ -35,7 +35,7 @@ void BackgroundWorker::on_data_result_obtained(utilities::SearchResultType type,
   ++current_count_;
   if (curr_website_number_counter_ == web_uploads_ptr_->get_total()) {
     curr_website_number_counter_ = 0;
-    return run_number_crawler(++counter_);
+    //return run_number_crawler(++counter_);
   }
 }
 
@@ -69,8 +69,7 @@ void BackgroundWorker::run_number_crawler(std::size_t &index) {
       if (iter->second == website_type::JJGames) {
         // we only make one socket of this type
         auto socket_ptr = std::make_shared<jj_games_socket>(
-            context_, *safe_proxies_[address], *web_uploads_ptr_, address,
-            callback);
+            context_, *safe_proxies_[address], *web_uploads_ptr_, callback);
         sockets.push_back(socket_ptr); // keep a type-erased copy
         socket_ptr->start_connect();
       } else if (iter->second == website_type::AutoHomeRegister) {

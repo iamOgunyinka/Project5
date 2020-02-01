@@ -24,6 +24,7 @@ void safe_proxy::get_more_proxies() {
   utilities::uri uri_{proxy_generator_address};
   net::ip::tcp::resolver resolver{context_};
 
+  std::lock_guard<std::mutex> lock_g{ mutex_ };
   try {
     auto resolves = resolver.resolve(uri_.host(), "http");
     http_tcp_stream_.connect(resolves);
@@ -38,7 +39,7 @@ void safe_proxy::get_more_proxies() {
     http::read(http_tcp_stream_, buffer, server_response);
     beast::error_code ec{};
     http_tcp_stream_.socket().shutdown(tcp::socket::shutdown_both, ec);
-    if (server_response.result_int() != 200) {
+    if (server_response.result_int() != 200 || ec ) {
       is_free = true;
       has_error = true;
       return spdlog::error("Error obtaining proxy servers from server");
@@ -72,7 +73,7 @@ void safe_proxy::get_more_proxies() {
     has_error = ips.empty();
     if (has_error)
       spdlog::error("Error occurred while getting more proxies");
-  } catch (std::exception const &e) {
+  } catch (std::exception const &) {
     has_error = true;
   }
   is_free = true;

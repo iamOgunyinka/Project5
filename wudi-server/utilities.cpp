@@ -75,15 +75,19 @@ bool read_task_file(std::string_view filename) {
     for (auto const &json_task : task_list) {
       utilities::ScheduledTask task{};
       json::object_t task_object = json_task.get<json::object_t>();
-      task.task_id = task_object["id"].get<json::number_integer_t>();
-      task.progress = task_object["progress"].get<json::number_integer_t>();
+      task.task_id =
+          static_cast<int>(task_object["id"].get<json::number_integer_t>());
+      task.progress = static_cast<int>(
+          task_object["progress"].get<json::number_integer_t>());
       json::array_t websites = task_object["websites"].get<json::array_t>();
       for (auto const &website_id : websites) {
-        task.website_ids.push_back(website_id.get<json::number_integer_t>());
+        task.website_ids.push_back(
+            static_cast<int>(website_id.get<json::number_integer_t>()));
       }
       json::array_t numbers = task_object["numbers"].get<json::array_t>();
       for (auto const &number_id : numbers) {
-        task.number_ids.push_back(number_id.get<json::number_integer_t>());
+        task.number_ids.push_back(
+            static_cast<int>(number_id.get<json::number_integer_t>()));
       }
       task.last_processed_number = task_object["last"].get<json::string_t>();
       tasks.push_back(std::move(task));
@@ -137,7 +141,7 @@ bool is_valid_number(std::string_view const number, std::string &buffer) {
   if (number.size() < 11 || number.size() > 14)
     return false;
 
-  int from = 2;
+  std::size_t from = 2;
   if (number[0] == '+') { // international format
     if (number.size() != 14)
       return false;
@@ -216,23 +220,22 @@ DbConfig parse_database_file(std::string const &filename,
   return db_config;
 }
 
-std::vector<boost::string_view> split_string_view( boost::string_view const& str,
-    char const* delim )
-{
-    std::size_t const delim_length = std::strlen( delim );
-    std::size_t from_pos{};
-    std::size_t index{ str.find( delim, from_pos ) };
-    if( index == std::string::npos )
-        return {str};
-    std::vector<boost::string_view> result{};
-    while( index != std::string::npos ) {
-        result.emplace_back( str.data() + from_pos, index - from_pos );
-        from_pos = index + delim_length;
-        index = str.find( delim, from_pos );
-    }
-    if( from_pos < str.length() )
-        result.emplace_back( str.data() + from_pos, str.size() - from_pos );
-    return result;
+std::vector<boost::string_view> split_string_view(boost::string_view const &str,
+                                                  char const *delim) {
+  std::size_t const delim_length = std::strlen(delim);
+  std::size_t from_pos{};
+  std::size_t index{str.find(delim, from_pos)};
+  if (index == std::string::npos)
+    return {str};
+  std::vector<boost::string_view> result{};
+  while (index != std::string::npos) {
+    result.emplace_back(str.data() + from_pos, index - from_pos);
+    from_pos = index + delim_length;
+    index = str.find(delim, from_pos);
+  }
+  if (from_pos < str.length())
+    result.emplace_back(str.data() + from_pos, str.size() - from_pos);
+  return result;
 }
 
 std::array<char const *, LenUserAgents> const request_handler::user_agents = {
@@ -299,17 +302,16 @@ std::string get_random_agent() {
   return request_handler::user_agents[uid(gen)];
 }
 
-threadsafe_container<ScheduledTask>& get_scheduled_tasks()
-{
-    static threadsafe_container<ScheduledTask> tasks{};
-    return tasks;
+threadsafe_container<ScheduledTask> &get_scheduled_tasks() {
+  static threadsafe_container<ScheduledTask> tasks{};
+  return tasks;
 }
 
-int timet_to_string(std::string &output, std::size_t t, char const *format) {
+std::size_t timet_to_string(std::string &output, std::size_t t, char const *format) {
   std::time_t current_time = t;
   auto tm_t = std::localtime(&current_time);
   if (!tm_t)
-    return -1;
+    return std::string::npos;
   output.clear();
   output.resize(32);
   return std::strftime(output.data(), output.size(), format, tm_t);
@@ -451,8 +453,8 @@ bool DatabaseConnector::add_upload(
 
 bool DatabaseConnector::add_task(utilities::ScheduledTask &task) {
   std::string time_str{};
-  if (int const count = utilities::timet_to_string(time_str, task.scheduled_dt);
-      count > 0) {
+  if (std::size_t const count = utilities::timet_to_string(time_str, task.scheduled_dt);
+      count != std::string::npos ) {
     time_str.resize(count);
   } else {
     time_str = std::to_string(task.scheduled_dt);
