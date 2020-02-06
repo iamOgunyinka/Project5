@@ -77,6 +77,7 @@ Thumbs.db
 *.dll
 *.exe
 
-
 /wudi-server/uploads
 /wudi-server/x64/Release
+/wudi-server/x64/Debug
+x64/

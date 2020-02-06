@@ -21,7 +21,7 @@ int main(int argc, char *argv[]) {
   cli_parser.add_option("--tL", args.scheduled_snapshot,
                         "Scheduled task snapshot");
   cli_parser.add_option("-y", args.launch_type,
-                        "Launch type(production, development)", false);
+                        "Launch type(production, development)", true);
   CLI11_PARSE(cli_parser, argc, argv);
 
   auto database_connector{wudi_server::DatabaseConnector::GetDBConnector()};

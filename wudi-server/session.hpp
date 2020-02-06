@@ -4,6 +4,7 @@
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 #include <memory>
+#include <optional>
 
 #define private_functions private
 
@@ -27,7 +28,7 @@ class session {
   beast::tcp_stream tcp_stream_;
   command_line_interface const &args_;
   beast::flat_buffer buffer_{};
-  std::unique_ptr<http::request_parser<http::empty_body>> empty_body_parser_{};
+  std::optional<http::request_parser<http::empty_body>> empty_body_parser_{};
   dynamic_body_ptr dynamic_body_parser{nullptr};
   string_body_ptr client_request_{};
   boost::string_view content_type_{};

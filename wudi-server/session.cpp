@@ -1,4 +1,5 @@
 #include "session.hpp"
+#include "websocket_updates.hpp"
 #include <boost/algorithm/string.hpp>
 #include <filesystem>
 #include <fstream>
@@ -10,8 +11,7 @@ using namespace fmt::v6::literals;
 
 void session::http_read_data() {
   buffer_.clear();
-  empty_body_parser_ =
-      std::make_unique<http::request_parser<http::empty_body>>();
+  empty_body_parser_.emplace();
   empty_body_parser_->body_limit(utilities::FiftyMegabytes);
   beast::get_lowest_layer(tcp_stream_)
       .expires_after(std::chrono::minutes(args_.timeout_mins));
@@ -21,12 +21,19 @@ void session::http_read_data() {
 }
 
 void session::on_header_read(beast::error_code ec, std::size_t const) {
+  if (ec == http::error::end_of_stream)
+    return shutdown_socket();
   if (ec) {
     spdlog::info(ec.message());
     return error_handler(
         server_error(ec.message(), ErrorType::ServerError, string_request{}),
         true);
   } else {
+    if (websocket::is_upgrade(empty_body_parser_->get())) {
+      std::make_shared<websocket_updates>(tcp_stream_.release_socket())
+          ->run(empty_body_parser_->release());
+      return;
+    }
     content_type_ = empty_body_parser_->get()[http::field::content_type];
     if (content_type_ == "application/json") {
       client_request_ =
@@ -286,7 +293,7 @@ void session::add_endpoint_interfaces() {
       std::bind(&session::upload_handler, shared_from_this(),
                 std::placeholders::_1, std::placeholders::_2));
   endpoint_apis_.add_endpoint(
-      "/website", {verb::post, verb::get},
+      "/website", {verb::post, verb::get, verb::post},
       std::bind(&session::website_handler, shared_from_this(),
                 std::placeholders::_1, std::placeholders::_2));
   endpoint_apis_.add_endpoint(
@@ -332,9 +339,16 @@ void session::schedule_task_handler(string_request const &request,
         return error_handler(server_error("unable to schedule task",
                                           ErrorType::ServerError, request));
       }
-      spdlog::info("Added new task");
+      spdlog::info("Added new task{}", task.website_ids.size() == 1 ? "s" : "");
       auto &tasks{get_scheduled_tasks()};
-      tasks.push_back(std::move(task));
+
+      // split the main task into sub-tasks, based on the number of websites
+      for (auto const &website_id : task.website_ids) {
+        utilities::AtomicTask atom_task{task.task_id};
+        atom_task.website_id = website_id;
+        atom_task.number_ids = task.number_ids;
+        tasks.push_back(std::move(atom_task));
+      }
       json::object_t obj;
       obj["id"] = task.task_id;
       json j = obj;
@@ -343,10 +357,12 @@ void session::schedule_task_handler(string_request const &request,
       spdlog::error(e.what());
       return error_handler(bad_request("json object is not parsable", request));
     }
-  } else if( method == http::verb::delete_ ){
-    return error_handler(server_error("not implemented yet", ErrorType::ServerError, request));
+  } else if (method == http::verb::delete_) {
+    return error_handler(
+        server_error("not implemented yet", ErrorType::ServerError, request));
   } else {
-    return error_handler(bad_request("only accessible through websocket", request));
+    return error_handler(
+        bad_request("only accessible through websocket", request));
   }
 }
 

@@ -15,13 +15,13 @@ otl_stream &operator>>(otl_stream &os, UploadResult &item) {
          item.upload_date >> item.name_on_disk;
 }
 
-otl_stream &operator>>(otl_stream &os, TaskResult &item) {
-  return os >> item.id >> item.scheduler_username >> item.scheduled_date >>
-         item.website_ids >> item.numbers >> item.progress;
-}
-
 otl_stream &operator>>(otl_stream &os, WebsiteResult &web) {
   return os >> web.id >> web.address >> web.alias;
+}
+
+bool operator<(AtomicTaskResult const &task_1, AtomicTaskResult const &task_2) {
+  return std::tie(task_1.task_id, task_1.website_id) <
+         std::tie(task_2.task_id, task_2.website_id);
 }
 
 void to_json(json &j, UploadResult const &item) {
@@ -29,15 +29,6 @@ void to_json(json &j, UploadResult const &item) {
            {"date", item.upload_date},
            {"filename", item.filename},
            {"total", item.total_numbers}};
-}
-
-void to_json(json &j, TaskResult const &item) {
-  j = json{{"id", item.id},
-           {"progress", item.progress},
-           {"web", item.website_ids},
-           {"numbers", item.numbers},
-           {"username", item.scheduler_username},
-           {"date", item.scheduled_date}};
 }
 
 void to_json(json &j, WebsiteResult const &result) {
@@ -175,7 +166,7 @@ std::string_view bv2sv(boost::string_view view) {
   return std::string_view(view.data(), view.size());
 }
 
-std::string intlist_to_string(std::vector<int32_t> const &vec) {
+std::string intlist_to_string(std::vector<uint32_t> const &vec) {
   std::ostringstream ss{};
   if (vec.empty())
     return {};
@@ -302,12 +293,19 @@ std::string get_random_agent() {
   return request_handler::user_agents[uid(gen)];
 }
 
-threadsafe_container<ScheduledTask> &get_scheduled_tasks() {
-  static threadsafe_container<ScheduledTask> tasks{};
+threadsafe_cv_container<AtomicTask> &get_scheduled_tasks() {
+  static threadsafe_cv_container<AtomicTask> tasks{};
   return tasks;
 }
 
-std::size_t timet_to_string(std::string &output, std::size_t t, char const *format) {
+std::multimap<uint32_t, std::shared_ptr<AtomicTaskResult>> &
+get_tasks_results() {
+  static std::multimap<uint32_t, std::shared_ptr<AtomicTaskResult>> task_result;
+  return task_result;
+}
+
+std::size_t timet_to_string(std::string &output, std::size_t t,
+                            char const *format) {
   std::time_t current_time = t;
   auto tm_t = std::localtime(&current_time);
   if (!tm_t)
@@ -316,6 +314,22 @@ std::size_t timet_to_string(std::string &output, std::size_t t, char const *form
   output.resize(32);
   return std::strftime(output.data(), output.size(), format, tm_t);
 }
+
+number_stream::number_stream(std::ifstream &file_stream)
+    : input_stream{file_stream} {}
+
+std::string number_stream::get() noexcept(false) {
+  std::string number{};
+  while (std::getline(input_stream, number)) {
+    boost::trim(number);
+    if (number.empty() || !is_valid_number(number, number))
+      continue;
+    return number;
+  }
+  throw empty_container_exception{};
+}
+
+bool number_stream::empty() { return !(input_stream && !input_stream.eof()); }
 } // namespace utilities
 
 Rule::Rule(std::initializer_list<http::verb> &&verbs, Callback callback)
@@ -376,19 +390,22 @@ DatabaseConnector::database_name(std::string const &db_name) {
 void DatabaseConnector::keep_sql_server_busy() {
   spdlog::info("keeping SQL server busy");
   std::thread sql_thread{[this] {
-    try {
-      auto dir = otl_cursor::direct_exec(otl_connector_, "select 1", true);
-      spdlog::info("OTL Busy server says: {}", dir);
-    } catch (otl_exception const &exception) {
-      utilities::log_sql_error(exception);
-      otl_connector_.logoff();
-      otl_connector_.rlogon("{}/{}@{}"_format(db_config.username,
-                                              db_config.password,
-                                              db_config.db_dns)
-                                .c_str());
-      std::this_thread::sleep_for(std::chrono::seconds(1));
+    while (true) {
+      try {
+        auto dir = otl_cursor::direct_exec(otl_connector_, "select 1", true);
+        spdlog::info("OTL Busy server says: {}", dir);
+      } catch (otl_exception const &exception) {
+        utilities::log_sql_error(exception);
+        otl_connector_.logoff();
+        otl_connector_.rlogon("{}/{}@{}"_format(db_config.username,
+                                                db_config.password,
+                                                db_config.db_dns)
+                                  .c_str());
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        continue;
+      }
+      std::this_thread::sleep_for(std::chrono::minutes(15));
     }
-    std::this_thread::sleep_for(std::chrono::minutes(30));
   }};
   sql_thread.detach();
 }
@@ -423,8 +440,11 @@ DatabaseConnector::get_login_role(std::string_view const username,
       "username = '{}' and password = '{}'"_format(username, password)};
   std::pair<int, int> id_role_pair = {-1, -1};
   try {
-    otl_stream db_stream(5, sql_statement.c_str(), otl_connector_);
-    db_stream >> id_role_pair.first >> id_role_pair.second;
+    {
+      std::lock_guard<std::mutex> lock_g{db_mutex_};
+      otl_stream db_stream(5, sql_statement.c_str(), otl_connector_);
+      db_stream >> id_role_pair.first >> id_role_pair.second;
+    }
   } catch (otl_exception const &e) {
     utilities::log_sql_error(e);
   }
@@ -442,8 +462,11 @@ bool DatabaseConnector::add_upload(
           bv2sv(upload_request.upload_date), upload_request.total_numbers,
           bv2sv(upload_request.name_on_disk))};
   try {
-    otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
-                            otl_exception::enabled);
+    {
+      std::lock_guard<std::mutex> lock_g{db_mutex_};
+      otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
+                              otl_exception::enabled);
+    }
     return true;
   } catch (otl_exception const &e) {
     utilities::log_sql_error(e);
@@ -453,8 +476,9 @@ bool DatabaseConnector::add_upload(
 
 bool DatabaseConnector::add_task(utilities::ScheduledTask &task) {
   std::string time_str{};
-  if (std::size_t const count = utilities::timet_to_string(time_str, task.scheduled_dt);
-      count != std::string::npos ) {
+  if (std::size_t const count =
+          utilities::timet_to_string(time_str, task.scheduled_dt);
+      count != std::string::npos) {
     time_str.resize(count);
   } else {
     time_str = std::to_string(task.scheduled_dt);
@@ -468,10 +492,13 @@ bool DatabaseConnector::add_task(utilities::ScheduledTask &task) {
           intlist_to_string(task.number_ids))};
   spdlog::info(sql_statement);
   try {
-    otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
-                            otl_exception::enabled);
-    otl_stream stream(1, "SELECT MAX(id) FROM tb_tasks", otl_connector_);
-    stream >> task.task_id;
+    {
+      std::lock_guard<std::mutex> lock_g{db_mutex_};
+      otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
+                              otl_exception::enabled);
+      otl_stream stream(1, "SELECT MAX(id) FROM tb_tasks", otl_connector_);
+      stream >> task.task_id;
+    }
     return true;
   } catch (otl_exception const &e) {
     utilities::log_sql_error(e);
@@ -479,25 +506,8 @@ bool DatabaseConnector::add_task(utilities::ScheduledTask &task) {
   }
 }
 
-std::vector<utilities::TaskResult> DatabaseConnector::get_all_tasks() {
-  char const *sql_statement =
-      "SELECT tb_tasks.id, username, date_scheduled, websites, "
-      "uploads, progress FROM tb_tasks INNER JOIN tb_users";
-  std::vector<utilities::TaskResult> result{};
-  try {
-    otl_stream db_stream(1'000, sql_statement, otl_connector_);
-    utilities::TaskResult item{};
-    while (db_stream >> item) {
-      result.push_back(std::move(item));
-    }
-  } catch (otl_exception const &e) {
-    utilities::log_sql_error(e);
-  }
-  return result;
-}
-
 std::vector<utilities::WebsiteResult>
-DatabaseConnector::get_websites(std::vector<int32_t> const &ids) {
+DatabaseConnector::get_websites(std::vector<uint32_t> const &ids) {
   std::string sql_statement{};
   using utilities::intlist_to_string;
 
@@ -512,8 +522,11 @@ DatabaseConnector::get_websites(std::vector<int32_t> const &ids) {
   try {
     otl_stream db_stream(1'000, sql_statement.c_str(), otl_connector_);
     utilities::WebsiteResult website_info{};
-    while (db_stream >> website_info) {
-      results.push_back(std::move(website_info));
+    {
+      std::lock_guard<std::mutex> lock_g{db_mutex_};
+      while (db_stream >> website_info) {
+        results.push_back(std::move(website_info));
+      }
     }
   } catch (otl_exception const &e) {
     utilities::log_sql_error(e);
@@ -521,14 +534,37 @@ DatabaseConnector::get_websites(std::vector<int32_t> const &ids) {
   return results;
 }
 
+std::optional<utilities::WebsiteResult>
+DatabaseConnector::get_website(uint32_t const id) {
+  std::string sql_statement{
+      "SELECT id, address, nickname FROM tb_websites WHERE ID={}"_format(id)};
+  using utilities::intlist_to_string;
+
+  try {
+    otl_stream db_stream(5, sql_statement.c_str(), otl_connector_);
+    utilities::WebsiteResult website_info{};
+    {
+      std::lock_guard<std::mutex> lock_g{db_mutex_};
+      db_stream >> website_info;
+    }
+    return website_info;
+  } catch (otl_exception const &e) {
+    utilities::log_sql_error(e);
+    return std::nullopt;
+  }
+}
+
 bool DatabaseConnector::add_website(std::string_view const address,
                                     std::string_view const alias) {
   std::string sql_statement =
-      "INSERT INTO tb_websites (nickame, address) VALUES (\"{}\", "
-      "\"{}\""_format(alias, address);
+      "INSERT INTO tb_websites (nickname, address) VALUES (\"{}\", "
+      "\"{}\")"_format(alias, address);
   try {
-    otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
-                            otl_exception::enabled);
+    {
+      std::lock_guard<std::mutex> lock_g{db_mutex_};
+      otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
+                              otl_exception::enabled);
+    }
     return true;
   } catch (otl_exception const &e) {
     utilities::log_sql_error(e);

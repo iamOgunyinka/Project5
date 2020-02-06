@@ -1,14 +1,15 @@
 #include "jj_games_socket.hpp"
+#include "utilities.hpp"
 #include <gzip/decompress.hpp>
 #include <nlohmann/json.hpp>
 
 namespace wudi_server {
-jj_games_socket::jj_games_socket(
-    net::io_context &io, safe_proxy &proxy_provider,
-    utilities::threadsafe_container<std::string> &numbers,
-    result_callback callback)
-    : io_{io}, numbers_{numbers}, timer_{io}, proxy_provider_{proxy_provider},
-      callback_{std::move(callback)}, thread_data_{} {}
+jj_games_socket::jj_games_socket(net::io_context &io,
+                                 safe_proxy &proxy_provider,
+                                 utilities::number_stream &numbers)
+    : context_{io}, proxy_provider_{proxy_provider}, timer_{io},
+      numbers_{numbers}, thread_data_{} {}
+
 void jj_games_socket::start_connect() {
   using custom_curl::multi_socket_callback;
   using custom_curl::multi_socket_timer_callback;
@@ -33,16 +34,20 @@ void jj_games_socket::remove_tcp_socket(int *action_ptr) {
 }
 
 void jj_games_socket::initialize_async_sockets() {
-  auto const max_connections = std::min(
-      static_cast<std::size_t>(utilities::MaxOpenSockets), numbers_.size());
+  int const max_connections = 1;
   connections.clear();
   connections.reserve(
       max_connections); // very important! We can't afford to reallocate
   for (std::size_t i = 0; i != max_connections; ++i) {
     auto proxy = proxy_provider_.next_endpoint().value();
-    ConnectInfo *connect_info{nullptr};
+    ConnectInfo *connect_info{new ConnectInfo{context_, socket_map}};
+    if (!connect_info->easy_interface) {
+      delete connect_info;
+      continue;
+    }
     auto connected = custom_curl::create_jj_games_interface(
-        &connect_info, thread_data_, proxy, numbers_.get());
+        connect_info, thread_data_, proxy, numbers_.get());
+
     if (!connected)
       continue;
     connections.emplace_back(connect_info);
@@ -78,6 +83,11 @@ void jj_games_socket::add_tcp_socket(curl_socket_t scket, CURL *easy_handle,
 void jj_games_socket::try_different_proxy(ConnectInfo *connect_info) {
   auto easy_handle = connect_info->easy_interface;
   curl_multi_remove_handle(curlm_async_interface(), easy_handle);
+  if (is_stopped()) {
+    curl_easy_cleanup(connect_info->easy_interface);
+    connect_info->easy_interface = nullptr;
+    return;
+  }
   select_proxy(connect_info);
   prepare_next_data(connect_info, connect_info->phone_number);
 }
@@ -122,7 +132,7 @@ void jj_games_socket::process_result(CURLcode code,
   if (opening_brace_index == std::string::npos ||
       closing_brace_index == std::string::npos) {
     spdlog::error(response_body);
-    callback_(SearchResultType::Unknown, connection_info->phone_number);
+    emit signal_(SearchResultType::Unknown, connection_info->phone_number);
     send_next(connection_info);
     return;
   }
@@ -136,17 +146,19 @@ void jj_games_socket::process_result(CURLcode code,
     json::object_t object = json_response.get<json::object_t>();
     bool const status = object["REV"].get<json::boolean_t>();
     if (status) {
-      callback_(SearchResultType::NotRegistered, connection_info->phone_number);
+      emit signal_(SearchResultType::NotRegistered,
+                   connection_info->phone_number);
     } else {
       static std::string const already_registered{
           "%E8%AF%A5%E6%89%8B%E6%9C%BA%E5%8F%B7%E5%B7%B2%E6%B3%A8%E5%86%8C%EF%"
           "BC%8C%E8%AF%B7%E6%9B%B4%E6%8D%A2"};
       std::string const server_message = object["MSG"].get<json::string_t>();
       if (server_message.find(already_registered) != std::string::npos) {
-        callback_(SearchResultType::Registered, connection_info->phone_number);
+        emit signal_(SearchResultType::Registered,
+                     connection_info->phone_number);
       } else {
         spdlog::warn(response_body);
-        callback_(SearchResultType::Unknown, connection_info->phone_number);
+        emit signal_(SearchResultType::Unknown, connection_info->phone_number);
       }
     }
   } catch (std::exception const &) {
@@ -154,23 +166,48 @@ void jj_games_socket::process_result(CURLcode code,
   send_next(connection_info);
 }
 
+void jj_games_socket::select_proxy(ConnectInfo *connect_info) {
+  if (is_stopped() && connect_info->easy_interface) {
+    curl_multi_remove_handle(curlm_async_interface(),
+                             connect_info->easy_interface);
+    curl_easy_cleanup(connect_info->easy_interface);
+    connect_info->easy_interface = nullptr;
+    return;
+  }
+
+  if (auto proxy = proxy_provider_.next_endpoint(); proxy.has_value()) {
+    connect_info->proxy = proxy.value();
+  } else {
+    connect_info->proxy = nullptr;
+    emit signal_(utilities::SearchResultType::Unknown,
+                 connect_info->phone_number);
+  }
+}
+
+bool jj_games_socket::is_stopped() const { return false; }
+
 void jj_games_socket::current_proxy_assign_prop(ProxyProperty property,
                                                 endpoint_ptr ep) {
   if (ep)
     ep->property = property;
 }
 
-void jj_games_socket::select_proxy(ConnectInfo *connect_info) {
-  if (auto proxy = proxy_provider_.next_endpoint(); proxy.has_value()) {
-    connect_info->proxy = proxy.value();
-  } else {
-    connect_info->proxy = nullptr;
-    callback_(utilities::SearchResultType::Unknown, connect_info->phone_number );
+void jj_games_socket::send_next(void *connection_info) {
+  ConnectInfo *connect_info_ptr = static_cast<ConnectInfo *>(connection_info);
+  connect_info_ptr->headers = {};
+  connect_info_ptr->body_buffer = {};
+  connect_info_ptr->error_buffer = {};
+  connect_info_ptr->header_buffer = {};
+  if (is_stopped()) {
+    if (connect_info_ptr->easy_interface) {
+      curl_multi_remove_handle(curlm_async_interface(),
+                               connect_info_ptr->easy_interface);
+      curl_easy_cleanup(connect_info_ptr->easy_interface);
+      connect_info_ptr->easy_interface = nullptr;
+      return;
+    }
   }
-}
 
-void jj_games_socket::send_next(void *connect_info) {
-  ConnectInfo *connect_info_ptr = static_cast<ConnectInfo *>(connect_info);
   auto easy_handle = connect_info_ptr->easy_interface;
   curl_multi_remove_handle(curlm_async_interface(), easy_handle);
   select_proxy(connect_info_ptr);
@@ -180,17 +217,25 @@ void jj_games_socket::send_next(void *connect_info) {
   }
 }
 
-void jj_games_socket::prepare_next_data(ConnectInfo *connect_info,
+void jj_games_socket::prepare_next_data(ConnectInfo *connect_info_ptr,
                                         std::string const &number) {
-  auto easy_handle = connect_info->easy_interface;
+  if (is_stopped()) {
+    if (connect_info_ptr->easy_interface) {
+      curl_multi_remove_handle(curlm_async_interface(),
+                               connect_info_ptr->easy_interface);
+      curl_easy_cleanup(connect_info_ptr->easy_interface);
+      connect_info_ptr->easy_interface = nullptr;
+      return;
+    }
+  }
+  auto easy_handle = connect_info_ptr->easy_interface;
   curl_easy_reset(easy_handle);
-  connect_info->header_buffer.clear();
-  connect_info->body_buffer.clear();
-  connect_info->headers = {};
-  connect_info->error_buffer = {};
-  if (!custom_curl::create_jj_games_interface(&connect_info, thread_data_,
-                                              connect_info->proxy, number)) {
-    spdlog::error("Unable to create new interfaces");
+  connect_info_ptr->header_buffer.clear();
+  connect_info_ptr->body_buffer.clear();
+  connect_info_ptr->headers = {};
+  connect_info_ptr->error_buffer = {};
+  if (!custom_curl::create_jj_games_interface(
+          connect_info_ptr, thread_data_, connect_info_ptr->proxy, number)) {
     return;
   }
   curl_multi_add_handle(curlm_async_interface(), easy_handle);
@@ -199,27 +244,22 @@ void jj_games_socket::prepare_next_data(ConnectInfo *connect_info,
 void jj_games_socket::on_socket_event_occurred(
     boost::system::error_code const ec, curl_socket_t const scket, int action,
     int *fd) {
-  using custom_curl::global_socket_map;
-
-  if (!global_socket_map.contains(scket))
+  if (!socket_map.contains(scket))
     return;
   if (*fd == action || *fd == CURL_POLL_INOUT) {
     if (ec) {
       action = CURL_CSELECT_ERR;
-      spdlog::error(ec.message());
     }
     CURLMcode rc = curl_multi_socket_action(
         curlm_async_interface(), scket, action, &thread_data_.still_running);
     if (rc != CURLM_OK) {
-      spdlog::error("CURL multi-action failed: ", ec.message());
       return;
     }
     check_multi_info();
     if (thread_data_.still_running <= 0) {
-      spdlog::info("Done running");
       timer_.cancel();
     }
-    if (auto tcp_socket = global_socket_map.value(scket);
+    if (auto tcp_socket = socket_map.value(scket);
         tcp_socket.has_value() && !ec &&
         (*fd == action || *fd == CURL_POLL_INOUT)) {
       if (action == CURL_POLL_IN) {
@@ -237,7 +277,7 @@ void jj_games_socket::on_socket_event_occurred(
                                    fd));
       }
     }
-    if (thread_data_.still_running <= 0 && numbers_.size() != 0) {
+    if (thread_data_.still_running <= 0 && !numbers_.empty()) {
       initialize_async_sockets();
       simple_timer_callback({});
     }
@@ -245,24 +285,24 @@ void jj_games_socket::on_socket_event_occurred(
 }
 
 jj_games_socket::~jj_games_socket() {
-  spdlog::info("Disconnecting {} connections", connections.size());
   for (auto &connection : connections) {
     if (connection)
       delete connection;
   }
-  spdlog::info("Destroying {} file descriptors", fd_list.size());
   for (auto &fd : fd_list) {
-    if (fd)
-      delete fd;
+    delete fd;
   }
   fd_list.clear();
   connections.clear();
+  socket_map.clear();
 }
 
 void jj_games_socket::check_multi_info() {
   CURLMsg *msg{};
   int msgs_left{};
   ConnectInfo *connection_info{nullptr};
+  if (is_stopped())
+    return;
   while ((msg = curl_multi_info_read(curlm_async_interface(), &msgs_left))) {
     if (msg->msg == CURLMSG_DONE) {
       CURL *easy_handle = msg->easy_handle;
@@ -276,10 +316,8 @@ void jj_games_socket::check_multi_info() {
 void jj_games_socket::set_tcp_socket(int *fd, curl_socket_t scket, CURL *,
                                      int const new_action,
                                      int const old_action) {
-  using custom_curl::global_socket_map;
-
-  auto optional_socket = global_socket_map.value(scket);
-  if (!optional_socket)
+  auto optional_socket = socket_map.value(scket);
+  if (!optional_socket || is_stopped())
     return;
   auto &tcp_socket = optional_socket.value();
   *fd = new_action;
@@ -316,6 +354,7 @@ void jj_games_socket::set_tcp_socket(int *fd, curl_socket_t scket, CURL *,
     }
   }
 }
+
 } // namespace wudi_server
 
 namespace custom_curl {
@@ -331,8 +370,8 @@ parse_headers(std::string_view const &str) {
     return {};
 
   for (auto iter = headers.begin() + 1; iter != headers.end(); ++iter) {
-    auto header_key_value = wudi_server::utilities::
-        split_string_view(*iter, ": "); // make copies of header info
+    auto header_key_value = wudi_server::utilities::split_string_view(
+        *iter, ": "); // make copies of header info
     if (header_key_value.size() != 2)
       continue;
     header_map[header_key_value[0]] = header_key_value[1];
@@ -354,53 +393,36 @@ std::string get_current_time() {
   return std::to_string(current_time);
 }
 
-bool create_jj_games_interface(ConnectInfo **connect_info_ptr,
+bool create_jj_games_interface(ConnectInfo *connect_info,
                                CurlThreadData &glob_data,
                                wudi_server::endpoint_ptr proxy,
                                std::string const &number) {
-  bool allocated_now = false;
-  if (!*connect_info_ptr) { // first time pass, subsequent calls do not need to
-                            // allocate
-    *connect_info_ptr = new ConnectInfo{glob_data.multi_interface};
-    if (!(*connect_info_ptr)->easy_interface) {
-      delete *connect_info_ptr;
-      *connect_info_ptr = nullptr;
-      return false;
-    }
-    allocated_now = true;
-  }
-
-  auto connect_info = *connect_info_ptr;
-
   connect_info->url =
       "https://a4.srv.jj.cn/reg/check_loginname.php?regtype=2&t=" +
-      get_current_time() + "&n=1&loginname=" + number;
+      get_current_time() + "&n=1&loginname=";
   connect_info->proxy = proxy;
   connect_info->phone_number = number;
   connect_info->headers.append("sec-fetch-site: same-origin");
   connect_info->headers.append("sec-fetch-mode: cors");
   connect_info->headers.append("Accept-Language: en-US,en;q=0.5 --compressed");
   connect_info->headers.append(
-      "User-Agent: Mozilla/5.0 (Windows NT 5.1; rv:31.0) "
-      "Gecko/20100101 Firefox/31.0");
-  connect_info->headers.append(
       "Referer: https://www.jj.cn/reg/reg.html?type=phone");
   connect_info->headers.append("Accept-Encoding: gzip, deflate, br");
-  CURL *curl_handle = connect_info->easy_interface;
+  auto curl_handle = connect_info->easy_interface;
 
   std::string const proxy_address =
       "http://" + get_proxy_string(connect_info->proxy);
+  std::string const user_agent = wudi_server::utilities::get_random_agent();
   curl_easy_setopt(curl_handle, CURLOPT_HTTPGET, 1L);
   curl_easy_setopt(curl_handle, CURLOPT_URL, connect_info->url.c_str());
+  curl_easy_setopt(curl_handle, CURLOPT_HTTPPROXYTUNNEL, 1L);
   curl_easy_setopt(curl_handle, CURLOPT_PROXY, proxy_address.c_str());
   curl_easy_setopt(curl_handle, CURLOPT_PROXYHEADER,
                    static_cast<curl_slist *>(connect_info->headers));
   curl_easy_setopt(curl_handle, CURLOPT_HEADERFUNCTION, header_writer);
   curl_easy_setopt(curl_handle, CURLOPT_HEADERDATA,
                    static_cast<void *>(&connect_info->header_buffer));
-  curl_easy_setopt(
-      curl_handle, CURLOPT_USERAGENT,
-      "Mozilla/5.0 (Windows NT 5.1; rv:31.0) Gecko/20100101 Firefox/31.0");
+  curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, user_agent.c_str());
   curl_easy_setopt(curl_handle, CURLOPT_ACCEPT_ENCODING, "gzip, deflate, br");
   curl_easy_setopt(curl_handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2);
   curl_easy_setopt(curl_handle, CURLOPT_REFERER,
@@ -414,19 +436,15 @@ bool create_jj_games_interface(ConnectInfo **connect_info_ptr,
                    &connect_info->error_buffer);
   curl_easy_setopt(curl_handle, CURLOPT_PRIVATE, connect_info);
   curl_easy_setopt(curl_handle, CURLOPT_OPENSOCKETFUNCTION, open_tcp_socket);
+  curl_easy_setopt(curl_handle, CURLOPT_OPENSOCKETDATA, connect_info);
   curl_easy_setopt(curl_handle, CURLOPT_CLOSESOCKETFUNCTION, close_tcp_socket);
+  curl_easy_setopt(curl_handle, CURLOPT_CLOSESOCKETDATA, connect_info);
   curl_easy_setopt(curl_handle, CURLOPT_TIMEOUT_MS,
-                   wudi_server::utilities::TimeoutMilliseconds * 3);
+                   wudi_server::utilities::TimeoutMilliseconds * 2);
   curl_easy_setopt(curl_handle, CURLOPT_VERBOSE, 1L);
 
   auto ec = curl_multi_add_handle(glob_data.multi_interface, curl_handle);
-  if (ec != CURLM_OK) {
-    if (allocated_now)
-      delete *connect_info_ptr;
-    return false;
-  }
-
-  return true;
+  return ec == CURLM_OK;
 }
 
 std::size_t data_writer(char *buffer, std::size_t, std::size_t nmemb,
@@ -444,31 +462,35 @@ std::size_t header_writer(char *buffer, std::size_t, std::size_t nmemb,
   return nmemb;
 }
 
-curl_socket_t open_tcp_socket(void *, curlsocktype purpose,
+curl_socket_t open_tcp_socket(void *userp, curlsocktype purpose,
                               curl_sockaddr *address) {
+  ConnectInfo *connect_info = reinterpret_cast<ConnectInfo *>(userp);
   if (purpose == CURLSOCKTYPE_IPCXN && address->family == AF_INET) {
-    auto tcp_socket =
-        std::make_shared<tcp::socket>(wudi_server::get_network_context());
+    auto tcp_socket = std::make_shared<tcp::socket>(connect_info->context);
     boost::system::error_code ec{};
     tcp_socket->open(tcp::v4(), ec);
     if (ec)
       return CURL_SOCKET_BAD;
     curl_socket_t native_socket = tcp_socket->native_handle();
-    custom_curl::global_socket_map.insert(native_socket, tcp_socket);
+    connect_info->map_.insert(native_socket, tcp_socket);
     return native_socket;
   }
   return CURL_SOCKET_BAD;
 }
 
-int close_tcp_socket(void *, curl_socket_t item) {
-  custom_curl::global_socket_map.remove(item);
-  return 0;
+int close_tcp_socket(void *userp, curl_socket_t item) {
+  ConnectInfo *connect_info = reinterpret_cast<ConnectInfo *>(userp);
+  return connect_info->map_.remove(item) ? 0 : -1;
 }
 
 int multi_socket_callback(CURL *easy_handle, curl_socket_t socket, int what,
                           void *userp, void *socketp) {
   using wudi_server::jj_games_socket;
+
   jj_games_socket *object_ptr = reinterpret_cast<jj_games_socket *>(userp);
+  if (object_ptr->is_stopped())
+    return -1;
+
   int *action_ptr = static_cast<int *>(socketp);
   if (what == CURL_POLL_REMOVE) {
     object_ptr->remove_tcp_socket(action_ptr);
@@ -489,6 +511,8 @@ int multi_socket_timer_callback(CURLM *, long timeout_ms, void *user_data) {
   auto &timer = object_ptr->timer();
   timer.cancel();
 
+  if (object_ptr->is_stopped())
+    return -1;
   if (timeout_ms > 0) {
     timer.expires_from_now(boost::posix_time::milliseconds(timeout_ms));
     timer.async_wait(std::bind(&jj_games_socket::simple_timer_callback,

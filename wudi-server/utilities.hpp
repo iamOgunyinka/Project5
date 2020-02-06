@@ -7,6 +7,7 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <set>
 #include <spdlog/spdlog.h>
 #include <sstream>
 #include <string>
@@ -82,7 +83,7 @@ enum class ErrorType {
 };
 
 enum Constants {
-  WorkerThreadCount = 3,
+  WorkerThreadCount = 10,
   SleepTimeoutSec = 5,
   FiftyMegabytes = 1024 * 1024 * 50
 };
@@ -95,13 +96,21 @@ enum Anonymous {
 };
 
 struct ScheduledTask {
-  int32_t task_id{};
-  int32_t progress{};
-  int32_t scheduler_id{};
-  int32_t scheduled_dt{};
-  std::vector<int32_t> website_ids{};
-  std::vector<int32_t> number_ids{};
+  uint32_t task_id{};
+  uint32_t progress{};
+  uint32_t scheduler_id{};
+  uint32_t scheduled_dt{};
+  std::vector<uint32_t> website_ids{};
+  std::vector<uint32_t> number_ids{};
   std::string last_processed_number{};
+};
+
+struct AtomicTask {
+  uint32_t const task_id;
+  uint32_t website_id{};
+  uint32_t total_numbers{};
+  uint32_t processed{};
+  std::vector<uint32_t> number_ids{};
 };
 
 struct command_line_interface {
@@ -110,7 +119,7 @@ struct command_line_interface {
   uint16_t timeout_mins{15};
   std::string ip_address{"127.0.0.1"};
   std::string scheduled_snapshot;
-  std::string launch_type;
+  std::string launch_type{"development"};
   std::string database_config_filename{"../scripts/config/database.ini"};
 };
 
@@ -140,13 +149,22 @@ struct UploadRequest {
   std::size_t const total_numbers;
 };
 
-struct TaskResult {
-  int32_t id;
-  int32_t progress;
-  std::string website_ids;
-  std::string numbers;
-  std::string scheduler_username;
-  std::string scheduled_date;
+enum class OpStatus { Ongoing, Stopped, Erred };
+
+struct AtomicTaskResult {
+  uint32_t task_id{};
+  uint32_t website_id{};
+  uint32_t processed{};
+  uint32_t total_numbers{};
+  OpStatus operation_status{OpStatus::Stopped};
+
+  std::filesystem::path ok_filename;
+  std::filesystem::path not_ok_filename;
+  std::filesystem::path unknown_filename;
+
+  std::ofstream ok_file;
+  std::ofstream not_ok_file;
+  std::ofstream unknown_file;
 };
 
 struct WebsiteResult {
@@ -181,7 +199,17 @@ struct empty_container_exception : public std::runtime_error {
   empty_container_exception() : std::runtime_error("") {}
 };
 
-template <typename T, typename Container = std::deque<T>>
+class number_stream {
+public:
+  number_stream(std::ifstream &file_stream);
+  std::string get() noexcept(false);
+  bool empty();
+
+private:
+  std::ifstream &input_stream;
+};
+
+template <typename T, typename Container = std::deque<T>, bool use_cv = false>
 struct threadsafe_container {
 private:
   std::mutex mutex_{};
@@ -192,7 +220,9 @@ public:
   threadsafe_container(Container &&container)
       : container_{std::move(container)}, total_{container_.size()} {}
   threadsafe_container() = default;
-  threadsafe_container(threadsafe_container &&);
+  threadsafe_container(threadsafe_container &&vec)
+      : mutex_{std::move(vec.mutex_)},
+        container_{std::move(vec.container_)}, total_{vec.total_} {}
   threadsafe_container &operator=(threadsafe_container &&) = delete;
   threadsafe_container(threadsafe_container const &) = delete;
   threadsafe_container &operator=(threadsafe_container const &) = delete;
@@ -206,10 +236,9 @@ public:
     --total_;
     return value;
   }
-
-  void push_back(T &&data) {
+  template <typename U> void push_back(U &&data) {
     std::lock_guard<std::mutex> lock_{mutex_};
-    container_.push_back(std::forward<T>(data));
+    container_.push_back(std::forward<U>(data));
     total_ = container_.size();
   }
   bool empty() {
@@ -224,10 +253,49 @@ public:
 };
 
 template <typename T, typename Container>
-threadsafe_container<T, Container>::threadsafe_container(
-    threadsafe_container<T, Container> &&vec)
-    : mutex_{std::move(vec.mutex_)},
-      container_{std::move(vec.container_)}, total_{vec.total_} {}
+struct threadsafe_container<T, Container, true> {
+private:
+  std::mutex mutex_{};
+  Container container_{};
+  std::size_t total_{};
+  std::condition_variable cv_{};
+
+public:
+  threadsafe_container(Container &&container)
+      : container_{std::move(container)}, total_{container_.size()} {}
+  threadsafe_container() = default;
+
+  threadsafe_container(threadsafe_container &&vec)
+      : mutex_{std::move(vec.mutex_)}, container_{std::move(vec.container_)},
+        total_{vec.total_}, cv_{std::move(vec.cv_)} {}
+  threadsafe_container &operator=(threadsafe_container &&) = delete;
+  threadsafe_container(threadsafe_container const &) = delete;
+  threadsafe_container &operator=(threadsafe_container const &) = delete;
+
+  T get() {
+    std::unique_lock<std::mutex> u_lock{mutex_};
+    cv_.wait(u_lock, [this] { return !container_.empty(); });
+    T value = container_.front();
+    container_.pop_front();
+    total_ = container_.size();
+    return value;
+  }
+  template <typename U> void push_back(U &&data) {
+    std::lock_guard<std::mutex> lock_{mutex_};
+    container_.push_back(std::forward<U>(data));
+    total_ = container_.size();
+    cv_.notify_one();
+  }
+  bool empty() {
+    std::lock_guard<std::mutex> lock_{mutex_};
+    return container_.empty();
+  }
+  std::size_t get_total() const { return total_; }
+  std::size_t size() {
+    std::lock_guard<std::mutex> lock_{mutex_};
+    return container_.size();
+  }
+};
 
 template <std::size_t N>
 bool status_in_codes(std::size_t const code,
@@ -245,43 +313,45 @@ bool any_of(Container const &container, IterList &&... iter_list) {
 
 template <typename T> using filter = bool (*)(std::string_view const, T &);
 
-template <typename T>
-std::deque<T> get_file_content(std::string const &filename, filter<T> filter) {
+template <typename T, typename Func>
+void get_file_content(std::string const &filename, filter<T> filter,
+                      Func post_op) {
   std::ifstream in_file{filename};
   if (!in_file)
-    return {};
+    return;
   std::string line{};
   T output{};
-  std::deque<T> file_content{};
   while (std::getline(in_file, line)) {
     if (filter(line, output))
-      file_content.emplace_back(output);
+      post_op(output);
   }
-  return file_content;
 }
 
+template <typename T>
+using threadsafe_cv_container = threadsafe_container<T, std::deque<T>, true>;
+
 otl_stream &operator>>(otl_stream &, UploadResult &);
-otl_stream &operator>>(otl_stream &, TaskResult &);
 otl_stream &operator>>(otl_stream &, WebsiteResult &);
+bool operator<(AtomicTaskResult const &task_1, AtomicTaskResult const &task_2);
 std::string decode_url(boost::string_view const &encoded_string);
 bool is_valid_number(std::string_view const, std::string &);
 std::vector<boost::string_view> split_string_view(boost::string_view const &str,
-                                             char const *delimeter);
+                                                  char const *delimeter);
 void to_json(json &j, UploadResult const &item);
-void to_json(json &j, TaskResult const &);
 void to_json(json &j, WebsiteResult const &);
 void log_sql_error(otl_exception const &exception);
 [[nodiscard]] std::string view_to_string(boost::string_view const &str_view);
-[[nodiscard]] std::string intlist_to_string(std::vector<int32_t> const &vec);
+[[nodiscard]] std::string intlist_to_string(std::vector<uint32_t> const &vec);
 [[nodiscard]] DbConfig parse_database_file(std::string const &filename,
                                            std::string const &config_name);
 [[nodiscard]] std::string_view bv2sv(boost::string_view);
 std::string get_random_agent();
 void background_task_executor(std::atomic_bool &stopped, std::mutex &,
                               std::shared_ptr<DatabaseConnector> &);
-threadsafe_container<ScheduledTask> &get_scheduled_tasks();
+threadsafe_cv_container<AtomicTask> &get_scheduled_tasks();
+std::multimap<uint32_t, std::shared_ptr<AtomicTaskResult>> &get_tasks_results();
 std::size_t timet_to_string(std::string &, std::size_t,
-                    char const * = "%Y-%m-%d %H:%M:%S");
+                            char const * = "%Y-%m-%d %H:%M:%S");
 bool read_task_file(std::string_view);
 } // namespace utilities
 
@@ -310,6 +380,7 @@ public:
 struct DatabaseConnector {
   utilities::DbConfig db_config;
   otl_connect otl_connector_;
+  std::mutex db_mutex_;
   bool is_running = false;
 
 private:
@@ -325,11 +396,11 @@ public:
 
 public:
   std::vector<utilities::WebsiteResult>
-  get_websites(std::vector<int32_t> const &ids);
+  get_websites(std::vector<uint32_t> const &ids);
+  std::optional<utilities::WebsiteResult> get_website(uint32_t const id);
   bool add_website(std::string_view const address,
                    std::string_view const alias);
   bool add_task(utilities::ScheduledTask &task);
-  std::vector<utilities::TaskResult> get_all_tasks();
   std::pair<int, int> get_login_role(std::string_view const,
                                      std::string_view const);
   bool add_upload(utilities::UploadRequest const &upload_request);
