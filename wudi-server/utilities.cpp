@@ -81,7 +81,7 @@ bool read_task_file(std::string_view filename) {
             static_cast<int>(number_id.get<json::number_integer_t>()));
       }
       task.last_processed_number = task_object["last"].get<json::string_t>();
-      tasks.push_back(std::move(task));
+      //tasks.push_back(std::move(task));
     }
     return true;
   } catch (std::exception const &e) {

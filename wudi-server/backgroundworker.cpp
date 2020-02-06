@@ -42,15 +42,14 @@ void BackgroundWorker::on_data_result_obtained(utilities::SearchResultType type,
 }
 
 bool BackgroundWorker::open_output_files() {
-  auto create_file_directory =
-      [](std::filesystem::path const &path) -> std::error_code {
+  auto create_file_directory = [](std::filesystem::path const &path) -> bool {
     std::error_code ec{};
-    auto f = std::filesystem::absolute(path, ec);
+    auto f = std::filesystem::absolute(path.parent_path(), ec);
     if (ec)
-      return ec;
+      return false;
     ec = {};
     std::filesystem::create_directories(f, ec);
-    return ec;
+    return !ec;
   };
   if (task_result_ptr_->not_ok_file.is_open() &&
       task_result_ptr_->ok_file.is_open() &&
@@ -62,11 +61,19 @@ bool BackgroundWorker::open_output_files() {
                       website_info_.alias};
   std::string current_date{}, current_time{};
   auto const current_time_t = std::time(nullptr);
-  if (!utilities::timet_to_string(current_date, current_time_t, "%Y_%m_%d")) {
+  if (std::size_t const count =
+          utilities::timet_to_string(current_date, current_time_t, "%Y_%m_%d");
+      count != std::string::npos) {
+    current_date.resize(count);
+  } else {
     // this is called if and only if we could not do the proper formatting
     current_date = std::to_string(current_time_t);
   }
-  if (!utilities::timet_to_string(current_time, current_time_t, "%H_%M_%S")) {
+  if (std::size_t const count =
+          utilities::timet_to_string(current_time, current_time_t, "%H_%M_%S");
+      count != std::string::npos) {
+    current_time.resize(count);
+  } else {
     current_time = std::to_string(current_time_t);
   }
   auto const suffix{std::filesystem::path{current_date} /
@@ -75,9 +82,13 @@ bool BackgroundWorker::open_output_files() {
   task_result_ptr_->ok_filename = abs_path / "ok" / suffix;
   task_result_ptr_->unknown_filename = abs_path / "unknown" / suffix;
 
-  if (create_file_directory(task_result_ptr_->not_ok_filename) &&
-      create_file_directory(task_result_ptr_->ok_filename) &&
-      create_file_directory(task_result_ptr_->unknown_filename)) {
+  std::cout << task_result_ptr_->not_ok_filename << std::endl;
+  std::cout << task_result_ptr_->ok_filename << std::endl;
+  std::cout << task_result_ptr_->unknown_filename << std::endl;
+
+  if (!(create_file_directory(task_result_ptr_->not_ok_filename) &&
+        create_file_directory(task_result_ptr_->ok_filename) &&
+        create_file_directory(task_result_ptr_->unknown_filename))) {
     // create some error messages and fire out
     return false;
   }

@@ -12,7 +12,7 @@ using namespace fmt::v6::literals;
 void session::http_read_data() {
   buffer_.clear();
   empty_body_parser_.emplace();
-  empty_body_parser_->body_limit(utilities::FiftyMegabytes);
+  empty_body_parser_->body_limit(utilities::FiveMegabytes);
   beast::get_lowest_layer(tcp_stream_)
       .expires_after(std::chrono::minutes(args_.timeout_mins));
   http::async_read_header(
@@ -45,7 +45,7 @@ void session::on_header_read(beast::error_code ec, std::size_t const) {
     } else if (content_type_ == "application/gzip") {
       dynamic_body_parser =
           std::make_unique<dynamic_request>(std::move(*empty_body_parser_));
-      dynamic_body_parser->body_limit(utilities::FiftyMegabytes);
+      dynamic_body_parser->body_limit(utilities::FiveMegabytes);
       http::async_read(tcp_stream_, buffer_, *dynamic_body_parser,
                        beast::bind_front_handler(&session::binary_data_read,
                                                  shared_from_this()));
@@ -493,7 +493,7 @@ session::split_optional_queries(std::string_view const &optional_query) {
     auto queries = utilities::split_string_view(query, "&");
     for (auto const &q : queries) {
       auto split = utilities::split_string_view(q, "=");
-      if (q == split[0])
+      if ( split.size() < 2)
         continue;
       result.emplace_back(split[0], split[1]);
     }

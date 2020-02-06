@@ -12,6 +12,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <filesystem>
 
 #define OTL_BIG_INT long long
 #define OTL_ODBC_MYSQL
@@ -85,7 +86,7 @@ enum class ErrorType {
 enum Constants {
   WorkerThreadCount = 10,
   SleepTimeoutSec = 5,
-  FiftyMegabytes = 1024 * 1024 * 50
+  FiveMegabytes = 1024 * 1024 * 5
 };
 
 enum Anonymous {
