@@ -39,6 +39,10 @@ void BackgroundWorker::on_data_result_obtained(utilities::SearchResultType type,
     task_result_ptr_->unknown_file.flush();
     break;
   }
+
+  if( task_result_ptr_->processed == task_result_ptr_->total_numbers ) {
+      std::filesystem::remove( input_filename );
+  }
 }
 
 bool BackgroundWorker::open_output_files() {
