@@ -126,7 +126,7 @@ void session::login_handler(string_request const &request,
   // respond to POST request
   try {
     json json_body = json::parse(request.body());
-    json::object_t login_info{json_body.get<json::object_t>()};
+    json::object_t login_info = json_body.get<json::object_t>();
     auto username = login_info["username"].get<json::string_t>();
     auto password = login_info["password"].get<json::string_t>();
     auto [id, role] = db_connector->get_login_role(username, password);
@@ -420,7 +420,7 @@ string_response session::method_not_allowed(string_request const &req) {
 
 string_response session::successful_login(int const id, int const role,
                                           string_request const &req) {
-  json::object_t result_obj{};
+  json::object_t result_obj;
   result_obj["status"] = ErrorType::NoError;
   result_obj["message"] = "success";
   result_obj["id"] = id;
@@ -439,10 +439,10 @@ string_response session::get_error(std::string const &error_message,
                                    utilities::ErrorType type,
                                    http::status status,
                                    string_request const &req) {
-  json::object_t result_obj{};
+  json::object_t result_obj;
   result_obj["status"] = type;
   result_obj["message"] = error_message;
-  json result{result_obj};
+  json result = result_obj;
 
   string_response response{status, req.version()};
   response.set(http::field::content_type, "application/json");
@@ -464,7 +464,7 @@ string_response session::json_success(json const &body,
 
 string_response session::success(char const *message,
                                  string_request const &req) {
-  json::object_t result_obj{};
+  json::object_t result_obj;
   result_obj["status"] = ErrorType::NoError;
   result_obj["message"] = message;
   json result{result_obj};
