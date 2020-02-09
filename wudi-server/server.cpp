@@ -1,4 +1,5 @@
 #include "server.hpp"
+#include <boost/lexical_cast.hpp>
 #include <spdlog/spdlog.h>
 
 namespace wudi_server {
@@ -43,7 +44,7 @@ void server::on_connection_accepted(beast::error_code const &ec,
     spdlog::error("error on connection: {}", ec.message());
   } else {
     spdlog::info("connected to: {}",
-                 socket.remote_endpoint().address().to_string());
+                 boost::lexical_cast<std::string>(socket.remote_endpoint()));
     sessions_.push_back(
         std::make_shared<session>(std::move(socket), args_, db_));
     sessions_.back()->run();

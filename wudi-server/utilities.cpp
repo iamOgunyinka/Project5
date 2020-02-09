@@ -40,7 +40,7 @@ void log_sql_error(otl_exception const &exception) {
   spdlog::error("SQLError code: {}", exception.code);
   spdlog::error("SQLError stmt: {}", exception.stm_text);
   spdlog::error("SQLError state: {}", exception.sqlstate);
-  spdlog::error("SQLError VarInfo: {}", exception.var_info);
+  spdlog::error("SQLError VarInfo: {}", exception.msg);
 }
 
 bool read_task_file(std::string_view filename) {
@@ -81,7 +81,7 @@ bool read_task_file(std::string_view filename) {
             static_cast<int>(number_id.get<json::number_integer_t>()));
       }
       task.last_processed_number = task_object["last"].get<json::string_t>();
-      //tasks.push_back(std::move(task));
+      // tasks.push_back(std::move(task));
     }
     return true;
   } catch (std::exception const &e) {
@@ -498,6 +498,28 @@ bool DatabaseConnector::add_task(utilities::ScheduledTask &task) {
                               otl_exception::enabled);
       otl_stream stream(1, "SELECT MAX(id) FROM tb_tasks", otl_connector_);
       stream >> task.task_id;
+    }
+    return true;
+  } catch (otl_exception const &e) {
+    utilities::log_sql_error(e);
+    return false;
+  }
+}
+
+bool DatabaseConnector::remove_websites(
+    std::vector<boost::string_view> const &ids) {
+  std::string sql_statement;
+  if (!ids.empty()) {
+    sql_statement = "DELETE FROM tb_websites WHERE id in ({})"_format(
+        svector_to_string(ids));
+  } else {
+    sql_statement = "ALTER TABLE tb_websites AUTO_INCREMENT = 1";
+  }
+  try {
+    {
+      std::lock_guard<std::mutex> lock_g{db_mutex_};
+      otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
+                              otl_exception::enabled);
     }
     return true;
   } catch (otl_exception const &e) {

@@ -4,6 +4,7 @@
 #include <boost/beast.hpp>
 #include <boost/utility/string_view.hpp>
 #include <deque>
+#include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <optional>
@@ -12,7 +13,6 @@
 #include <sstream>
 #include <string>
 #include <vector>
-#include <filesystem>
 
 #define OTL_BIG_INT long long
 #define OTL_ODBC_MYSQL
@@ -396,6 +396,7 @@ public:
   bool connect();
 
 public:
+  bool remove_websites(std::vector<boost::string_view> const &ids = {});
   std::vector<utilities::WebsiteResult>
   get_websites(std::vector<uint32_t> const &ids);
   std::optional<utilities::WebsiteResult> get_website(uint32_t const id);

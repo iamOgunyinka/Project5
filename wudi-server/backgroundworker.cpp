@@ -40,8 +40,10 @@ void BackgroundWorker::on_data_result_obtained(utilities::SearchResultType type,
     break;
   }
 
-  if( task_result_ptr_->processed == task_result_ptr_->total_numbers ) {
-      std::filesystem::remove( input_filename );
+  if (task_result_ptr_->processed == task_result_ptr_->total_numbers) {
+    std::filesystem::remove(input_filename);
+    spdlog::info("Done processing task: {}, web_id: {}",
+                 task_result_ptr_->task_id, task_result_ptr_->website_id);
   }
 }
 

@@ -236,15 +236,38 @@ void session::upload_handler(string_request const &request,
       spdlog::error(e.what());
       return error_handler(bad_request("unable to process file", request));
     }
-  } else if (method == http::verb::get) { // get method
+  } else {
     std::vector<boost::string_view> ids{};
     auto const id_iter = find_query_key(query_pairs, "id");
     if (id_iter != query_pairs.cend()) {
       ids = utilities::split_string_view(id_iter->second, "|");
     }
-    json json_result = db_connector->get_uploads(ids);
-    return send_response(json_success(json_result, request));
-  } else { // a DELETE request
+    if (method == http::verb::get) { // GET method
+      json json_result = db_connector->get_uploads(ids);
+      return send_response(json_success(json_result, request));
+    } else {
+      // a DELETE request
+      std::vector<utilities::UploadResult> uploads;
+      if (!ids.empty() && ids[0] == "all") { // remove all
+        uploads = db_connector->get_uploads(std::vector<boost::string_view>{});
+        if (!db_connector->remove_websites({})) {
+          return error_handler(server_error("unable to delete any record",
+                                            ErrorType::ServerError, request));
+        }
+      } else {
+        uploads = db_connector->get_uploads(ids);
+        if (!db_connector->remove_websites(ids)) {
+          return error_handler(server_error("unable to delete specified IDs",
+                                            ErrorType::ServerError, request));
+        }
+      }
+      for (auto const &upload : uploads) {
+        if (std::filesystem::exists(upload.name_on_disk)) {
+          std::filesystem::remove(upload.name_on_disk);
+        }
+      }
+      return send_response(success("ok", request));
+    }
   }
 }
 
@@ -493,7 +516,7 @@ session::split_optional_queries(std::string_view const &optional_query) {
     auto queries = utilities::split_string_view(query, "&");
     for (auto const &q : queries) {
       auto split = utilities::split_string_view(q, "=");
-      if ( split.size() < 2)
+      if (split.size() < 2)
         continue;
       result.emplace_back(split[0], split[1]);
     }
