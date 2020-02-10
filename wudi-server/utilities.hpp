@@ -101,9 +101,21 @@ struct ScheduledTask {
   uint32_t progress{};
   uint32_t scheduler_id{};
   uint32_t scheduled_dt{};
+  uint64_t total_numbers{};
   std::vector<uint32_t> website_ids{};
   std::vector<uint32_t> number_ids{};
   std::string last_processed_number{};
+};
+
+struct TaskResult {
+  int task_status;
+  uint32_t total_numbers;
+  uint32_t id;
+  uint32_t progress;
+  std::string data_ids;
+  std::string website_ids;
+  std::string scheduler_username;
+  std::string scheduled_date;
 };
 
 struct AtomicTask {
@@ -150,7 +162,10 @@ struct UploadRequest {
   std::size_t const total_numbers;
 };
 
+enum class TaskStatus { Fresh, Completed, Stopped, Ongoing, Erred };
 enum class OpStatus { Ongoing, Stopped, Erred };
+using string_view_pair = std::pair<boost::string_view, boost::string_view>;
+using string_view_pair_list = std::vector<string_view_pair>;
 
 struct AtomicTaskResult {
   uint32_t task_id{};
@@ -331,6 +346,7 @@ void get_file_content(std::string const &filename, filter<T> filter,
 template <typename T>
 using threadsafe_cv_container = threadsafe_container<T, std::deque<T>, true>;
 
+otl_stream &operator>>(otl_stream &os, TaskResult &item);
 otl_stream &operator>>(otl_stream &, UploadResult &);
 otl_stream &operator>>(otl_stream &, WebsiteResult &);
 bool operator<(AtomicTaskResult const &task_1, AtomicTaskResult const &task_2);
@@ -341,6 +357,7 @@ std::vector<boost::string_view> split_string_view(boost::string_view const &str,
                                                   char const *delimeter);
 void to_json(json &j, UploadResult const &item);
 void to_json(json &j, WebsiteResult const &);
+void to_json(json &j, TaskResult const &);
 void log_sql_error(otl_exception const &exception);
 [[nodiscard]] std::string view_to_string(boost::string_view const &str_view);
 [[nodiscard]] std::string intlist_to_string(std::vector<uint32_t> const &vec);
@@ -355,6 +372,8 @@ std::multimap<uint32_t, std::shared_ptr<AtomicTaskResult>> &get_tasks_results();
 std::size_t timet_to_string(std::string &, std::size_t,
                             char const * = "%Y-%m-%d %H:%M:%S");
 bool read_task_file(std::string_view);
+string_view_pair_list::const_iterator
+find_query_key(string_view_pair_list const &, boost::string_view const &);
 } // namespace utilities
 
 using Callback = std::function<void(http::request<http::string_body> const &,
@@ -403,6 +422,7 @@ public:
   bool add_website(std::string_view const address,
                    std::string_view const alias);
   bool add_task(utilities::ScheduledTask &task);
+  std::vector<utilities::TaskResult> get_all_tasks();
   std::pair<int, int> get_login_role(std::string_view const,
                                      std::string_view const);
   bool add_upload(utilities::UploadRequest const &upload_request);

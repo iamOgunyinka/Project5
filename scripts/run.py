@@ -25,6 +25,8 @@ class Website(db.Model):
 class Task(db.Model):
 	__tablename__ = 'tb_tasks'
 	id = db.Column(db.Integer, primary_key=True, unique=True, index=True)
+	status = db.Column(db.Integer, nullable=False, unique=False, default=0)
+	total_numbers = db.Column(db.Integer, nullable=False, unique=False)
 	scheduler_id = db.Column(db.Integer, db.ForeignKey('tb_users.id'), nullable=False)
 	date_scheduled = db.Column(db.String(32), nullable=False, unique=True)
 	websites = db.Column(db.Text, nullable=False)

@@ -156,12 +156,6 @@ void session::upload_handler(string_request const &request,
   auto const query_pairs{split_optional_queries(optional_query)};
   static std::string uploads_directory{"uploads/"};
   auto const method = request.method();
-  auto const find_query_key = [](auto &query_pairs,
-                                 boost::string_view const &key) {
-    return std::find_if(
-        query_pairs.cbegin(), query_pairs.cend(),
-        [=](string_view_pair const &str) { return str.first == key; });
-  };
 
   if (method == http::verb::post) {
     bool const is_zipped = content_type_ == "application/gzip";
@@ -174,9 +168,9 @@ void session::upload_handler(string_request const &request,
     }
     spdlog::info("[/upload_handler(type)] -> {}", content_type_);
     boost::string_view filename_view = parser["filename"];
-    auto total_iter = find_query_key(query_pairs, "total");
-    auto uploader_iter = find_query_key(query_pairs, "uploader");
-    auto time_iter = find_query_key(query_pairs, "time");
+    auto total_iter = utilities::find_query_key(query_pairs, "total");
+    auto uploader_iter = utilities::find_query_key(query_pairs, "uploader");
+    auto time_iter = utilities::find_query_key(query_pairs, "time");
     if (filename_view.empty() ||
         utilities::any_of(query_pairs, total_iter, uploader_iter, time_iter)) {
       return error_handler(bad_request("key parameters is missing", request));
@@ -238,11 +232,11 @@ void session::upload_handler(string_request const &request,
     }
   } else {
     std::vector<boost::string_view> ids{};
-    auto const id_iter = find_query_key(query_pairs, "id");
+    auto const id_iter = utilities::find_query_key(query_pairs, "id");
     if (id_iter != query_pairs.cend()) {
       ids = utilities::split_string_view(id_iter->second, "|");
     }
-    spdlog::info( "IDs: {}", utilities::svector_to_string( ids ) );
+    spdlog::info("IDs: {}", utilities::svector_to_string(ids));
     if (method == http::verb::get) { // GET method
       json json_result = db_connector->get_uploads(ids);
       return send_response(json_success(json_result, request));
@@ -331,7 +325,7 @@ void session::add_endpoint_interfaces() {
 }
 
 void session::schedule_task_handler(string_request const &request,
-                                    std::string_view const &query) {
+                                    std::string_view const &optional_query) {
   using http::verb;
   using wudi_server::utilities::get_scheduled_tasks;
 
@@ -345,7 +339,10 @@ void session::schedule_task_handler(string_request const &request,
       json::object_t task_object = json_root.get<json::object_t>();
       json::array_t websites_ids = task_object["websites"].get<json::array_t>();
       json::array_t number_ids = task_object["numbers"].get<json::array_t>();
+      json::number_integer_t total =
+          task_object["total"].get<json::number_integer_t>();
       utilities::ScheduledTask task{};
+      task.total_numbers = total;
       task.scheduled_dt =
           static_cast<int>(task_object["date"].get<json::number_integer_t>());
       task.scheduler_id = static_cast<int>(
@@ -385,8 +382,13 @@ void session::schedule_task_handler(string_request const &request,
     return error_handler(
         server_error("not implemented yet", ErrorType::ServerError, request));
   } else {
-    return error_handler(
-        bad_request("only accessible through websocket", request));
+    std::vector<boost::string_view> ids{};
+    auto const query_pairs{split_optional_queries(optional_query)};
+    auto const id_iter = utilities::find_query_key(query_pairs, "id");
+    if (id_iter != query_pairs.cend()) {
+      ids = utilities::split_string_view(id_iter->second, "|");
+    }
+    return send_response(json_success(db_connector->get_all_tasks(), request));
   }
 }
 
@@ -509,9 +511,9 @@ void session::send_response(string_response &&response) {
       beast::bind_front_handler(&session::on_data_written, shared_from_this()));
 }
 
-string_view_pair_list
+utilities::string_view_pair_list
 session::split_optional_queries(std::string_view const &optional_query) {
-  string_view_pair_list result{};
+  utilities::string_view_pair_list result{};
   if (!optional_query.empty()) {
     boost::string_view query{optional_query.data(), optional_query.size()};
     auto queries = utilities::split_string_view(query, "&");

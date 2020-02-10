@@ -17,8 +17,6 @@ using string_request = http::request<http::string_body>;
 using dynamic_request = http::request_parser<http::string_body>;
 using nlohmann::json;
 using utilities::ErrorType;
-using string_view_pair = std::pair<boost::string_view, boost::string_view>;
-using string_view_pair_list = std::vector<string_view_pair>;
 
 class session {
   using dynamic_body_ptr = std::unique_ptr<dynamic_request>;
@@ -67,7 +65,7 @@ class session {
                                       string_request const &);
   static string_response get_error(std::string const &, ErrorType, http::status,
                                    string_request const &);
-  static string_view_pair_list
+  static utilities::string_view_pair_list
   split_optional_queries(std::string_view const &args);
 
 public:

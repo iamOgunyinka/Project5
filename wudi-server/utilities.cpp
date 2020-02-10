@@ -10,6 +10,12 @@ namespace wudi_server {
 using namespace fmt::v6::literals;
 
 namespace utilities {
+otl_stream &operator>>(otl_stream &os, TaskResult &item) {
+  return os >> item.id >> item.total_numbers >> item.task_status >>
+         item.scheduler_username >> item.scheduled_date >> item.website_ids >>
+         item.data_ids >> item.progress;
+}
+
 otl_stream &operator>>(otl_stream &os, UploadResult &item) {
   return os >> item.upload_id >> item.filename >> item.total_numbers >>
          item.upload_date >> item.name_on_disk;
@@ -34,6 +40,17 @@ void to_json(json &j, UploadResult const &item) {
 void to_json(json &j, WebsiteResult const &result) {
   j = json{
       {"id", result.id}, {"alias", result.alias}, {"address", result.address}};
+}
+
+void to_json(json &j, TaskResult const &item) {
+  j = json{{"id", item.id},
+           {"status", item.task_status},
+           {"progress", item.progress},
+           {"web", item.website_ids},
+           {"numbers", item.data_ids},
+           {"total", item.total_numbers},
+           {"username", item.scheduler_username},
+           {"date", item.scheduled_date}};
 }
 
 void log_sql_error(otl_exception const &exception) {
@@ -88,6 +105,14 @@ bool read_task_file(std::string_view filename) {
     spdlog::error(e.what());
   }
   return false;
+}
+
+string_view_pair_list::const_iterator
+find_query_key(string_view_pair_list const &query_pairs,
+               boost::string_view const &key) {
+  return std::find_if(
+      query_pairs.cbegin(), query_pairs.cend(),
+      [=](string_view_pair const &str) { return str.first == key; });
 }
 
 std::string decode_url(boost::string_view const &encoded_string) {
@@ -497,10 +522,11 @@ bool DatabaseConnector::add_task(utilities::ScheduledTask &task) {
   using utilities::intlist_to_string;
   std::string sql_statement{
       "INSERT INTO tb_tasks (scheduler_id, date_scheduled, websites, uploads, "
-      "progress)"
-      "VALUES( {}, \"{}\", \"{}\", \"{}\", 0 )"_format(
+      "progress, total_numbers, status)"
+      "VALUES( {}, \"{}\", \"{}\", \"{}\", 0, {}, {} )"_format(
           task.scheduler_id, time_str, intlist_to_string(task.website_ids),
-          intlist_to_string(task.number_ids))};
+          intlist_to_string(task.number_ids), task.total_numbers,
+          static_cast<int>(utilities::TaskStatus::Fresh))};
   spdlog::info(sql_statement);
   try {
     {
@@ -515,6 +541,23 @@ bool DatabaseConnector::add_task(utilities::ScheduledTask &task) {
     utilities::log_sql_error(e);
     return false;
   }
+}
+
+std::vector<utilities::TaskResult> DatabaseConnector::get_all_tasks() {
+  char const *sql_statement =
+      "SELECT tb_tasks.id, total_numbers, status, username, date_scheduled, "
+      "websites, uploads, progress FROM tb_tasks INNER JOIN tb_users";
+  std::vector<utilities::TaskResult> result{};
+  try {
+    otl_stream db_stream(1'000, sql_statement, otl_connector_);
+    utilities::TaskResult item{};
+    while (db_stream >> item) {
+      result.push_back(std::move(item));
+    }
+  } catch (otl_exception const &e) {
+    utilities::log_sql_error(e);
+  }
+  return result;
 }
 
 bool DatabaseConnector::remove_uploads(
