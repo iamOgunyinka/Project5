@@ -334,6 +334,7 @@ using threadsafe_cv_container = threadsafe_container<T, std::deque<T>, true>;
 otl_stream &operator>>(otl_stream &, UploadResult &);
 otl_stream &operator>>(otl_stream &, WebsiteResult &);
 bool operator<(AtomicTaskResult const &task_1, AtomicTaskResult const &task_2);
+std::string svector_to_string(std::vector<boost::string_view> const &vec);
 std::string decode_url(boost::string_view const &encoded_string);
 bool is_valid_number(std::string_view const, std::string &);
 std::vector<boost::string_view> split_string_view(boost::string_view const &str,
@@ -385,7 +386,6 @@ struct DatabaseConnector {
   bool is_running = false;
 
 private:
-  std::string svector_to_string(std::vector<boost::string_view> const &vec);
   void keep_sql_server_busy();
 
 public:
@@ -396,7 +396,7 @@ public:
   bool connect();
 
 public:
-  bool remove_websites(std::vector<boost::string_view> const &ids = {});
+  bool remove_uploads(std::vector<boost::string_view> const &ids = {});
   std::vector<utilities::WebsiteResult>
   get_websites(std::vector<uint32_t> const &ids);
   std::optional<utilities::WebsiteResult> get_website(uint32_t const id);
@@ -417,7 +417,7 @@ public:
       if constexpr (std::is_same_v<T, boost::string_view>) {
         sql_statement = "SELECT id, filename, total_numbers, upload_date, "
                         "name_on_disk FROM tb_uploads WHERE id IN "
-                        "({})"_format(svector_to_string(ids));
+                        "({})"_format(utilities::svector_to_string(ids));
       } else {
         sql_statement = "SELECT id, filename, total_numbers, upload_date, "
                         "name_on_disk FROM tb_uploads WHERE id IN "

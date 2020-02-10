@@ -242,6 +242,7 @@ void session::upload_handler(string_request const &request,
     if (id_iter != query_pairs.cend()) {
       ids = utilities::split_string_view(id_iter->second, "|");
     }
+    spdlog::info( "IDs: {}", utilities::svector_to_string( ids ) );
     if (method == http::verb::get) { // GET method
       json json_result = db_connector->get_uploads(ids);
       return send_response(json_success(json_result, request));
@@ -250,13 +251,13 @@ void session::upload_handler(string_request const &request,
       std::vector<utilities::UploadResult> uploads;
       if (!ids.empty() && ids[0] == "all") { // remove all
         uploads = db_connector->get_uploads(std::vector<boost::string_view>{});
-        if (!db_connector->remove_websites({})) {
+        if (!db_connector->remove_uploads({})) {
           return error_handler(server_error("unable to delete any record",
                                             ErrorType::ServerError, request));
         }
       } else {
         uploads = db_connector->get_uploads(ids);
-        if (!db_connector->remove_websites(ids)) {
+        if (!db_connector->remove_uploads(ids)) {
           return error_handler(server_error("unable to delete specified IDs",
                                             ErrorType::ServerError, request));
         }

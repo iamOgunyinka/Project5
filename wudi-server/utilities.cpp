@@ -162,6 +162,17 @@ std::string view_to_string(boost::string_view const &str_view) {
   return str;
 }
 
+std::string svector_to_string(std::vector<boost::string_view> const &vec) {
+  if (vec.empty())
+    return {};
+  std::string str{};
+  for (std::size_t index = 0; index < vec.size() - 1; ++index) {
+    str.append(vec[index].to_string() + ", ");
+  }
+  str.append(vec.back().to_string());
+  return str;
+}
+
 std::string_view bv2sv(boost::string_view view) {
   return std::string_view(view.data(), view.size());
 }
@@ -506,14 +517,15 @@ bool DatabaseConnector::add_task(utilities::ScheduledTask &task) {
   }
 }
 
-bool DatabaseConnector::remove_websites(
+bool DatabaseConnector::remove_uploads(
     std::vector<boost::string_view> const &ids) {
+  using utilities::svector_to_string;
   std::string sql_statement;
   if (!ids.empty()) {
-    sql_statement = "DELETE FROM tb_websites WHERE id in ({})"_format(
+    sql_statement = "DELETE FROM tb_uploads WHERE id in ({})"_format(
         svector_to_string(ids));
   } else {
-    sql_statement = "ALTER TABLE tb_websites AUTO_INCREMENT = 1";
+    sql_statement = "ALTER TABLE tb_uploads AUTO_INCREMENT = 1";
   }
   try {
     {
@@ -592,17 +604,5 @@ bool DatabaseConnector::add_website(std::string_view const address,
     utilities::log_sql_error(e);
     return false;
   }
-}
-
-std::string DatabaseConnector::svector_to_string(
-    std::vector<boost::string_view> const &vec) {
-  if (vec.empty())
-    return {};
-  std::string str{};
-  for (std::size_t index = 0; index < vec.size() - 1; ++index) {
-    str.append(vec[index].to_string() + ", ");
-  }
-  str.append(vec.back().to_string());
-  return str;
 }
 } // namespace wudi_server
