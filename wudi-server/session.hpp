@@ -22,7 +22,7 @@ class session {
   using dynamic_body_ptr = std::unique_ptr<dynamic_request>;
   using string_body_ptr =
       std::unique_ptr<http::request_parser<http::string_body>>;
-
+  net::io_context& io_context_;
   beast::tcp_stream tcp_stream_;
   command_line_interface const &args_;
   beast::flat_buffer buffer_{};
@@ -69,8 +69,11 @@ class session {
   split_optional_queries(std::string_view const &args);
 
 public:
-  session(asio::ip::tcp::socket &&socket, command_line_interface const &args,
+  session(net::io_context &io, asio::ip::tcp::socket &&socket,
+          command_line_interface const &args,
           std::shared_ptr<DatabaseConnector>);
+  void download_handler(string_request const &request,
+                        std::string_view const &optional_query);
   void schedule_task_handler(string_request const &request,
                              std::string_view const &query);
   void website_handler(string_request const &, std::string_view const &);

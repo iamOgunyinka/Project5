@@ -8,9 +8,7 @@
 
 namespace wudi_server {
 std::string const safe_proxy::proxy_generator_address{
-    "http://api.wandoudl.com/api/ip?app_key="
-    "d9c96cbb82ce73721589f1d63125690e&pack="
-    "208774&num=150&xy=1&type=1&lb=\\n&mr=1&"};
+    "http://api.wandoudl.com/api/ip"};
 std::string const safe_proxy::http_proxy_filename{"./http_proxy_servers.txt"};
 std::string const safe_proxy::https_proxy_filename{"./https_proxy_servers.txt"};
 
@@ -24,29 +22,30 @@ void safe_proxy::get_more_proxies() {
   utilities::uri uri_{proxy_generator_address};
   net::ip::tcp::resolver resolver{context_};
 
-  std::lock_guard<std::mutex> lock_g{ mutex_ };
+  std::lock_guard<std::mutex> lock_g{mutex_};
   try {
     auto resolves = resolver.resolve(uri_.host(), "http");
     http_tcp_stream_.connect(resolves);
-    http_request_ =
-        http::request<http::empty_body>(http::verb::get, uri_.path(), 11);
-    http_request_.set(http::field::host, uri_.host());
+    http_request_ = {};
+    http_request_.method(http::verb::get);
+    http_request_.target("/api/"
+                         "ip?app_key=d9c96cbb82ce73721589f1d63125690e&pack="
+                         "208774&num=100&xy=1&type=1&lb=\\r\\n&mr=1&");
+    http_request_.version(11);
+    http_request_.set(http::field::host, uri_.host() + ":80");
     http_request_.set(http::field::user_agent, utilities::get_random_agent());
-
     http::write(http_tcp_stream_, http_request_);
     beast::flat_buffer buffer{};
     http::response<http::string_body> server_response{};
     http::read(http_tcp_stream_, buffer, server_response);
     beast::error_code ec{};
     http_tcp_stream_.socket().shutdown(tcp::socket::shutdown_both, ec);
-    if (server_response.result_int() != 200 || ec ) {
+    if (server_response.result_int() != 200 || ec) {
       is_free = true;
       has_error = true;
       return spdlog::error("Error obtaining proxy servers from server");
     }
-    std::vector<std::string> ips{};
-    boost::split(ips, server_response.body(),
-                 [](auto ch) { return ch == '\n'; });
+    auto ips = utilities::split_string_view(server_response.body(), "\\r\\n");
     if (ips.empty()) {
       is_free = true;
       has_error = true;
@@ -54,7 +53,6 @@ void safe_proxy::get_more_proxies() {
     }
     std::vector<std::string> ip_port{};
     for (auto &line : ips) {
-      boost::trim(line);
       if (line.empty())
         continue;
       boost::split(ip_port, line, [](auto ch) { return ch == ':'; });
@@ -110,7 +108,10 @@ void safe_proxy::save_proxies_to_file() {
 void safe_proxy::load_proxy_file() {
   std::filesystem::path const http_filename_path{http_proxy_filename};
   if (!std::filesystem::exists(http_filename_path)) {
-    return get_more_proxies();
+    get_more_proxies();
+    if (!endpoints_.empty())
+      save_proxies_to_file();
+    return;
   }
   std::ifstream proxy_file{http_filename_path};
   if (!proxy_file)

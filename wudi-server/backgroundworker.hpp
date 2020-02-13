@@ -17,7 +17,6 @@ namespace http = boost::beast::http;
 enum class website_type { AutoHomeRegister, JJGames };
 
 class BackgroundWorker {
-  static std::map<std::string, website_type> website_maps;
   static std::string const http_proxy_filename;
 
 public:
@@ -35,13 +34,13 @@ private:
 private:
   net::io_context &context_;
   safe_proxy safe_proxy_;
+  int current_progress_{};
   std::shared_ptr<utilities::number_stream> number_stream_;
   WebsiteResult const website_info_;
   std::vector<UploadResult> const uploads_info_;
   std::shared_ptr<utilities::AtomicTaskResult> task_result_ptr_;
   std::string input_filename{};
   std::ifstream input_file;
-  boost::signals2::signal<void()> process_done{};
 };
 } // namespace wudi_server
 

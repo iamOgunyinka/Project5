@@ -15,12 +15,11 @@ std::string const auto_home_socket::password_base64_hash{
 
 auto_home_socket::auto_home_socket(net::io_context &io_context,
                                    safe_proxy &proxy_provider,
-                                   utilities::number_stream &numbers,
-                                   std::string const &address)
-    : web_base(io_context, proxy_provider, numbers), address_{address} {}
+                                   utilities::number_stream &numbers)
+    : web_base(io_context, proxy_provider, numbers){}
 
 void auto_home_socket::prepare_request_data(bool use_authentication_header) {
-  std::string const payload{
+  std::string const payload{ address_ + 
       "phone={}&isOverSea=0&validcodetype=1"_format(current_number_)};
   post_request_.clear();
   post_request_.method(beast::http::verb::post);

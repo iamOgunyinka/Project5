@@ -57,7 +57,7 @@ void log_sql_error(otl_exception const &exception) {
   spdlog::error("SQLError code: {}", exception.code);
   spdlog::error("SQLError stmt: {}", exception.stm_text);
   spdlog::error("SQLError state: {}", exception.sqlstate);
-  spdlog::error("SQLError VarInfo: {}", exception.msg);
+  spdlog::error("SQLError msg: {}", exception.msg);
 }
 
 bool read_task_file(std::string_view filename) {
@@ -335,9 +335,14 @@ threadsafe_cv_container<AtomicTask> &get_scheduled_tasks() {
 }
 
 std::multimap<uint32_t, std::shared_ptr<AtomicTaskResult>> &
-get_tasks_results() {
+get_response_queue() {
   static std::multimap<uint32_t, std::shared_ptr<AtomicTaskResult>> task_result;
   return task_result;
+}
+
+sharedtask_ptr<uint32_t> &get_task_counter() {
+  static sharedtask_ptr<uint32_t> task_counter{};
+  return task_counter;
 }
 
 std::size_t timet_to_string(std::string &output, std::size_t t,
@@ -526,7 +531,7 @@ bool DatabaseConnector::add_task(utilities::ScheduledTask &task) {
       "VALUES( {}, \"{}\", \"{}\", \"{}\", 0, {}, {} )"_format(
           task.scheduler_id, time_str, intlist_to_string(task.website_ids),
           intlist_to_string(task.number_ids), task.total_numbers,
-          static_cast<int>(utilities::TaskStatus::Fresh))};
+          static_cast<int>(utilities::TaskStatus::NotStarted))};
   spdlog::info(sql_statement);
   try {
     {
@@ -543,13 +548,32 @@ bool DatabaseConnector::add_task(utilities::ScheduledTask &task) {
   }
 }
 
-std::vector<utilities::TaskResult> DatabaseConnector::get_all_tasks() {
-  char const *sql_statement =
-      "SELECT tb_tasks.id, total_numbers, status, username, date_scheduled, "
-      "websites, uploads, progress FROM tb_tasks INNER JOIN tb_users";
+bool DatabaseConnector::change_task_status(uint32_t task_id,
+                                           utilities::TaskStatus status) {
+  std::string const sql_statement =
+      "UPDATE tb_tasks SET status = {} where id = {}"_format(
+          static_cast<uint32_t>(status), task_id);
+  try {
+    std::lock_guard<std::mutex> lock_g{db_mutex_};
+    int const status = otl_cursor::direct_exec(
+        otl_connector_, sql_statement.c_str(), otl_exception::enabled);
+    return status > 0;
+  } catch (otl_exception const &e) {
+    utilities::log_sql_error(e);
+    return false;
+  }
+}
+
+std::vector<utilities::TaskResult>
+DatabaseConnector::get_all_tasks(boost::string_view user_id) {
+  std::string const sql_statement =
+      "SELECT tb_tasks.id, total_numbers, status, username,"
+      "date_scheduled, websites, uploads, progress FROM "
+      "tb_tasks INNER JOIN tb_users WHERE tb_tasks.scheduler_id="
+      "{}"_format(user_id.to_string());
   std::vector<utilities::TaskResult> result{};
   try {
-    otl_stream db_stream(1'000, sql_statement, otl_connector_);
+    otl_stream db_stream(1'000, sql_statement.c_str(), otl_connector_);
     utilities::TaskResult item{};
     while (db_stream >> item) {
       result.push_back(std::move(item));

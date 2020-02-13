@@ -363,7 +363,7 @@ parse_headers(std::string_view const &str) {
   std::map<boost::string_view, boost::string_view> header_map{};
   std::vector<boost::string_view> headers =
       wudi_server::utilities::split_string_view(
-          boost::string_view(str.data(), str.size()), "\r\n");
+          boost::string_view(str.data(), str.size()), "\\r\\n");
   // first row is always a: { HTTP_VERB PATH HTTP/1.1 } combination, called
   // `request line`
   if (headers.size() < 2)

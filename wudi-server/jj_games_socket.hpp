@@ -37,44 +37,9 @@ public:
   }
 };
 
-template <typename Key, typename Value> class custom_map {
-  std::map<Key, Value> map_{};
-
-public:
-  custom_map() = default;
-
-  bool contains(Key const &key) { return map_.find(key) != map_.cend(); }
-
-  std::optional<Value> value(Key const &key) {
-    if (auto iter = map_.find(key); iter == map_.cend())
-      return std::nullopt;
-    else
-      return iter->second;
-  }
-
-  void insert(Key key, Value const &value) {
-    map_.emplace(std::forward<Key>(key), value);
-  }
-
-  void clear() {
-    for (auto &data : map_) {
-      boost::beast::error_code ec{};
-      if (data.second && data.second->is_open())
-        data.second->close(ec);
-    }
-  }
-
-  bool remove(Key const &key) {
-    if (auto iter = map_.find(key); iter != map_.cend()) {
-      iter->second.reset();
-      map_.erase(iter);
-      return true;
-    }
-    return false;
-  }
-};
-
-using CustomMap = custom_map<curl_socket_t, std::shared_ptr<tcp::socket>>;
+using CustomMap =
+    wudi_server::utilities::custom_map<curl_socket_t,
+                                       std::shared_ptr<tcp::socket>>;
 
 struct LibCurlRAII {
   LibCurlRAII() { curl_global_init(CURL_GLOBAL_ALL); }
@@ -157,7 +122,7 @@ private:
   void send_next(void *connect_info = nullptr);
   auto &context() { return context_; }
   bool is_stopped() const;
-  void current_proxy_assign_prop( ProxyProperty, endpoint_ptr ); 
+  void current_proxy_assign_prop(ProxyProperty, endpoint_ptr);
   void select_proxy(ConnectInfo *);
   void try_different_proxy(custom_curl::ConnectInfo *);
   void prepare_next_data(custom_curl::ConnectInfo *, std::string const &);

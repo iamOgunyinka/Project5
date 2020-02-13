@@ -2,6 +2,7 @@
 #include <array>
 #include <boost/asio/io_context.hpp>
 #include <boost/beast.hpp>
+#include <boost/signals2.hpp>
 #include <boost/utility/string_view.hpp>
 #include <deque>
 #include <filesystem>
@@ -162,8 +163,14 @@ struct UploadRequest {
   std::size_t const total_numbers;
 };
 
-enum class TaskStatus { Fresh, Completed, Stopped, Ongoing, Erred };
-enum class OpStatus { Ongoing, Stopped, Erred };
+enum class TaskStatus : uint32_t {
+  NotStarted,
+  Ongoing,
+  Stopped,
+  Erred,
+  Completed
+};
+
 using string_view_pair = std::pair<boost::string_view, boost::string_view>;
 using string_view_pair_list = std::vector<string_view_pair>;
 
@@ -172,7 +179,7 @@ struct AtomicTaskResult {
   uint32_t website_id{};
   uint32_t processed{};
   uint32_t total_numbers{};
-  OpStatus operation_status{OpStatus::Stopped};
+  TaskStatus operation_status{TaskStatus::NotStarted};
 
   std::filesystem::path ok_filename;
   std::filesystem::path not_ok_filename;
@@ -181,6 +188,8 @@ struct AtomicTaskResult {
   std::ofstream ok_file;
   std::ofstream not_ok_file;
   std::ofstream unknown_file;
+
+  boost::signals2::signal<void(uint32_t, uint32_t, uint32_t)> progress_signal;
 };
 
 struct WebsiteResult {
@@ -223,6 +232,77 @@ public:
 
 private:
   std::ifstream &input_stream;
+};
+
+template <typename Key, typename Value> class custom_map {
+  std::map<Key, Value> map_{};
+
+public:
+  custom_map() = default;
+
+  bool contains(Key const &key) { return map_.find(key) != map_.cend(); }
+
+  std::optional<Value> value(Key const &key) {
+    if (auto iter = map_.find(key); iter == map_.cend())
+      return std::nullopt;
+    else
+      return iter->second;
+  }
+
+  void insert(Key key, Value const &value) {
+    map_.emplace(std::forward<Key>(key), value);
+  }
+
+  void clear() {
+    for (auto &data : map_) {
+      boost::beast::error_code ec{};
+      if (data.second && data.second->is_open())
+        data.second->close(ec);
+    }
+  }
+
+  bool remove(Key const &key) {
+    if (auto iter = map_.find(key); iter != map_.cend()) {
+      iter->second.reset();
+      map_.erase(iter);
+      return true;
+    }
+    return false;
+  }
+};
+
+template <typename Key> class sharedtask_ptr {
+  std::map<Key, uint32_t> map_{};
+  std::mutex mutex_;
+
+  bool contains(Key const &key) {
+    std::lock_guard<std::mutex> lock_g{mutex_};
+    return map_.find(key) != map_.cend();
+  }
+
+public:
+  sharedtask_ptr() = default;
+
+  template <typename Callable> void insert(Key key, Callable function) {
+    if (!contains(key)) {
+      function(key);
+    }
+    std::lock_guard<std::mutex> lock_g{mutex_};
+    ++map_[key];
+  }
+
+  template <typename Callable> bool remove(Key const &key, Callable &&func) {
+    if (!contains(key))
+      return false;
+    std::lock_guard<std::mutex> lock_g{mutex_};
+    auto &value = map_[key];
+    --value;
+    if (value > 0)
+      return true;
+    map_.erase(key);
+    func(key);
+    return true;
+  }
 };
 
 template <typename T, typename Container = std::deque<T>, bool use_cv = false>
@@ -367,8 +447,14 @@ void log_sql_error(otl_exception const &exception);
 std::string get_random_agent();
 void background_task_executor(std::atomic_bool &stopped, std::mutex &,
                               std::shared_ptr<DatabaseConnector> &);
+
 threadsafe_cv_container<AtomicTask> &get_scheduled_tasks();
-std::multimap<uint32_t, std::shared_ptr<AtomicTaskResult>> &get_tasks_results();
+
+std::multimap<uint32_t, std::shared_ptr<AtomicTaskResult>> &
+get_response_queue();
+
+sharedtask_ptr<uint32_t> &get_task_counter();
+
 std::size_t timet_to_string(std::string &, std::size_t,
                             char const * = "%Y-%m-%d %H:%M:%S");
 bool read_task_file(std::string_view);
@@ -422,7 +508,8 @@ public:
   bool add_website(std::string_view const address,
                    std::string_view const alias);
   bool add_task(utilities::ScheduledTask &task);
-  std::vector<utilities::TaskResult> get_all_tasks();
+  bool change_task_status(uint32_t task_id, utilities::TaskStatus);
+  std::vector<utilities::TaskResult> get_all_tasks(boost::string_view);
   std::pair<int, int> get_login_role(std::string_view const,
                                      std::string_view const);
   bool add_upload(utilities::UploadRequest const &upload_request);

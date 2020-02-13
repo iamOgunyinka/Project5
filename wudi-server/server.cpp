@@ -46,7 +46,7 @@ void server::on_connection_accepted(beast::error_code const &ec,
     spdlog::info("connected to: {}",
                  boost::lexical_cast<std::string>(socket.remote_endpoint()));
     sessions_.push_back(
-        std::make_shared<session>(std::move(socket), args_, db_));
+        std::make_shared<session>(io_context_, std::move(socket), args_, db_));
     sessions_.back()->run();
   }
   accept_connections();

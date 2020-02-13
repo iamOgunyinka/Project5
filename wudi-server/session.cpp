@@ -30,7 +30,8 @@ void session::on_header_read(beast::error_code ec, std::size_t const) {
         true);
   } else {
     if (websocket::is_upgrade(empty_body_parser_->get())) {
-      std::make_shared<websocket_updates>(tcp_stream_.release_socket())
+      std::make_shared<websocket_updates>(io_context_,
+                                          tcp_stream_.release_socket())
           ->run(empty_body_parser_->release());
       return;
     }
@@ -289,10 +290,11 @@ void session::handle_requests(string_request const &request) {
   }
 }
 
-session::session(asio::ip::tcp::socket &&socket,
+session::session(net::io_context &io, asio::ip::tcp::socket &&socket,
                  command_line_interface const &args,
                  std::shared_ptr<DatabaseConnector> db)
-    : tcp_stream_{std::move(socket)}, args_{args}, db_connector{db} {
+    : io_context_{io}, tcp_stream_{std::move(socket)}, args_{args},
+      db_connector{db} {
   add_endpoint_interfaces();
 }
 
@@ -322,8 +324,28 @@ void session::add_endpoint_interfaces() {
       "/task", {verb::post, verb::get, verb::delete_},
       std::bind(&session::schedule_task_handler, shared_from_this(),
                 std::placeholders::_1, std::placeholders::_2));
+  endpoint_apis_.add_endpoint(
+      "/download", {verb::post},
+      std::bind(&session::download_handler, shared_from_this(),
+                std::placeholders::_1, std::placeholders::_2));
 }
 
+void session::download_handler(string_request const &request,
+                               std::string_view const &optional_query) {
+  // we only handle POST(application/json) requests here, not any other.
+  if (content_type_ != "application/json") {
+    return error_handler(bad_request("invalid content-type", request));
+  }
+  try {
+    json json_root = json::parse(request.body());
+    json::array_t task_object = json_root.get<json::array_t>();
+
+  } catch (std::exception const &e) {
+    spdlog::error("exception in `download_handler`: {}", e.what());
+    return error_handler(
+        bad_request("unable to process JSON request", request));
+  }
+}
 void session::schedule_task_handler(string_request const &request,
                                     std::string_view const &optional_query) {
   using http::verb;
@@ -385,10 +407,17 @@ void session::schedule_task_handler(string_request const &request,
     std::vector<boost::string_view> ids{};
     auto const query_pairs{split_optional_queries(optional_query)};
     auto const id_iter = utilities::find_query_key(query_pairs, "id");
-    if (id_iter != query_pairs.cend()) {
-      ids = utilities::split_string_view(id_iter->second, "|");
+    try {
+      if (id_iter == std::cend(query_pairs)) {
+        return error_handler(bad_request("uploader id unspecified", request));
+      }
+      auto const user_id = id_iter->second;
+      return send_response(
+          json_success(db_connector->get_all_tasks(user_id), request));
+    } catch (std::exception const &e) {
+      spdlog::error("Get tasks exception: {}", e.what());
+      return error_handler(bad_request("user id missing", request));
     }
-    return send_response(json_success(db_connector->get_all_tasks(), request));
   }
 }
 

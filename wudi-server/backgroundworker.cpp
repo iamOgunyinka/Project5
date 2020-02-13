@@ -5,11 +5,6 @@
 #include <list>
 
 namespace wudi_server {
-
-std::map<std::string, website_type> website_map{
-    {"autohome", website_type::AutoHomeRegister},
-    {"jjgames", website_type::JJGames}};
-
 std::string const BackgroundWorker::http_proxy_filename{
     "./http_proxy_servers.txt"};
 
@@ -24,7 +19,10 @@ BackgroundWorker::BackgroundWorker(
 void BackgroundWorker::on_data_result_obtained(utilities::SearchResultType type,
                                                std::string_view number) {
   using utilities::SearchResultType;
-  ++task_result_ptr_->processed;
+  auto &processed = task_result_ptr_->processed;
+  auto &total = task_result_ptr_->total_numbers;
+
+  ++processed;
   switch (type) {
   case SearchResultType::NotRegistered:
     task_result_ptr_->ok_file << number << "\n";
@@ -40,7 +38,15 @@ void BackgroundWorker::on_data_result_obtained(utilities::SearchResultType type,
     break;
   }
 
-  if (task_result_ptr_->processed == task_result_ptr_->total_numbers) {
+  int const progress = (processed / total) * 100;
+
+  if (progress > current_progress_) {
+    current_progress_ = progress;
+    task_result_ptr_->progress_signal(task_result_ptr_->task_id, processed,
+                                      total);
+  }
+  if (processed == total) {
+    task_result_ptr_->operation_status = utilities::TaskStatus::Completed;
     std::filesystem::remove(input_filename);
     spdlog::info("Done processing task: {}, web_id: {}",
                  task_result_ptr_->task_id, task_result_ptr_->website_id);
@@ -112,38 +118,42 @@ bool BackgroundWorker::open_output_files() {
 void BackgroundWorker::run_number_crawler() {
   auto callback = std::bind(&BackgroundWorker::on_data_result_obtained, this,
                             std::placeholders::_1, std::placeholders::_2);
-
+  using utilities::TaskStatus;
   std::list<std::shared_ptr<void>> sockets{};
-  if (!open_output_files())
+  if (!open_output_files()) {
+    task_result_ptr_->operation_status = TaskStatus::Erred;
     return;
-  if (auto iter = website_map.find("autohome"); iter != website_map.cend()) {
-    if (iter->second == website_type::JJGames) {
-      // we only make one socket of this type
-      auto socket_ptr = std::make_shared<jj_games_socket>(context_, safe_proxy_,
-                                                          *number_stream_);
+  }
+  task_result_ptr_->operation_status = TaskStatus::Ongoing;
+  if (website_info_.alias.find("jjgames") != std::string::npos ||
+      website_info_.address.find("jjgames") != std::string::npos) {
+    // we only make one socket of this type
+    auto socket_ptr = std::make_shared<jj_games_socket>(context_, safe_proxy_,
+                                                        *number_stream_);
+    sockets.push_back(socket_ptr); // keep a type-erased copy
+    (void)socket_ptr->signal().connect(callback);
+    socket_ptr->start_connect();
+  } else if (website_info_.alias.find("autohome") != std::string::npos ||
+             website_info_.address.find("autohome") != std::string::npos) {
+    for (int i = 0; i != utilities::MaxOpenSockets; ++i) {
+      auto socket_ptr = std::make_shared<auto_home_socket>(
+          context_, safe_proxy_, *number_stream_);
       sockets.push_back(socket_ptr); // keep a type-erased copy
       (void)socket_ptr->signal().connect(callback);
       socket_ptr->start_connect();
-    } else if (iter->second == website_type::AutoHomeRegister) {
-      for (int i = 0; i != utilities::MaxOpenSockets; ++i) {
-        auto socket_ptr = std::make_shared<auto_home_socket>(
-            context_, safe_proxy_, *number_stream_, website_info_.address);
-        sockets.push_back(socket_ptr); // keep a type-erased copy
-        (void)socket_ptr->signal().connect(callback);
-        socket_ptr->start_connect();
-      }
     }
-    context_.run();
   }
+  context_.run();
 }
 
 void BackgroundWorker::make_mapper() {
-  //(void)process_done.connect([this] { return run_number_crawler(); });
+  using utilities::TaskStatus;
   {
     input_filename = "./{}.txt"_format(std::time(nullptr));
     std::ofstream out_file{input_filename};
     if (!out_file) {
       input_filename = "";
+      task_result_ptr_->operation_status = TaskStatus::Erred;
       return;
     }
     for (std::size_t index = 0; index != uploads_info_.size(); ++index) {
@@ -164,8 +174,10 @@ void BackgroundWorker::make_mapper() {
                                     });
     }
     input_file.open(input_filename, std::ios::in);
-    if (!input_file)
+    if (!input_file) {
+      task_result_ptr_->operation_status = TaskStatus::Erred;
       return;
+    }
     number_stream_ = std::make_unique<utilities::number_stream>(input_file);
   }
   run_number_crawler();
@@ -188,14 +200,24 @@ void background_task_executor(
       spdlog::error("No such website or numbers is empty");
       continue;
     }
-    auto &task_results = get_tasks_results();
+
+    auto &response_queue = get_response_queue();
+    auto &task_counter = get_task_counter();
+
     auto task_result = std::make_shared<AtomicTaskResult>();
     task_result->task_id = task.task_id;
     task_result->website_id = task.website_id;
-    task_results.emplace(task.task_id, task_result);
+    response_queue.emplace(task.task_id, task_result);
+    task_counter.insert(task.task_id, [db_connector](uint32_t task_id) {
+      db_connector->change_task_status(task_id, TaskStatus::Ongoing);
+    });
+
     BackgroundWorker background_worker{std::move(*website), std::move(numbers),
                                        task_result, get_network_context()};
     background_worker.run();
+    task_counter.remove(task.task_id, [db_connector](uint32_t const task_id) {
+      db_connector->change_task_status(task_id, TaskStatus::Completed);
+    });
     // if we are here, we are done.
   }
 }
