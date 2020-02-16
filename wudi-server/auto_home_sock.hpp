@@ -17,7 +17,8 @@ class auto_home_socket : public web_base<auto_home_socket> {
 public:
   void on_data_received(beast::error_code, std::size_t const);
   void prepare_request_data(bool use_authentication_header);
-  auto_home_socket(net::io_context &io, safe_proxy &proxy_provider,
+  auto_home_socket(bool &stopped, net::io_context &io,
+                   safe_proxy &proxy_provider,
                    utilities::number_stream &numbers);
   ~auto_home_socket() = default;
 };

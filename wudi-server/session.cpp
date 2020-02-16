@@ -30,9 +30,10 @@ void session::on_header_read(beast::error_code ec, std::size_t const) {
         true);
   } else {
     if (websocket::is_upgrade(empty_body_parser_->get())) {
-      std::make_shared<websocket_updates>(io_context_,
-                                          tcp_stream_.release_socket())
-          ->run(empty_body_parser_->release());
+      auto ws = std::make_shared<websocket_updates>(
+          io_context_, tcp_stream_.release_socket());
+      websockets_.push_back(ws);
+      ws->run(empty_body_parser_->release());
       return;
     }
     content_type_ = empty_body_parser_->get()[http::field::content_type];
@@ -250,6 +251,7 @@ void session::upload_handler(string_request const &request,
           return error_handler(server_error("unable to delete any record",
                                             ErrorType::ServerError, request));
         }
+        // a GET request
       } else {
         uploads = db_connector->get_uploads(ids);
         if (!db_connector->remove_uploads(ids)) {
@@ -328,6 +330,14 @@ void session::add_endpoint_interfaces() {
       "/download", {verb::post},
       std::bind(&session::download_handler, shared_from_this(),
                 std::placeholders::_1, std::placeholders::_2));
+  endpoint_apis_.add_endpoint(
+      "/stop", {verb::post},
+      std::bind(&session::stop_tasks_handler, shared_from_this(),
+                std::placeholders::_1, std::placeholders::_2));
+  endpoint_apis_.add_endpoint(
+      "/start", {verb::post},
+      std::bind(&session::restart_tasks_handler, shared_from_this(),
+                std::placeholders::_1, std::placeholders::_2));
 }
 
 void session::download_handler(string_request const &request,
@@ -344,6 +354,73 @@ void session::download_handler(string_request const &request,
     spdlog::error("exception in `download_handler`: {}", e.what());
     return error_handler(
         bad_request("unable to process JSON request", request));
+  }
+}
+
+void session::stop_tasks_handler(string_request const &request,
+                                 std::string_view const &optional_query) {
+  if (content_type_ != "application/json")
+    return error_handler(bad_request("invalid content-type", request));
+  try {
+    using utilities::TaskStatus;
+    json json_root = json::parse(request.body());
+    json::array_t task_id_list = json_root.get<json::array_t>();
+    if (task_id_list.empty()) {
+      return error_handler(bad_request("empty task list", request));
+    }
+    auto &running_tasks = utilities::get_response_queue();
+    std::vector<uint32_t> stopped_tasks{};
+    stopped_tasks.reserve(task_id_list.size());
+    for (std::size_t index = 0; index != task_id_list.size(); ++index) {
+      auto task_id = task_id_list[index].get<json::number_integer_t>();
+      if (auto iter = running_tasks.equal_range(task_id);
+          iter.first != running_tasks.cend()) {
+        stopped_tasks.push_back(task_id);
+        for (auto beg = iter.first; beg != iter.second; ++beg) {
+          if (beg->second->operation_status == TaskStatus::Ongoing) {
+            beg->second->stop();
+          }
+        }
+      }
+    }
+    return send_response(json_success(json(stopped_tasks).dump(), request));
+  } catch (std::exception const &e) {
+    spdlog::error("exception in stop_tasks: {}", e.what());
+    return error_handler(bad_request("unable to stop tasks", request));
+  }
+}
+
+void session::restart_tasks_handler(string_request const &request,
+                                    std::string_view const &optional_query) {
+  if (content_type_ != "application/json")
+    return error_handler(bad_request("invalid content-type", request));
+  try {
+    using utilities::TaskStatus;
+    json json_root = json::parse(request.body());
+    json::array_t user_task_list = json_root.get<json::array_t>();
+    if (user_task_list.empty())
+      return error_handler(bad_request("empty task list", request));
+    std::vector<uint32_t> task_list{};
+    task_list.reserve(user_task_list.size());
+    for (auto const &user_task_id : user_task_list) {
+      task_list.push_back(user_task_id.get<json::number_integer_t>());
+    }
+    auto db_connector = wudi_server::DatabaseConnector::GetDBConnector();
+    std::vector<utilities::AtomicTask> stopped_tasks{};
+    if (db_connector->get_stopped_tasks(task_list, stopped_tasks) &&
+        db_connector->remove_stopped_tasks(task_list)) {
+      auto &task_queue = utilities::get_scheduled_tasks();
+      for (auto &stopped_task : stopped_tasks) {
+        task_queue.push_back(std::move(stopped_task));
+      }
+      return send_response(json_success(json(task_list).dump(), request));
+    }
+    return error_handler(server_error("not able to restart tasks",
+                                      utilities::ErrorType::ServerError,
+                                      request));
+  } catch (std::exception const &e) {
+    spdlog::error("exception in restart_tasks: {}", e.what());
+    return error_handler(bad_request("unable to restarts tasks", request));
   }
 }
 void session::schedule_task_handler(string_request const &request,
@@ -382,14 +459,17 @@ void session::schedule_task_handler(string_request const &request,
         return error_handler(server_error("unable to schedule task",
                                           ErrorType::ServerError, request));
       }
-      spdlog::info("Added new task{}", task.website_ids.size() == 1 ? "s" : "");
+      spdlog::info("Added new task{}", task.website_ids.size() <= 1 ? "" : "s");
       auto &tasks{get_scheduled_tasks()};
 
       // split the main task into sub-tasks, based on the number of websites
       for (auto const &website_id : task.website_ids) {
-        utilities::AtomicTask atom_task{task.task_id};
-        atom_task.website_id = website_id;
-        atom_task.number_ids = task.number_ids;
+        utilities::AtomicTask atom_task;
+        atom_task.type_ = utilities::AtomicTask::task_type::fresh;
+        atom_task.task.emplace<0>();
+        auto &task = std::get<0>(atom_task.task);
+        task.website_id = website_id;
+        task.number_ids = task.number_ids;
         tasks.push_back(std::move(atom_task));
       }
       json::object_t obj;
@@ -404,7 +484,6 @@ void session::schedule_task_handler(string_request const &request,
     return error_handler(
         server_error("not implemented yet", ErrorType::ServerError, request));
   } else {
-    std::vector<boost::string_view> ids{};
     auto const query_pairs{split_optional_queries(optional_query)};
     auto const id_iter = utilities::find_query_key(query_pairs, "id");
     try {

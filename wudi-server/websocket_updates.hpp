@@ -10,6 +10,7 @@
 #include <boost/beast/websocket.hpp>
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <set>
 
 namespace websocket = boost::beast::websocket;
 namespace beast = boost::beast;
@@ -19,10 +20,13 @@ using nlohmann::json;
 namespace wudi_server {
 
 struct ws_subscription_result {
-  uint32_t task_id;
-  uint32_t status;
-  uint32_t processed;
-  uint32_t total;
+  struct sub_task_result {
+    uint32_t status{};
+    uint32_t processed{};
+  };
+  uint32_t task_id{};
+  uint32_t total{};
+  std::vector<sub_task_result> sub_tasks{};
 };
 
 enum class RequestType {
@@ -31,13 +35,13 @@ enum class RequestType {
   AddSubscription = 0x3,
   None = 0x4
 };
+enum class ResponseStatus { Error = 0x0, Success = 0x1 };
 enum class ResponseType {
-  Error = 0x0,
-  Success = 0x1,
-  Update = 0x2,
+  UpdateSuccessful = 0x2,
   LoginSuccessful,
   SubscriptionSuccessful
 };
+
 enum class WebsocketErrorType {
   InvalidRequest = 0xA,
   MustLogin,
@@ -46,6 +50,7 @@ enum class WebsocketErrorType {
 };
 
 void to_json(json &j, ws_subscription_result const &item);
+void to_json(json &j, ws_subscription_result::sub_task_result const &item);
 
 class websocket_updates
     : public std::enable_shared_from_this<websocket_updates> {
@@ -54,8 +59,19 @@ class websocket_updates
   std::string write_buffer_;
   bool logged_in_ = false;
   net::deadline_timer timer_;
+  std::set<int> task_ids_;
+  std::vector<ws_subscription_result> result_{};
+
   static std::string error(WebsocketErrorType, RequestType);
-  static std::string success(std::string_view const message, ResponseType type);
+
+  template <typename T>
+  static std::string success(T const &response, ResponseType type) {
+    json::object_t success_object;
+    success_object["status"] = static_cast<uint32_t>(ResponseStatus::Success);
+    success_object["type"] = static_cast<uint32_t>(type);
+    success_object["what"] = response;
+    return json(success_object).dump();
+  }
 
 private:
   bool process_login(json::object_t login_info);
@@ -67,7 +83,7 @@ private:
   void on_error_occurred(beast::error_code);
   void on_websocket_accepted(beast::error_code ec);
   void interpret_message(beast::flat_buffer::const_buffers_type const &data);
-  void on_task_progressed(uint32_t, uint32_t, uint32_t, uint32_t);
+  void on_task_progressed(std::size_t, uint32_t, uint32_t, uint32_t);
   void on_data_written(beast::error_code ec);
   void do_write(std::string_view const message);
   void start_ping_timer();

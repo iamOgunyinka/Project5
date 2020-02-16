@@ -4,11 +4,11 @@
 #include <nlohmann/json.hpp>
 
 namespace wudi_server {
-jj_games_socket::jj_games_socket(net::io_context &io,
+jj_games_socket::jj_games_socket( bool&stopped, net::io_context &io,
                                  safe_proxy &proxy_provider,
                                  utilities::number_stream &numbers)
     : context_{io}, proxy_provider_{proxy_provider}, timer_{io},
-      numbers_{numbers}, thread_data_{} {}
+    numbers_{ numbers }, stopped_{ stopped }, thread_data_{} {}
 
 void jj_games_socket::start_connect() {
   using custom_curl::multi_socket_callback;
@@ -184,7 +184,7 @@ void jj_games_socket::select_proxy(ConnectInfo *connect_info) {
   }
 }
 
-bool jj_games_socket::is_stopped() const { return false; }
+bool jj_games_socket::is_stopped() const { return stopped_; }
 
 void jj_games_socket::current_proxy_assign_prop(ProxyProperty property,
                                                 endpoint_ptr ep) {

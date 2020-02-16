@@ -26,7 +26,8 @@ protected:
   http::request<http::string_body> post_request_{};
   http::response<http::string_body> response_{};
   std::string current_number_{};
-  boost::signals2::signal<void( utilities::SearchResultType, std::string_view )> signal_;
+  boost::signals2::signal<void(utilities::SearchResultType, std::string_view)>
+      signal_;
   std::size_t connect_count_{};
   std::size_t send_count_{};
   bool tried_unresposiveness_{false};
@@ -34,6 +35,7 @@ protected:
   EndpointList temp_list_;
   safe_proxy &proxy_provider_;
   endpoint_ptr current_endpoint_;
+  bool &stopped_;
 
 protected:
   void connect();
@@ -55,14 +57,17 @@ protected:
   void on_data_received(beast::error_code, std::size_t const);
 
 public:
-  web_base(net::io_context &, safe_proxy &, utilities::number_stream &);
+  web_base(bool &stopped, net::io_context &, safe_proxy &,
+           utilities::number_stream &);
   void start_connect();
   virtual ~web_base() = default;
-  auto& signal() { return signal_; }
+  auto &signal() { return signal_; }
 };
 
 template <typename DerivedClass>
 void web_base<DerivedClass>::resend_http_request() {
+  if (stopped_)
+    return;
   if (++send_count_ >= utilities::MaxRetries) {
     current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
     choose_next_proxy();
@@ -73,6 +78,8 @@ void web_base<DerivedClass>::resend_http_request() {
 }
 
 template <typename DerivedClass> void web_base<DerivedClass>::send_http_data() {
+  if (stopped_)
+    return;
   tcp_stream_.expires_after(
       std::chrono::milliseconds(utilities::TimeoutMilliseconds));
   http::async_write(tcp_stream_, post_request_,
@@ -89,6 +96,8 @@ void web_base<DerivedClass>::on_data_sent(beast::error_code ec,
 }
 
 template <typename DerivedClass> void web_base<DerivedClass>::receive_data() {
+  if (stopped_)
+    return;
   tcp_stream_.expires_after(
       std::chrono::milliseconds(utilities::TimeoutMilliseconds * 3)); // 3*3secs
   response_ = {};
@@ -105,6 +114,8 @@ template <typename DerivedClass> void web_base<DerivedClass>::start_connect() {
 }
 
 template <typename DerivedClass> void web_base<DerivedClass>::send_next() {
+  if (stopped_)
+    return;
   try {
     current_number_ = numbers_.get();
     prepare_request_data();
@@ -124,7 +135,7 @@ template <typename DerivedClass> void web_base<DerivedClass>::reconnect() {
 }
 
 template <typename DerivedClass> void web_base<DerivedClass>::connect() {
-  if (temp_list_.empty())
+  if (temp_list_.empty() || stopped_)
     return;
   tcp_stream_.expires_after(
       std::chrono::milliseconds(utilities::TimeoutMilliseconds));
@@ -143,6 +154,8 @@ void web_base<DerivedClass>::on_connected(
 
 template <typename DerivedClass>
 void web_base<DerivedClass>::choose_next_proxy() {
+  if (stopped_)
+    return;
   send_count_ = 0;
   connect_count_ = 0;
   temp_list_.clear();
@@ -175,11 +188,11 @@ web_base<DerivedClass>::on_data_received(beast::error_code ec,
 }
 
 template <typename DerivedClass>
-web_base<DerivedClass>::web_base(net::io_context &io_context,
+web_base<DerivedClass>::web_base(bool &stopped, net::io_context &io_context,
                                  safe_proxy &proxy_provider,
                                  utilities::number_stream &numbers)
     : io_{io_context}, tcp_stream_{net::make_strand(io_)}, numbers_{numbers},
-      proxy_provider_{proxy_provider} {}
+      proxy_provider_{proxy_provider}, stopped_{stopped} {}
 
 template <typename DerivedClass>
 void web_base<DerivedClass>::set_authentication_header() {

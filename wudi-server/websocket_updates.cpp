@@ -5,10 +5,12 @@
 namespace wudi_server {
 
 void to_json(json &j, ws_subscription_result const &item) {
-  j = json{{"id", item.task_id},
-           {"processed", item.processed},
-           {"status", item.status},
-           {"total", item.total}};
+  j = json{
+      {"id", item.task_id}, {"info", item.sub_tasks}, {"total", item.total}};
+}
+
+void to_json(json &j, ws_subscription_result::sub_task_result const &item) {
+  j = json{{"processed", item.processed}, {"status", item.status}};
 }
 
 void websocket_updates::on_websocket_accepted(beast::error_code const ec) {
@@ -18,6 +20,7 @@ void websocket_updates::on_websocket_accepted(beast::error_code const ec) {
 }
 void websocket_updates::run(
     beast::http::request<beast::http::empty_body> &&request) {
+  std::cout << request << std::endl;
   boost::asio::dispatch(
       websock_stream_.get_executor(), [this, req = std::move(request)] {
         websock_stream_.set_option(websocket::stream_base::timeout::suggested(
@@ -76,18 +79,19 @@ void websocket_updates::interpret_message(
         return do_write(
             error(WebsocketErrorType::InvalidLoginCreds, request_type));
       }
+      task_ids_.clear();
+      result_.clear();
       logged_in_ = true;
       return do_write(success("ok", ResponseType::LoginSuccessful));
     }
     case RequestType::Subscribe: {
-      std::vector<ws_subscription_result> result{};
       auto task_id_list = request["subscribe"].get<json::array_t>();
-      if (!process_subscription(task_id_list, result)) {
+      if (!process_subscription(task_id_list, result_)) {
         return do_write(
             error(WebsocketErrorType::SubscriptionFailed, request_type));
       }
       start_ping_timer();
-      return do_write(success(json(result).dump(), ResponseType::Update));
+      return do_write(success(json(result_), ResponseType::UpdateSuccessful));
     }
     case RequestType::AddSubscription:
       if (!add_subscription(request["subscribe"].get<json::array_t>())) {
@@ -134,50 +138,64 @@ bool websocket_updates::process_login(json::object_t login_info) {
 bool websocket_updates::process_subscription(
     json::array_t const &task_list,
     std::vector<ws_subscription_result> &result) {
+  using utilities::TaskStatus;
+
   if (!logged_in_ || task_list.empty())
     return false;
   auto &task_queue = utilities::get_response_queue();
-  result.clear();
-  result.reserve(task_list.size());
   for (std::size_t i = 0; i != task_list.size(); ++i) {
     auto const user_task_id = task_list[i].get<json::number_integer_t>();
+    if (task_ids_.find(user_task_id) != task_ids_.cend())
+      continue;
+    task_ids_.insert(user_task_id);
     auto task_range = task_queue.equal_range(user_task_id);
+    auto const website_count =
+        std::distance(task_range.first, task_range.second);
+    if (website_count == 0)
+      continue;
+    result.push_back(ws_subscription_result{});
+    result.back().task_id = task_range.first->second->task_id;
+    result.back().total = (task_range.first->second->total_numbers);
     for (auto beg = task_range.first; beg != task_range.second; ++beg) {
-      uint32_t processed = beg->second->processed;
-      uint32_t total = beg->second->total_numbers;
-      uint32_t status = static_cast<int>(beg->second->operation_status);
-      uint32_t task_id = beg->second->task_id;
+      uint32_t const processed = beg->second->processed;
+      uint32_t const status = static_cast<int>(beg->second->operation_status);
+      result.back().sub_tasks.push_back({status, processed});
 
-      (void)beg->second->progress_signal.connect(
-          [=](uint32_t task_id, uint32_t processed, uint32_t total) {
-            on_task_progressed(std::distance(beg, task_range.second), task_id,
-                               processed, total);
+      (void)beg->second->progress_signal().connect(
+          [=](uint32_t task_id, uint32_t processed, TaskStatus status) {
+            on_task_progressed(std::distance(task_range.first, beg), task_id,
+                               processed, (uint32_t)status);
           });
-      result.push_back({task_id, status, processed, total});
     }
   }
-  if (!result.empty()) {
-  }
-  return true;
+  return !result.empty();
 }
 
 bool websocket_updates::add_subscription(json::array_t const &task_ids) {
   if (!logged_in_ || task_ids.empty())
     return false;
-  return true;
+  return process_subscription(task_ids, result_);
 }
 
-void websocket_updates::on_task_progressed(uint32_t const total_sub_tasks,
+void websocket_updates::on_task_progressed(std::size_t const index,
                                            uint32_t const task_id,
                                            uint32_t const processed,
-                                           uint32_t const total) {
-  int const percentage = ((processed / total) * 100) / total_sub_tasks;
-  json::object_t object;
-  object["id"] = task_id;
-  object["value"] = percentage;
-  json::array_t arr;
-  arr.push_back(object);
-  do_write(success(json(arr).dump(), ResponseType::Update));
+                                           uint32_t const status) {
+
+  auto iter = std::find_if(result_.begin(), result_.end(),
+                           [task_id](ws_subscription_result const &item) {
+                             return item.task_id == task_id;
+                           });
+  if (iter == result_.end())
+    return;
+  if (status == static_cast<uint32_t>(utilities::TaskStatus::Stopped)) {
+      
+      return;
+  }
+  using utilities::TaskStatus;
+  iter->sub_tasks[index].processed = processed;
+  iter->sub_tasks[index].status = status;
+  return do_write(success(*iter, ResponseType::UpdateSuccessful));
 }
 
 void websocket_updates::on_data_written(beast::error_code const ec) {
@@ -195,19 +213,10 @@ void websocket_updates::on_data_written(beast::error_code const ec) {
 std::string websocket_updates::error(WebsocketErrorType error_type,
                                      RequestType request_type) {
   json::object_t error_object;
-  error_object["status"] = static_cast<uint32_t>(ResponseType::Error);
+  error_object["status"] = static_cast<uint32_t>(ResponseStatus::Error);
   error_object["type"] = static_cast<uint32_t>(error_type);
   error_object["request"] = static_cast<uint32_t>(request_type);
   return json(error_object).dump();
-}
-
-std::string websocket_updates::success(std::string_view const message,
-                                       ResponseType type) {
-  json::object_t success_object;
-  success_object["status"] = static_cast<uint32_t>(ResponseType::Success);
-  success_object["type"] = static_cast<uint32_t>(type);
-  success_object["what"] = message;
-  return json(success_object).dump();
 }
 
 void websocket_updates::do_write(std::string_view const message) {

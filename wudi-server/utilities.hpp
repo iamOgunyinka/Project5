@@ -13,6 +13,7 @@
 #include <spdlog/spdlog.h>
 #include <sstream>
 #include <string>
+#include <variant>
 #include <vector>
 
 #define OTL_BIG_INT long long
@@ -120,11 +121,26 @@ struct TaskResult {
 };
 
 struct AtomicTask {
-  uint32_t const task_id;
+  enum class task_type { stopped, fresh };
+  struct fresh_task {
+    uint32_t website_id{};
+    std::vector<uint32_t> number_ids{};
+  };
+  struct stopped_task {
+    uint32_t task_id{};
+    std::string input_filename{};
+    std::string website_address{};
+    std::string ok_filename{};
+    std::string not_ok_filename{};
+    std::string unknown_filename{};
+  };
+
+  task_type type_;
+  uint32_t task_id{};
   uint32_t website_id{};
-  uint32_t total_numbers{};
   uint32_t processed{};
-  std::vector<uint32_t> number_ids{};
+  uint32_t total{};
+  std::variant<fresh_task, stopped_task> task;
 };
 
 struct command_line_interface {
@@ -174,7 +190,12 @@ enum class TaskStatus : uint32_t {
 using string_view_pair = std::pair<boost::string_view, boost::string_view>;
 using string_view_pair_list = std::vector<string_view_pair>;
 
-struct AtomicTaskResult {
+class AtomicTaskResult {
+  boost::signals2::signal<void(uint32_t, uint32_t, TaskStatus)>
+      progress_signal_;
+  bool stopped_ = false;
+
+public:
   uint32_t task_id{};
   uint32_t website_id{};
   uint32_t processed{};
@@ -189,13 +210,16 @@ struct AtomicTaskResult {
   std::ofstream not_ok_file;
   std::ofstream unknown_file;
 
-  boost::signals2::signal<void(uint32_t, uint32_t, uint32_t)> progress_signal;
+  boost::signals2::signal<void(uint32_t, uint32_t, TaskStatus)> &
+  progress_signal();
+  bool &stopped();
+  void stop();
 };
 
 struct WebsiteResult {
   int32_t id{};
   std::string address{};
-  std::string alias;
+  std::string alias{};
 };
 
 struct ProxyAddress {
@@ -429,6 +453,8 @@ using threadsafe_cv_container = threadsafe_container<T, std::deque<T>, true>;
 otl_stream &operator>>(otl_stream &os, TaskResult &item);
 otl_stream &operator>>(otl_stream &, UploadResult &);
 otl_stream &operator>>(otl_stream &, WebsiteResult &);
+otl_stream &operator>>(otl_stream &, AtomicTask &);
+
 bool operator<(AtomicTaskResult const &task_1, AtomicTaskResult const &task_2);
 std::string svector_to_string(std::vector<boost::string_view> const &vec);
 std::string decode_url(boost::string_view const &encoded_string);
@@ -501,6 +527,11 @@ public:
   bool connect();
 
 public:
+  bool save_stopped_task(utilities::AtomicTask const &);
+  bool get_stopped_tasks(std::vector<uint32_t> const &tasks,
+                         std::vector<utilities::AtomicTask> &);
+  bool remove_stopped_tasks(std::vector<uint32_t> const &tasks);
+
   bool remove_uploads(std::vector<boost::string_view> const &ids = {});
   std::vector<utilities::WebsiteResult>
   get_websites(std::vector<uint32_t> const &ids);

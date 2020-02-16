@@ -110,7 +110,8 @@ class jj_games_socket {
                                                       void *user_data);
 
 public:
-  jj_games_socket(net::io_context &io, safe_proxy &proxy_provider,
+  jj_games_socket(bool &stopped, net::io_context &io,
+                  safe_proxy &proxy_provider,
                   utilities::number_stream &numbers);
   ~jj_games_socket();
   CURLM *curlm_async_interface();
@@ -141,6 +142,7 @@ private:
   safe_proxy &proxy_provider_;
   boost::asio::deadline_timer timer_;
   utilities::number_stream &numbers_;
+  bool &stopped_;
 
   custom_curl::CurlThreadData thread_data_{};
   std::vector<ConnectInfo *> connections{};

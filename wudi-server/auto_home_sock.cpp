@@ -13,13 +13,14 @@ using namespace fmt::v6::literals;
 std::string const auto_home_socket::password_base64_hash{
     "bGFueHVhbjM2OUBnbWFpbC5jb206TGFueHVhbjk2Mw=="};
 
-auto_home_socket::auto_home_socket(net::io_context &io_context,
+auto_home_socket::auto_home_socket(bool &stopped, net::io_context &io_context,
                                    safe_proxy &proxy_provider,
                                    utilities::number_stream &numbers)
-    : web_base(io_context, proxy_provider, numbers){}
+    : web_base(stopped, io_context, proxy_provider, numbers) {}
 
 void auto_home_socket::prepare_request_data(bool use_authentication_header) {
-  std::string const payload{ address_ + 
+  std::string const payload{
+      address_ +
       "phone={}&isOverSea=0&validcodetype=1"_format(current_number_)};
   post_request_.clear();
   post_request_.method(beast::http::verb::post);

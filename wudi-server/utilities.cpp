@@ -25,6 +25,19 @@ otl_stream &operator>>(otl_stream &os, WebsiteResult &web) {
   return os >> web.id >> web.address >> web.alias;
 }
 
+otl_stream &operator>>(otl_stream &db_stream, AtomicTask &task) {
+  db_stream >> task.task_id >> task.website_id >> task.processed >> task.total;
+  if (task.type_ == AtomicTask::task_type::fresh) {
+    auto &new_task = std::get<AtomicTask::fresh_task>(task.task);
+    return db_stream >> new_task.website_id;
+  } else {
+    auto &old_task = std::get<AtomicTask::stopped_task>(task.task);
+    return db_stream >> old_task.input_filename >> old_task.website_address >>
+           old_task.ok_filename >> old_task.not_ok_filename >>
+           old_task.unknown_filename;
+  }
+}
+
 bool operator<(AtomicTaskResult const &task_1, AtomicTaskResult const &task_2) {
   return std::tie(task_1.task_id, task_1.website_id) <
          std::tie(task_2.task_id, task_2.website_id);
@@ -371,6 +384,16 @@ std::string number_stream::get() noexcept(false) {
 }
 
 bool number_stream::empty() { return !(input_stream && !input_stream.eof()); }
+
+boost::signals2::signal<void(uint32_t, uint32_t, TaskStatus)> &
+AtomicTaskResult::progress_signal() {
+  return progress_signal_;
+}
+
+bool &AtomicTaskResult::stopped() { return stopped_; }
+
+void AtomicTaskResult::stop() { stopped_ = true; }
+
 } // namespace utilities
 
 Rule::Rule(std::initializer_list<http::verb> &&verbs, Callback callback)
@@ -584,6 +607,64 @@ DatabaseConnector::get_all_tasks(boost::string_view user_id) {
   return result;
 }
 
+bool DatabaseConnector::save_stopped_task(
+    utilities::AtomicTask const &stopped_task) {
+  auto &task = std::get<1>(stopped_task.task);
+  std::string const sql_statement =
+      "INSERT INTO tb_stopped_tasks(task_id, website_id, filename,"
+      "total_numbers, processed, website_address, ok_filename, "
+      "not_ok_filename, unknown_file) VALUES({}, \"{}\", {}, {}, "
+      "\"{}\", \"{}\", \"{}\", \"{}\")"_format(
+          stopped_task.task_id, stopped_task.website_id, task.input_filename,
+          stopped_task.total, stopped_task.processed, task.website_address,
+          task.ok_filename, task.not_ok_filename, task.unknown_filename);
+  try {
+    std::lock_guard<std::mutex> lock_g{db_mutex_};
+    return otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
+                                   otl_exception::enabled) > 0;
+  } catch (otl_exception const &e) {
+    utilities::log_sql_error(e);
+    return false;
+  }
+}
+
+bool DatabaseConnector::get_stopped_tasks(
+    std::vector<uint32_t> const &tasks,
+    std::vector<utilities::AtomicTask> &stopped_tasks) {
+  std::string const sql_statement =
+      "SELECT task_id, website_id, processed, total_numbers, filename, "
+      "website_address, ok_filename, not_ok_filename, unknown_filename FROM "
+      "tb_stopped_tasks where task_id in ({})"_format(
+          utilities::intlist_to_string(tasks));
+  try {
+    using utilities::AtomicTask;
+    otl_stream db_stream(1'000, sql_statement.c_str(), otl_connector_);
+    utilities::AtomicTask stopped_task;
+    stopped_task.type_ = AtomicTask::task_type::stopped;
+    stopped_task.task.emplace<1>();
+    while (db_stream >> stopped_task) {
+      stopped_tasks.push_back(stopped_task);
+    }
+    return true;
+  } catch (otl_exception const &e) {
+    utilities::log_sql_error(e);
+    return false;
+  }
+}
+
+bool DatabaseConnector::remove_stopped_tasks(
+    std::vector<uint32_t> const &task_ids) {
+  std::string const sql_statement =
+      "DELETE FROM tb_stopped_tasks WHERE task_id in ({})"_format(task_ids);
+  try {
+    std::lock_guard<std::mutex> lock_g{db_mutex_};
+    return otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
+                                   otl_exception::enabled) > 0;
+  } catch (otl_exception const &e) {
+    utilities::log_sql_error(e);
+    return false;
+  }
+}
 bool DatabaseConnector::remove_uploads(
     std::vector<boost::string_view> const &ids) {
   using utilities::svector_to_string;

@@ -22,7 +22,7 @@ class session {
   using dynamic_body_ptr = std::unique_ptr<dynamic_request>;
   using string_body_ptr =
       std::unique_ptr<http::request_parser<http::string_body>>;
-  net::io_context& io_context_;
+  net::io_context &io_context_;
   beast::tcp_stream tcp_stream_;
   command_line_interface const &args_;
   beast::flat_buffer buffer_{};
@@ -33,8 +33,10 @@ class session {
   std::shared_ptr<void> resp_;
   Endpoint endpoint_apis_;
   std::shared_ptr<DatabaseConnector> db_connector;
+  std::vector<std::shared_ptr<void>> websockets_;
 
-  private_functions : void add_endpoint_interfaces();
+private:
+  void add_endpoint_interfaces();
   void http_read_data();
   void on_header_read(beast::error_code, std::size_t const);
   void binary_data_read(beast::error_code ec, std::size_t bytes_transferred);
@@ -50,6 +52,14 @@ class session {
   void upload_handler(string_request const &request,
                       std::string_view const &optional_query);
   void handle_requests(string_request const &request);
+  void download_handler(string_request const &request,
+                        std::string_view const &optional_query);
+  void schedule_task_handler(string_request const &request,
+                             std::string_view const &query);
+  void website_handler(string_request const &, std::string_view const &);
+  void stop_tasks_handler( string_request const&, std::string_view const & );
+  void restart_tasks_handler( string_request const&, std::string_view const& );
+
   session *shared_from_this() { return this; }
 
   static string_response json_success(json const &body,
@@ -72,11 +82,6 @@ public:
   session(net::io_context &io, asio::ip::tcp::socket &&socket,
           command_line_interface const &args,
           std::shared_ptr<DatabaseConnector>);
-  void download_handler(string_request const &request,
-                        std::string_view const &optional_query);
-  void schedule_task_handler(string_request const &request,
-                             std::string_view const &query);
-  void website_handler(string_request const &, std::string_view const &);
   void run();
 };
 } // namespace wudi_server
