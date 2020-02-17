@@ -4,6 +4,7 @@
 #include <boost/beast.hpp>
 #include <boost/signals2.hpp>
 #include <boost/utility/string_view.hpp>
+#include <boost/algorithm/string.hpp>
 #include <deque>
 #include <filesystem>
 #include <fstream>
@@ -135,7 +136,7 @@ struct AtomicTask {
     std::string unknown_filename{};
   };
 
-  task_type type_;
+  task_type type_ = task_type::fresh;
   uint32_t task_id{};
   uint32_t website_id{};
   uint32_t processed{};
@@ -145,7 +146,7 @@ struct AtomicTask {
 
 struct command_line_interface {
   std::size_t thread_count{};
-  uint16_t port{3456};
+  uint16_t port{80};
   uint16_t timeout_mins{15};
   std::string ip_address{"127.0.0.1"};
   std::string scheduled_snapshot;
@@ -442,6 +443,7 @@ void get_file_content(std::string const &filename, filter<T> filter,
   std::string line{};
   T output{};
   while (std::getline(in_file, line)) {
+    boost::trim(line);
     if (filter(line, output))
       post_op(output);
   }
@@ -486,6 +488,8 @@ std::size_t timet_to_string(std::string &, std::size_t,
 bool read_task_file(std::string_view);
 string_view_pair_list::const_iterator
 find_query_key(string_view_pair_list const &, boost::string_view const &);
+void continue_recent_task(AtomicTask &scheduled_task);
+void start_new_task(AtomicTask &scheduled_task);
 } // namespace utilities
 
 using Callback = std::function<void(http::request<http::string_body> const &,

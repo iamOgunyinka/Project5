@@ -56,18 +56,25 @@ void websocket_updates::on_data_read(beast::error_code const ec,
   if (ec) {
     spdlog::error("websocket error: {}", ec.message());
     // send back some kind of error message
-    return do_write(
+    return send_message(
         error(WebsocketErrorType::InvalidRequest, RequestType::None));
   }
   websock_stream_.text(websock_stream_.got_text());
   interpret_message(read_buffer_.data());
+  read_buffer_.consume(read_buffer_.size());
+  read_buffer_.clear();
+  websock_stream_.async_read(
+      read_buffer_, std::bind(&websocket_updates::on_data_read, this,
+                              std::placeholders::_1, std::placeholders::_2));
 }
 
 void websocket_updates::interpret_message(
     beast::flat_buffer::const_buffers_type const &buffer_data) {
+
   boost::string_view const data_view(
       static_cast<char const *>(buffer_data.data()), buffer_data.size());
   RequestType request_type = RequestType::None;
+  spdlog::info(data_view);
   try {
     json j = json::parse(data_view);
     json::object_t request = j.get<json::object_t>();
@@ -76,35 +83,37 @@ void websocket_updates::interpret_message(
     switch (request_type) {
     case RequestType::Login: {
       if (!process_login(request["login"].get<json::object_t>())) {
-        return do_write(
+        return send_message(
             error(WebsocketErrorType::InvalidLoginCreds, request_type));
       }
       task_ids_.clear();
       result_.clear();
       logged_in_ = true;
-      return do_write(success("ok", ResponseType::LoginSuccessful));
+      return send_message(success("ok", ResponseType::LoginSuccessful));
     }
     case RequestType::Subscribe: {
       auto task_id_list = request["subscribe"].get<json::array_t>();
       if (!process_subscription(task_id_list, result_)) {
-        return do_write(
+        return send_message(
             error(WebsocketErrorType::SubscriptionFailed, request_type));
       }
       start_ping_timer();
-      return do_write(success(json(result_), ResponseType::UpdateSuccessful));
+      return send_message(
+          success(json(result_), ResponseType::UpdateSuccessful));
     }
     case RequestType::AddSubscription:
       if (!add_subscription(request["subscribe"].get<json::array_t>())) {
-        return do_write(
+        return send_message(
             error(WebsocketErrorType::SubscriptionFailed, request_type));
       }
-      return do_write(success("ok", ResponseType::SubscriptionSuccessful));
+      return send_message(success("ok", ResponseType::SubscriptionSuccessful));
     default:
-      return do_write(error(WebsocketErrorType::InvalidRequest, request_type));
+      return send_message(
+          error(WebsocketErrorType::InvalidRequest, request_type));
     }
   } catch (std::exception const &e) {
     spdlog::error("websocket[interpret_message]: {}", e.what());
-    do_write(error(WebsocketErrorType::InvalidRequest, request_type));
+    send_message(error(WebsocketErrorType::InvalidRequest, request_type));
   }
 }
 
@@ -145,6 +154,7 @@ bool websocket_updates::process_subscription(
   auto &task_queue = utilities::get_response_queue();
   for (std::size_t i = 0; i != task_list.size(); ++i) {
     auto const user_task_id = task_list[i].get<json::number_integer_t>();
+    spdlog::info(user_task_id);
     if (task_ids_.find(user_task_id) != task_ids_.cend())
       continue;
     task_ids_.insert(user_task_id);
@@ -186,16 +196,13 @@ void websocket_updates::on_task_progressed(std::size_t const index,
                            [task_id](ws_subscription_result const &item) {
                              return item.task_id == task_id;
                            });
+  spdlog::info("on_task_progressed -> {}:{} => {}", task_id, processed, status);
   if (iter == result_.end())
     return;
-  if (status == static_cast<uint32_t>(utilities::TaskStatus::Stopped)) {
-      
-      return;
-  }
   using utilities::TaskStatus;
   iter->sub_tasks[index].processed = processed;
   iter->sub_tasks[index].status = status;
-  return do_write(success(*iter, ResponseType::UpdateSuccessful));
+  return send_message(success(*iter, ResponseType::NewUpdate));
 }
 
 void websocket_updates::on_data_written(beast::error_code const ec) {
@@ -207,7 +214,14 @@ void websocket_updates::on_data_written(beast::error_code const ec) {
     return spdlog::error("websocket_updates::on_data_written: {}",
                          ec.message());
   }
-  read_websock_data();
+  queue_.erase(queue_.begin());
+  if (!queue_.empty()) {
+    websock_stream_.async_write(
+        net::buffer(*queue_.front()),
+        [self = shared_from_this()](beast::error_code ec, std::size_t const) {
+          self->on_data_written(ec);
+        });
+  }
 }
 
 std::string websocket_updates::error(WebsocketErrorType error_type,
@@ -219,10 +233,15 @@ std::string websocket_updates::error(WebsocketErrorType error_type,
   return json(error_object).dump();
 }
 
-void websocket_updates::do_write(std::string_view const message) {
-  write_buffer_ = std::string(message.data(), message.size());
+void websocket_updates::send_message(std::string_view const message) {
+  queue_.push_back(std::make_unique<std::string>(
+      std::string(message.data(), message.size())));
+  if (queue_.size() > 1)
+    return;
   websock_stream_.async_write(
-      net::buffer(write_buffer_),
-      [this](beast::error_code ec, std::size_t const) { on_data_written(ec); });
+      net::buffer(*queue_.front()),
+      [self = shared_from_this()](beast::error_code ec, std::size_t const) {
+        self->on_data_written(ec);
+      });
 }
 } // namespace wudi_server

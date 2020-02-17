@@ -39,7 +39,8 @@ enum class ResponseStatus { Error = 0x0, Success = 0x1 };
 enum class ResponseType {
   UpdateSuccessful = 0x2,
   LoginSuccessful,
-  SubscriptionSuccessful
+  SubscriptionSuccessful,
+  NewUpdate
 };
 
 enum class WebsocketErrorType {
@@ -61,6 +62,7 @@ class websocket_updates
   net::deadline_timer timer_;
   std::set<int> task_ids_;
   std::vector<ws_subscription_result> result_{};
+  std::vector<std::unique_ptr<std::string>> queue_;
 
   static std::string error(WebsocketErrorType, RequestType);
 
@@ -85,7 +87,7 @@ private:
   void interpret_message(beast::flat_buffer::const_buffers_type const &data);
   void on_task_progressed(std::size_t, uint32_t, uint32_t, uint32_t);
   void on_data_written(beast::error_code ec);
-  void do_write(std::string_view const message);
+  void send_message(std::string_view const message);
   void start_ping_timer();
 
 public:

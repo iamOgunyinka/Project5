@@ -655,7 +655,8 @@ bool DatabaseConnector::get_stopped_tasks(
 bool DatabaseConnector::remove_stopped_tasks(
     std::vector<uint32_t> const &task_ids) {
   std::string const sql_statement =
-      "DELETE FROM tb_stopped_tasks WHERE task_id in ({})"_format(task_ids);
+      "DELETE FROM tb_stopped_tasks WHERE task_id in ({})"_format(
+          utilities::intlist_to_string(task_ids));
   try {
     std::lock_guard<std::mutex> lock_g{db_mutex_};
     return otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),

@@ -106,13 +106,15 @@ void auto_home_socket::on_data_received(beast::error_code ec,
     json::object_t object = document.get<json::object_t>();
     if (object.find("success") != object.end()) {
       auto const code = object["success"].get<json::number_integer_t>();
-      std::string const msg = object["success"].get<json::string_t>();
+      std::string const msg = object["Msg"].get<json::string_t>();
       if (msg == "Msg.MobileExist") {
         signal_(SearchResultType::Registered, current_number_);
       } else if (code == 1 && msg == "Msg.MobileSuccess") {
         signal_(SearchResultType::NotRegistered, current_number_);
       } else if (code == 0 && msg == "Msg.MobileExist") {
         signal_(SearchResultType::Registered, current_number_);
+      } else if (code == 0 && msg == "Msg.MobileNotExist") {
+        signal_(SearchResultType::NotRegistered, current_number_);
       } else {
         signal_(SearchResultType::Unknown, current_number_);
       }

@@ -28,12 +28,12 @@ void safe_proxy::get_more_proxies() {
     http_tcp_stream_.connect(resolves);
     http_request_ = {};
     http_request_.method(http::verb::get);
-    http_request_.target("/api/"
-                         "ip?app_key=d9c96cbb82ce73721589f1d63125690e&pack="
-                         "208774&num=100&xy=1&type=1&lb=\\r\\n&mr=1&");
+    http_request_.target(
+        R"(/api/ip?app_key=d9c96cbb82ce73721589f1d63125690e&pack=208774&num=100&xy=1&type=1&lb=\r\n&mr=1)");
     http_request_.version(11);
     http_request_.set(http::field::host, uri_.host() + ":80");
     http_request_.set(http::field::user_agent, utilities::get_random_agent());
+    std::cout << http_request_ << std::endl;
     http::write(http_tcp_stream_, http_request_);
     beast::flat_buffer buffer{};
     http::response<http::string_body> server_response{};
@@ -45,23 +45,26 @@ void safe_proxy::get_more_proxies() {
       has_error = true;
       return spdlog::error("Error obtaining proxy servers from server");
     }
-    auto ips = utilities::split_string_view(server_response.body(), "\\r\\n");
+    auto response_body = server_response.body();
+    std::vector<std::string> ips;
+    boost::split(ips, response_body, boost::is_any_of("\r\n"));
     if (ips.empty()) {
       is_free = true;
       has_error = true;
       return;
     }
-    std::vector<std::string> ip_port{};
     for (auto &line : ips) {
       if (line.empty())
         continue;
-      boost::split(ip_port, line, [](auto ch) { return ch == ':'; });
+
+      auto ip_port = utilities::split_string_view(line, ":");
       if (ip_port.size() < 2)
         continue;
       beast::error_code ec{};
       try {
         auto endpoint = net::ip::tcp::endpoint(
-            net::ip::make_address(ip_port[0]), std::stoi(ip_port[1]));
+            net::ip::make_address(ip_port[0].to_string()),
+            std::stoi(ip_port[1].to_string()));
         endpoints_.emplace_back(std::make_shared<custom_endpoint>(
             std::move(endpoint), ProxyProperty::ProxyActive));
       } catch (std::exception const &except) {
@@ -96,7 +99,7 @@ void safe_proxy::save_proxies_to_file() {
                      std::to_string(proxy->endpoint.port()));
   }
 
-  std::ofstream file{http_proxy_filename};
+  std::ofstream file{http_proxy_filename, std::ios::app | std::ios::out};
   if (file) {
     for (auto const &proxy : proxy_set) {
       file << proxy << "\n";
@@ -147,7 +150,7 @@ std::optional<endpoint_ptr> safe_proxy::next_endpoint() {
       count_ = 0;
       while (count_ < endpoints_.size()) {
         if (endpoints_[count_]->property == ProxyProperty::ProxyActive) {
-          return endpoints_[count_];
+          return endpoints_[count_++];
         }
         count_++;
       }

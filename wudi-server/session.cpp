@@ -461,15 +461,17 @@ void session::schedule_task_handler(string_request const &request,
       }
       spdlog::info("Added new task{}", task.website_ids.size() <= 1 ? "" : "s");
       auto &tasks{get_scheduled_tasks()};
-
+      
       // split the main task into sub-tasks, based on the number of websites
       for (auto const &website_id : task.website_ids) {
         utilities::AtomicTask atom_task;
         atom_task.type_ = utilities::AtomicTask::task_type::fresh;
+        atom_task.task_id = task.task_id;
+        atom_task.total = task.total_numbers;
         atom_task.task.emplace<0>();
-        auto &task = std::get<0>(atom_task.task);
-        task.website_id = website_id;
-        task.number_ids = task.number_ids;
+        auto &new_atomic_task = std::get<0>(atom_task.task);
+        new_atomic_task.website_id = website_id;
+        new_atomic_task.number_ids = task.number_ids;
         tasks.push_back(std::move(atom_task));
       }
       json::object_t obj;
