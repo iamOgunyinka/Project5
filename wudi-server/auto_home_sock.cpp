@@ -18,6 +18,8 @@ auto_home_socket::auto_home_socket(bool &stopped, net::io_context &io_context,
                                    utilities::number_stream &numbers)
     : web_base(stopped, io_context, proxy_provider, numbers) {}
 
+auto_home_socket::~auto_home_socket() {}
+
 void auto_home_socket::prepare_request_data(bool use_authentication_header) {
   std::string const payload{
       address_ +
@@ -105,16 +107,13 @@ void auto_home_socket::on_data_received(beast::error_code ec,
   try {
     json::object_t object = document.get<json::object_t>();
     if (object.find("success") != object.end()) {
-      auto const code = object["success"].get<json::number_integer_t>();
       std::string const msg = object["Msg"].get<json::string_t>();
-      if (msg == "Msg.MobileExist") {
+      if (msg == "Msg.MobileExist" || msg == "MobileExist") {
         signal_(SearchResultType::Registered, current_number_);
-      } else if (code == 1 && msg == "Msg.MobileSuccess") {
+      } else if (msg == "Msg.MobileSuccess" || msg == "MobileSuccess") {
         signal_(SearchResultType::NotRegistered, current_number_);
-      } else if (code == 0 && msg == "Msg.MobileExist") {
+      } else if (msg == "Msg.MobileNotExist" || msg == "MobileNotExist") {
         signal_(SearchResultType::Registered, current_number_);
-      } else if (code == 0 && msg == "Msg.MobileNotExist") {
-        signal_(SearchResultType::NotRegistered, current_number_);
       } else {
         signal_(SearchResultType::Unknown, current_number_);
       }

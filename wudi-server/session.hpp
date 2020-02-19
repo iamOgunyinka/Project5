@@ -36,6 +36,7 @@ class session {
   std::vector<std::shared_ptr<void>> websockets_;
 
 private:
+  session *shared_from_this() { return this; }
   void add_endpoint_interfaces();
   void http_read_data();
   void on_header_read(beast::error_code, std::size_t const);
@@ -57,10 +58,8 @@ private:
   void schedule_task_handler(string_request const &request,
                              std::string_view const &query);
   void website_handler(string_request const &, std::string_view const &);
-  void stop_tasks_handler( string_request const&, std::string_view const & );
-  void restart_tasks_handler( string_request const&, std::string_view const& );
-
-  session *shared_from_this() { return this; }
+  void stop_tasks_handler(string_request const &, std::string_view const &);
+  void restart_tasks_handler(string_request const &, std::string_view const &);
 
   static string_response json_success(json const &body,
                                       string_request const &req);

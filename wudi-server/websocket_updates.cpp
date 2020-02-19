@@ -18,21 +18,23 @@ void websocket_updates::on_websocket_accepted(beast::error_code const ec) {
     return read_websock_data();
   return on_error_occurred(ec);
 }
+
 void websocket_updates::run(
     beast::http::request<beast::http::empty_body> &&request) {
-  std::cout << request << std::endl;
-  boost::asio::dispatch(
-      websock_stream_.get_executor(), [this, req = std::move(request)] {
-        websock_stream_.set_option(websocket::stream_base::timeout::suggested(
-            beast::role_type::server));
-        websock_stream_.set_option(websocket::stream_base::decorator(
-            [](websocket::response_type &response) {
-              response.set(beast::http::field::server, "wudi-websocket-server");
-            }));
-        websock_stream_.async_accept(req, [this](beast::error_code const ec) {
-          on_websocket_accepted(ec);
-        });
-      });
+  boost::asio::dispatch(websock_stream_.get_executor(), [self =
+                                                             shared_from_this(),
+                                                         req = std::move(
+                                                             request)] {
+    self->websock_stream_.set_option(
+        websocket::stream_base::timeout::suggested(beast::role_type::server));
+    self->websock_stream_.set_option(websocket::stream_base::decorator(
+        [](websocket::response_type &response) {
+          response.set(beast::http::field::server, "wudi-websocket-server");
+        }));
+    self->websock_stream_.async_accept(req, [self](beast::error_code const ec) {
+      self->on_websocket_accepted(ec);
+    });
+  });
 }
 
 void websocket_updates::on_error_occurred(beast::error_code const ec) {
@@ -44,8 +46,9 @@ void websocket_updates::read_websock_data() {
   read_buffer_.consume(read_buffer_.size());
   read_buffer_.clear();
   websock_stream_.async_read(
-      read_buffer_, std::bind(&websocket_updates::on_data_read, this,
-                              std::placeholders::_1, std::placeholders::_2));
+      read_buffer_,
+      std::bind(&websocket_updates::on_data_read, shared_from_this(),
+                std::placeholders::_1, std::placeholders::_2));
 }
 
 void websocket_updates::on_data_read(beast::error_code const ec,
@@ -64,8 +67,9 @@ void websocket_updates::on_data_read(beast::error_code const ec,
   read_buffer_.consume(read_buffer_.size());
   read_buffer_.clear();
   websock_stream_.async_read(
-      read_buffer_, std::bind(&websocket_updates::on_data_read, this,
-                              std::placeholders::_1, std::placeholders::_2));
+      read_buffer_,
+      std::bind(&websocket_updates::on_data_read, shared_from_this(),
+                std::placeholders::_1, std::placeholders::_2));
 }
 
 void websocket_updates::interpret_message(
@@ -74,7 +78,6 @@ void websocket_updates::interpret_message(
   boost::string_view const data_view(
       static_cast<char const *>(buffer_data.data()), buffer_data.size());
   RequestType request_type = RequestType::None;
-  spdlog::info(data_view);
   try {
     json j = json::parse(data_view);
     json::object_t request = j.get<json::object_t>();
@@ -120,10 +123,10 @@ void websocket_updates::interpret_message(
 void websocket_updates::start_ping_timer() {
   timer_.cancel();
   timer_.expires_from_now(boost::posix_time::seconds(20));
-  timer_.async_wait([this](beast::error_code ec) {
-    if (websock_stream_.is_open()) {
-      websock_stream_.async_ping({}, [](beast::error_code) {});
-      start_ping_timer();
+  timer_.async_wait([self = shared_from_this()](beast::error_code ec) {
+    if (self->websock_stream_.is_open()) {
+      self->websock_stream_.async_ping({}, [](beast::error_code) {});
+      self->start_ping_timer();
     }
   });
 }
@@ -170,7 +173,6 @@ bool websocket_updates::process_subscription(
       uint32_t const processed = beg->second->processed;
       uint32_t const status = static_cast<int>(beg->second->operation_status);
       result.back().sub_tasks.push_back({status, processed});
-
       (void)beg->second->progress_signal().connect(
           [=](uint32_t task_id, uint32_t processed, TaskStatus status) {
             on_task_progressed(std::distance(task_range.first, beg), task_id,
@@ -196,7 +198,6 @@ void websocket_updates::on_task_progressed(std::size_t const index,
                            [task_id](ws_subscription_result const &item) {
                              return item.task_id == task_id;
                            });
-  spdlog::info("on_task_progressed -> {}:{} => {}", task_id, processed, status);
   if (iter == result_.end())
     return;
   using utilities::TaskStatus;

@@ -12,7 +12,7 @@ using namespace fmt::v6::literals;
 namespace utilities {
 otl_stream &operator>>(otl_stream &os, TaskResult &item) {
   return os >> item.id >> item.total_numbers >> item.task_status >>
-         item.scheduler_username >> item.scheduled_date >> item.website_ids >>
+         item.scheduled_date >> item.website_ids >>
          item.data_ids >> item.progress;
 }
 
@@ -62,7 +62,6 @@ void to_json(json &j, TaskResult const &item) {
            {"web", item.website_ids},
            {"numbers", item.data_ids},
            {"total", item.total_numbers},
-           {"username", item.scheduler_username},
            {"date", item.scheduled_date}};
 }
 
@@ -186,7 +185,7 @@ bool is_valid_number(std::string_view const number, std::string &buffer) {
       return false;
   } else
     return false;
-  for (int index = from; index < number.length(); ++index) {
+  for (std::size_t index = from; index < number.length(); ++index) {
     if (number[index] < '0' || number[index] > '9')
       return false;
   }
@@ -384,6 +383,10 @@ std::string number_stream::get() noexcept(false) {
 }
 
 bool number_stream::empty() { return !(input_stream && !input_stream.eof()); }
+
+decltype(std::declval<std::ifstream>().rdbuf()) number_stream::dump() {
+  return input_stream.rdbuf();
+}
 
 boost::signals2::signal<void(uint32_t, uint32_t, TaskStatus)> &
 AtomicTaskResult::progress_signal() {
@@ -590,9 +593,9 @@ bool DatabaseConnector::change_task_status(uint32_t task_id,
 std::vector<utilities::TaskResult>
 DatabaseConnector::get_all_tasks(boost::string_view user_id) {
   std::string const sql_statement =
-      "SELECT tb_tasks.id, total_numbers, status, username,"
+      "SELECT id, total_numbers, status,"
       "date_scheduled, websites, uploads, progress FROM "
-      "tb_tasks INNER JOIN tb_users WHERE tb_tasks.scheduler_id="
+      "tb_tasks WHERE scheduler_id="
       "{}"_format(user_id.to_string());
   std::vector<utilities::TaskResult> result{};
   try {
@@ -609,19 +612,20 @@ DatabaseConnector::get_all_tasks(boost::string_view user_id) {
 
 bool DatabaseConnector::save_stopped_task(
     utilities::AtomicTask const &stopped_task) {
-  auto &task = std::get<1>(stopped_task.task);
+  auto &task = std::get<utilities::AtomicTask::stopped_task>(stopped_task.task);
   std::string const sql_statement =
       "INSERT INTO tb_stopped_tasks(task_id, website_id, filename,"
       "total_numbers, processed, website_address, ok_filename, "
-      "not_ok_filename, unknown_file) VALUES({}, \"{}\", {}, {}, "
+      "not_ok_filename, unknown_filename) VALUES({}, {}, \"{}\", {}, {},"
       "\"{}\", \"{}\", \"{}\", \"{}\")"_format(
           stopped_task.task_id, stopped_task.website_id, task.input_filename,
           stopped_task.total, stopped_task.processed, task.website_address,
           task.ok_filename, task.not_ok_filename, task.unknown_filename);
   try {
     std::lock_guard<std::mutex> lock_g{db_mutex_};
-    return otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
-                                   otl_exception::enabled) > 0;
+    otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
+                            otl_exception::enabled);
+    return true;
   } catch (otl_exception const &e) {
     utilities::log_sql_error(e);
     return false;
@@ -639,9 +643,9 @@ bool DatabaseConnector::get_stopped_tasks(
   try {
     using utilities::AtomicTask;
     otl_stream db_stream(1'000, sql_statement.c_str(), otl_connector_);
-    utilities::AtomicTask stopped_task;
+    utilities::AtomicTask stopped_task{};
     stopped_task.type_ = AtomicTask::task_type::stopped;
-    stopped_task.task.emplace<1>();
+    stopped_task.task.emplace<AtomicTask::stopped_task>();
     while (db_stream >> stopped_task) {
       stopped_tasks.push_back(stopped_task);
     }

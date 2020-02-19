@@ -45,13 +45,13 @@ void safe_proxy::get_more_proxies() {
       has_error = true;
       return spdlog::error("Error obtaining proxy servers from server");
     }
-    auto response_body = server_response.body();
+    auto &response_body = server_response.body();
     std::vector<std::string> ips;
     boost::split(ips, response_body, boost::is_any_of("\r\n"));
     if (ips.empty()) {
       is_free = true;
       has_error = true;
-      return;
+      return spdlog::error("IPs empty");
     }
     for (auto &line : ips) {
       if (line.empty())
@@ -60,7 +60,7 @@ void safe_proxy::get_more_proxies() {
       auto ip_port = utilities::split_string_view(line, ":");
       if (ip_port.size() < 2)
         continue;
-      beast::error_code ec{};
+      ec = {};
       try {
         auto endpoint = net::ip::tcp::endpoint(
             net::ip::make_address(ip_port[0].to_string()),
@@ -72,12 +72,13 @@ void safe_proxy::get_more_proxies() {
       }
     }
     has_error = ips.empty();
-    if (has_error)
-      spdlog::error("Error occurred while getting more proxies");
-  } catch (std::exception const &) {
+  } catch (std::exception const &e) {
+    spdlog::error("safe_proxy exception: {}", e.what());
     has_error = true;
   }
   is_free = true;
+  if (has_error)
+    spdlog::error("Error occurred while getting more proxies");
 }
 
 void safe_proxy::save_proxies_to_file() {

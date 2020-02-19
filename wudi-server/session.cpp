@@ -238,8 +238,8 @@ void session::upload_handler(string_request const &request,
     if (id_iter != query_pairs.cend()) {
       ids = utilities::split_string_view(id_iter->second, "|");
     }
-    spdlog::info("IDs: {}", utilities::svector_to_string(ids));
-    if (method == http::verb::get) { // GET method
+    // GET method
+    if (method == http::verb::get) {
       json json_result = db_connector->get_uploads(ids);
       return send_response(json_success(json_result, request));
     } else {
@@ -251,7 +251,6 @@ void session::upload_handler(string_request const &request,
           return error_handler(server_error("unable to delete any record",
                                             ErrorType::ServerError, request));
         }
-        // a GET request
       } else {
         uploads = db_connector->get_uploads(ids);
         if (!db_connector->remove_uploads(ids)) {
@@ -364,7 +363,7 @@ void session::stop_tasks_handler(string_request const &request,
   try {
     using utilities::TaskStatus;
     json json_root = json::parse(request.body());
-    json::array_t task_id_list = json_root.get<json::array_t>();
+    json::array_t const task_id_list = json_root.get<json::array_t>();
     if (task_id_list.empty()) {
       return error_handler(bad_request("empty task list", request));
     }
@@ -373,6 +372,7 @@ void session::stop_tasks_handler(string_request const &request,
     stopped_tasks.reserve(task_id_list.size());
     for (std::size_t index = 0; index != task_id_list.size(); ++index) {
       auto task_id = task_id_list[index].get<json::number_integer_t>();
+      spdlog::info("Trying to stop: {}", task_id);
       if (auto iter = running_tasks.equal_range(task_id);
           iter.first != running_tasks.cend()) {
         stopped_tasks.push_back(task_id);
@@ -423,6 +423,7 @@ void session::restart_tasks_handler(string_request const &request,
     return error_handler(bad_request("unable to restarts tasks", request));
   }
 }
+
 void session::schedule_task_handler(string_request const &request,
                                     std::string_view const &optional_query) {
   using http::verb;
@@ -461,7 +462,7 @@ void session::schedule_task_handler(string_request const &request,
       }
       spdlog::info("Added new task{}", task.website_ids.size() <= 1 ? "" : "s");
       auto &tasks{get_scheduled_tasks()};
-      
+
       // split the main task into sub-tasks, based on the number of websites
       for (auto const &website_id : task.website_ids) {
         utilities::AtomicTask atom_task;

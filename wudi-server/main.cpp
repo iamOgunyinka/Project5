@@ -54,7 +54,7 @@ int main(int argc, char *argv[]) {
     stop = true;
     return EXIT_FAILURE;
   }
-  wudi_server::asio::io_context context{ static_cast<int>( thread_count )};
+  wudi_server::asio::io_context context{static_cast<int>(thread_count)};
   auto server_instance =
       std::make_shared<wudi_server::server>(context, args, database_connector);
   server_instance->run();

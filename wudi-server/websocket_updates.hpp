@@ -62,8 +62,8 @@ class websocket_updates
   net::deadline_timer timer_;
   std::set<int> task_ids_;
   std::vector<ws_subscription_result> result_{};
-  std::vector<std::unique_ptr<std::string>> queue_;
-
+  std::vector<std::unique_ptr<std::string>> queue_{};
+  // std::vector<boost::signals2::connection> signal_connections_{};
   static std::string error(WebsocketErrorType, RequestType);
 
   template <typename T>

@@ -22,6 +22,10 @@ template <typename DerivedClass> class web_base {
 protected:
   net::io_context &io_;
   beast::tcp_stream tcp_stream_;
+  utilities::number_stream &numbers_;
+  safe_proxy &proxy_provider_;
+  bool &stopped_;
+
   beast::flat_buffer buffer_{};
   http::request<http::string_body> post_request_{};
   http::response<http::string_body> response_{};
@@ -30,12 +34,10 @@ protected:
       signal_;
   std::size_t connect_count_{};
   std::size_t send_count_{};
-  bool tried_unresposiveness_{false};
-  utilities::number_stream &numbers_;
   EndpointList temp_list_;
-  safe_proxy &proxy_provider_;
   endpoint_ptr current_endpoint_;
-  bool &stopped_;
+
+  void close_socket();
 
 protected:
   void connect();
@@ -60,9 +62,25 @@ public:
   web_base(bool &stopped, net::io_context &, safe_proxy &,
            utilities::number_stream &);
   void start_connect();
-  virtual ~web_base() = default;
+  ~web_base();
   auto &signal() { return signal_; }
 };
+
+template <typename DerivedClass> web_base<DerivedClass>::~web_base() {
+  close_socket();
+  spdlog::info("Closing sockets");
+}
+
+template <typename DerivedClass> void web_base<DerivedClass>::close_socket() {
+  tcp_stream_.cancel();
+  signal_.disconnect_all_slots();
+  beast::error_code ec{};
+  beast::get_lowest_layer(tcp_stream_)
+      .socket()
+      .shutdown(net::socket_base::shutdown_both, ec);
+  ec = {};
+  beast::get_lowest_layer(tcp_stream_).socket().close(ec);
+}
 
 template <typename DerivedClass>
 void web_base<DerivedClass>::resend_http_request() {
@@ -163,6 +181,7 @@ void web_base<DerivedClass>::choose_next_proxy() {
     current_endpoint_ = proxy.value();
     temp_list_.push_back(*current_endpoint_);
   } else {
+    spdlog::error("error getting next endpoint");
     current_endpoint_ = nullptr;
     signal_(SearchResultType::Unknown, current_number_);
   }

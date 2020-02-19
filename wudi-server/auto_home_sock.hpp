@@ -20,6 +20,6 @@ public:
   auto_home_socket(bool &stopped, net::io_context &io,
                    safe_proxy &proxy_provider,
                    utilities::number_stream &numbers);
-  ~auto_home_socket() = default;
+  ~auto_home_socket();
 };
 } // namespace wudi_server

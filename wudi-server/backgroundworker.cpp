@@ -5,6 +5,17 @@
 #include <list>
 
 namespace wudi_server {
+
+auto create_file_directory(std::filesystem::path const &path) -> bool {
+  std::error_code ec{};
+  auto f = std::filesystem::absolute(path.parent_path(), ec);
+  if (ec)
+    return false;
+  ec = {};
+  std::filesystem::create_directories(f, ec);
+  return !ec;
+};
+
 std::string const BackgroundWorker::http_proxy_filename{
     "./http_proxy_servers.txt"};
 
@@ -12,6 +23,7 @@ BackgroundWorker::~BackgroundWorker() {
   task_result_ptr_->not_ok_file.close();
   task_result_ptr_->ok_file.close();
   task_result_ptr_->unknown_file.close();
+  spdlog::info("Closing all files");
 }
 
 BackgroundWorker::BackgroundWorker(
@@ -50,7 +62,7 @@ void BackgroundWorker::on_data_result_obtained(utilities::SearchResultType type,
     task_result_ptr_->unknown_file.flush();
     break;
   }
-
+  spdlog::info("Processed: {} of {}", processed, total);
   if (processed == total) {
     if (std::filesystem::exists(input_filename)) {
       if (input_file.is_open())
@@ -61,29 +73,17 @@ void BackgroundWorker::on_data_result_obtained(utilities::SearchResultType type,
     spdlog::info("Done processing task -> {}:{}", task_result_ptr_->task_id,
                  task_result_ptr_->website_id);
   }
-  
-  int const progress = ( processed * 100 ) / total;
+
+  int const progress = (processed * 100) / total;
   auto &signal = task_result_ptr_->progress_signal();
   if (progress > current_progress_) {
     current_progress_ = progress;
     signal(task_result_ptr_->task_id, processed,
            task_result_ptr_->operation_status);
   }
-  using utilities::TaskStatus;
-  if (task_result_ptr_->stopped() &&
-      task_result_ptr_->operation_status == TaskStatus::Ongoing) {
-    task_result_ptr_->operation_status = TaskStatus::Stopped;
-    if (!save_status_to_persistence()) {
-      spdlog::error("unable to save task-> {}:{} to persistent storage",
-                    task_result_ptr_->task_id, task_result_ptr_->website_id);
-    } else {
-      spdlog::info("saved task -> {}:{} to persistent storage",
-                   task_result_ptr_->task_id, task_result_ptr_->website_id);
-    }
-  }
 }
 
-bool BackgroundWorker::save_status_to_persistence() {
+bool BackgroundWorker::save_status_to_persistence(std::string const &filename) {
   auto website_address = [](website_type const type) {
     switch (type) { // we can easily add more websites in the future
     case website_type::AutoHomeRegister:
@@ -102,26 +102,25 @@ bool BackgroundWorker::save_status_to_persistence() {
   stopped_task.total = task_result_ptr_->total_numbers;
 
   auto &task = std::get<utilities::AtomicTask::stopped_task>(stopped_task.task);
-  task.input_filename = input_filename;
+  task.input_filename = filename;
   task.not_ok_filename = task_result_ptr_->not_ok_filename.string();
   task.ok_filename = task_result_ptr_->ok_filename.string();
   task.task_id = task_result_ptr_->task_id;
   task.unknown_filename = task_result_ptr_->unknown_filename.string();
   task.website_address = website_address(type_);
 
+  std::ofstream out_file(filename);
+  if (!out_file) {
+    spdlog::error("Unable to save file to hard disk");
+    return false;
+  }
+  out_file << number_stream_->dump();
+  out_file.close();
+  std::filesystem::remove(input_filename);
   return db_connector->save_stopped_task(stopped_task);
 }
 
 bool BackgroundWorker::open_output_files() {
-  auto create_file_directory = [](std::filesystem::path const &path) -> bool {
-    std::error_code ec{};
-    auto f = std::filesystem::absolute(path.parent_path(), ec);
-    if (ec)
-      return false;
-    ec = {};
-    std::filesystem::create_directories(f, ec);
-    return !ec;
-  };
 
   std::filesystem::path parent_directory{std::filesystem::current_path()};
   auto const abs_path{std::filesystem::absolute(parent_directory) / "over" /
@@ -194,24 +193,51 @@ void BackgroundWorker::run_number_crawler() {
       type_ = website_type::AutoHomeRegister;
     }
   }
-  spdlog::info( "starting run on {}", type_ );
+  spdlog::info("starting run on {}", type_);
+  std::list<std::shared_ptr<void>> sockets{};
+  if (context_.stopped())
+    context_.restart();
   if (type_ == website_type::JJGames) {
-    // we only make one socket of this type
+    // we only need one socket of this type
     auto socket_ptr = std::make_shared<jj_games_socket>(
         stopped, context_, safe_proxy_, *number_stream_);
-    sockets_.push_back(socket_ptr); // keep a type-erased copy
+    sockets.push_back(socket_ptr); // keep a type-erased copy
     (void)socket_ptr->signal().connect(callback);
     socket_ptr->start_connect();
   } else if (type_ == website_type::AutoHomeRegister) {
-    for (int i = 0; i != 3; ++i) {
+    for (int i = 0; i != utilities::MaxOpenSockets; ++i) {
       auto socket_ptr = std::make_shared<auto_home_socket>(
           stopped, context_, safe_proxy_, *number_stream_);
-      sockets_.push_back(socket_ptr); // keep a type-erased copy
+      sockets.push_back(socket_ptr); // keep a type-erased copy
       (void)socket_ptr->signal().connect(callback);
       socket_ptr->start_connect();
     }
   }
   context_.run();
+  spdlog::info("We are done here");
+  /* We need to check if the file is completed or stopped */
+  using utilities::TaskStatus;
+  if (task_result_ptr_->stopped() &&
+      task_result_ptr_->operation_status == TaskStatus::Ongoing) {
+    task_result_ptr_->operation_status = TaskStatus::Stopped;
+    std::string const filename =
+        "./stopped_files/{}.txt"_format(std::time(nullptr));
+    if (create_file_directory(filename) &&
+        save_status_to_persistence(filename)) {
+      spdlog::info("saved task -> {}:{} to persistent storage",
+                   task_result_ptr_->task_id, task_result_ptr_->website_id);
+    } else {
+      if (std::filesystem::exists(filename)) {
+        std::filesystem::remove(filename);
+      }
+      spdlog::error("unable to save task-> {}:{} to persistent storage",
+                    task_result_ptr_->task_id, task_result_ptr_->website_id);
+    }
+  }
+  if (!number_stream_->empty()) {
+    task_result_ptr_->operation_status = TaskStatus::Stopped;
+  }
+  sockets.clear();
 }
 
 void BackgroundWorker::continue_old_task() {
@@ -336,6 +362,7 @@ void start_new_task(AtomicTask &scheduled_task) {
                                                   ? TaskStatus::Stopped
                                                   : TaskStatus::Completed);
   });
+  spdlog::info("Moving on");
 }
 
 void continue_recent_task(AtomicTask &scheduled_task) {
@@ -380,7 +407,6 @@ void background_task_executor(
     } else {
       continue_recent_task(scheduled_task);
     }
-
     // if we are here, we are done.
   }
 }

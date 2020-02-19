@@ -1,10 +1,10 @@
 #pragma once
 #include <array>
+#include <boost/algorithm/string.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/beast.hpp>
 #include <boost/signals2.hpp>
 #include <boost/utility/string_view.hpp>
-#include <boost/algorithm/string.hpp>
 #include <deque>
 #include <filesystem>
 #include <fstream>
@@ -117,7 +117,6 @@ struct TaskResult {
   uint32_t progress;
   std::string data_ids;
   std::string website_ids;
-  std::string scheduler_username;
   std::string scheduled_date;
 };
 
@@ -254,6 +253,7 @@ public:
   number_stream(std::ifstream &file_stream);
   std::string get() noexcept(false);
   bool empty();
+  decltype(std::declval<std::ifstream>().rdbuf()) dump();
 
 private:
   std::ifstream &input_stream;
