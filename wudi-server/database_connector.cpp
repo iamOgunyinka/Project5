@@ -76,7 +76,8 @@ db_config_t parse_database_file(std::string const &filename,
   return db_config;
 }
 
-std::shared_ptr<database_connector_t> database_connector_t::s_get_db_connector() {
+std::shared_ptr<database_connector_t>
+database_connector_t::s_get_db_connector() {
   static std::shared_ptr<database_connector_t> db_connector{};
   if (!db_connector) {
     otl_connect::otl_initialize(1);
@@ -298,6 +299,60 @@ bool database_connector_t::get_stopped_tasks(
     while (db_stream >> stopped_task) {
       stopped_tasks.push_back(stopped_task);
     }
+    return true;
+  } catch (otl_exception const &e) {
+    log_sql_error(e);
+    return false;
+  }
+}
+
+bool database_connector_t::remove_stopped_tasks(
+    std::vector<uint32_t> const &tasks) {
+  std::string const sql_statement =
+      "DELETE FROM tb_stopped_tasks WHERE task_id IN ({})"_format(
+          utilities::intlist_to_string(tasks));
+  try {
+    std::lock_guard<std::mutex> lock_g{db_mutex_};
+    otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
+                            otl_exception::enabled);
+    return true;
+  } catch (otl_exception const &e) {
+    log_sql_error(e);
+    return false;
+  }
+}
+
+std::vector<utilities::task_result_t>
+database_connector_t::get_completed_tasks(std::vector<uint32_t> const &ids) {
+  std::string const sql_statement =
+      "SELECT id, total_numbers, status,"
+      "date_scheduled, websites, uploads, progress FROM "
+      "tb_tasks WHERE scheduler_id="
+      "{} AND status={}"_format(utilities::intlist_to_string(ids),
+                                utilities::task_status_e::Completed);
+  std::vector<utilities::task_result_t> result{};
+  try {
+    otl_stream db_stream(1'000, sql_statement.c_str(), otl_connector_);
+    utilities::task_result_t item{};
+    while (db_stream >> item) {
+      result.push_back(std::move(item));
+    }
+  } catch (otl_exception const &e) {
+    log_sql_error(e);
+  }
+  return result;
+}
+
+bool database_connector_t::remove_completed_tasks(
+    std::vector<uint32_t> const &tasks) {
+  std::string const sql_statement =
+      "DELETE FROM tb_tasks WHERE task_id IN ({}) AND status={}"_format(
+          utilities::intlist_to_string(tasks),
+          utilities::task_status_e::Completed);
+  try {
+    std::lock_guard<std::mutex> lock_g{db_mutex_};
+    otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
+                            otl_exception::enabled);
     return true;
   } catch (otl_exception const &e) {
     log_sql_error(e);

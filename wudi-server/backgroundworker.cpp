@@ -43,8 +43,8 @@ background_worker_t::background_worker_t(
       task_result_ptr_{task_result}, type_{website_type::Unknown},
       atomic_task_{std::move(old_task)} {}
 
-void background_worker_t::on_data_result_obtained(utilities::search_result_type_e type,
-                                               std::string_view number) {
+void background_worker_t::on_data_result_obtained(
+    utilities::search_result_type_e type, std::string_view number) {
   using utilities::search_result_type_e;
   auto &processed = task_result_ptr_->processed;
   auto &total = task_result_ptr_->total_numbers;
@@ -84,7 +84,8 @@ void background_worker_t::on_data_result_obtained(utilities::search_result_type_
   }
 }
 
-bool background_worker_t::save_status_to_persistence(std::string const &filename) {
+bool background_worker_t::save_status_to_persistence(
+    std::string const &filename) {
   auto website_address = [](website_type const type) {
     switch (type) { // we can easily add more websites in the future
     case website_type::AutoHomeRegister:
@@ -217,7 +218,7 @@ void background_worker_t::run_number_crawler() {
       type_ = website_type::AutoHomeRegister;
     }
   }
-  spdlog::info("starting run on {}", type_);
+  
   std::list<std::shared_ptr<void>> sockets{};
   if (context_.stopped())
     context_.restart();
@@ -229,8 +230,7 @@ void background_worker_t::run_number_crawler() {
     (void)socket_ptr->signal().connect(callback);
     socket_ptr->start_connect();
   } else if (type_ == website_type::AutoHomeRegister) {
-    // for (int i = 0; i != utilities::MaxOpenSockets; ++i) {
-    for (int i = 0; i != 2; ++i) {
+    for (int i = 0; i != utilities::MaxOpenSockets; ++i) {
       auto socket_ptr = std::make_shared<auto_home_socket_t>(
           stopped, context_, safe_proxy_, *number_stream_);
       sockets.push_back(socket_ptr); // keep a type-erased copy
@@ -239,7 +239,7 @@ void background_worker_t::run_number_crawler() {
     }
   }
   context_.run();
-  
+
   using utilities::task_status_e;
   if (task_result_ptr_->stopped() &&
       task_result_ptr_->operation_status == task_status_e::Ongoing) {

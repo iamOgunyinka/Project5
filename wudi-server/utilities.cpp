@@ -39,6 +39,10 @@ void to_json(json &j, task_result_t const &item) {
            {"date", item.scheduled_date}};
 }
 
+void to_json(json &j, atomic_task_t const &task) {
+  j = json{{"id", task.task_id}};
+}
+
 bool read_task_file(std::string_view filename) {
   std::filesystem::path const file_path{filename};
   std::error_code ec{};

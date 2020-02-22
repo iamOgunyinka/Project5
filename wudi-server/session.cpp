@@ -132,8 +132,9 @@ void session::login_handler(string_request const &request,
     json::object_t login_info = json_body.get<json::object_t>();
     auto username = login_info["username"].get<json::string_t>();
     auto password = login_info["password"].get<json::string_t>();
-    auto [id, role] = database_connector_t::s_get_db_connector()->get_login_role(
-        username, password);
+    auto [id, role] =
+        database_connector_t::s_get_db_connector()->get_login_role(username,
+                                                                   password);
     if (id == -1) {
       spdlog::error("[login.POST] {} {} is invalid", username, password);
       return error_handler(get_error("invalid username or password",
@@ -193,8 +194,8 @@ void session::upload_handler(string_request const &request,
     }
     std::ofstream out_file{file_path};
     if (!out_file)
-      return error_handler(
-          server_error("unable to save file", error_type_e::ServerError, request));
+      return error_handler(server_error("unable to save file",
+                                        error_type_e::ServerError, request));
     try {
       if (is_zipped) {
         counter = std::stol(total_iter->second.to_string());
@@ -252,13 +253,15 @@ void session::upload_handler(string_request const &request,
         uploads = db_connector->get_uploads(std::vector<boost::string_view>{});
         if (!db_connector->remove_uploads({})) {
           return error_handler(server_error("unable to delete any record",
-                                            error_type_e::ServerError, request));
+                                            error_type_e::ServerError,
+                                            request));
         }
       } else {
         uploads = db_connector->get_uploads(ids);
         if (!db_connector->remove_uploads(ids)) {
           return error_handler(server_error("unable to delete specified IDs",
-                                            error_type_e::ServerError, request));
+                                            error_type_e::ServerError,
+                                            request));
         }
       }
       for (auto const &upload : uploads) {
@@ -338,6 +341,10 @@ void session::add_endpoint_interfaces() {
       "/start", {verb::post},
       std::bind(&session::restart_tasks_handler, shared_from_this(),
                 std::placeholders::_1, std::placeholders::_2));
+  endpoint_apis_.add_endpoint(
+      "/remove", {verb::post},
+      std::bind(&session::remove_tasks_handler, shared_from_this(),
+                std::placeholders::_1, std::placeholders::_2));
 }
 
 void session::download_handler(string_request const &request,
@@ -357,6 +364,89 @@ void session::download_handler(string_request const &request,
   }
 }
 
+void session::remove_tasks_handler(string_request const &req,
+                                   std::string_view const &optional_query) {
+  if (content_type_ != "application/json")
+    return error_handler(bad_request("invalid content-type", req));
+  try {
+    using utilities::task_status_e;
+    json json_root = json::parse(req.body());
+    json::object_t task_type_object = json_root.get<json::object_t>();
+    if (task_type_object.empty()) {
+      return error_handler(bad_request("empty task list", req));
+    }
+    json::array_t const user_running_tasks =
+        task_type_object["running"].get<json::array_t>();
+    json::array_t const user_stopped_tasks =
+        task_type_object["stopped"].get<json::array_t>();
+    json::array_t const user_completed_tasks =
+        task_type_object["completed"].get<json::array_t>();
+
+    std::vector<uint32_t> running_tasks{}, stopped_tasks{}, completed_tasks{};
+    if (!user_running_tasks.empty()) {
+      running_tasks = stop_running_tasks_impl(user_running_tasks);
+    }
+
+    if (!user_stopped_tasks.empty()) {
+      stopped_tasks = delete_stopped_tasks_impl(user_stopped_tasks);
+    }
+    if (!user_completed_tasks.empty()) {
+      completed_tasks = delete_completed_tasks_impl(user_completed_tasks);
+    }
+
+    return send_response(
+        success(running_tasks + stopped_tasks + completed_tasks, req));
+  } catch (std::exception const &e) {
+    spdlog::error("exception in remove_tasks_handler: {}", e.what());
+    return error_handler(bad_request("unable to remove tasks", req));
+  }
+}
+
+std::vector<uint32_t>
+session::delete_stopped_tasks_impl(json::array_t const &user_stopped_tasks) {
+  using utilities::atomic_task_t;
+  using utilities::remove_file;
+  auto db_connector = database_connector_t::s_get_db_connector();
+  std::vector<atomic_task_t> tasks{};
+  std::vector<uint32_t> temp{};
+  for (auto const task_id : user_stopped_tasks)
+    temp.push_back(task_id.get<json::number_integer_t>());
+  db_connector->get_stopped_tasks(temp, tasks);
+
+  for (auto &task : tasks) {
+    auto &stopped_task = std::get<atomic_task_t::stopped_task>(task.task);
+    remove_file(stopped_task.input_filename);
+    remove_file(stopped_task.not_ok_filename);
+    remove_file(stopped_task.ok_filename);
+    remove_file(stopped_task.unknown_filename);
+  }
+  db_connector->remove_stopped_tasks(temp);
+  return temp;
+}
+
+std::vector<uint32_t>
+session::stop_running_tasks_impl(json::array_t const &task_id_list) {
+  using utilities::task_status_e;
+
+  auto &running_tasks = utilities::get_response_queue();
+  std::vector<uint32_t> stopped_tasks{};
+  stopped_tasks.reserve(task_id_list.size());
+  for (std::size_t index = 0; index != task_id_list.size(); ++index) {
+    auto task_id = task_id_list[index].get<json::number_integer_t>();
+    spdlog::info("Trying to stop: {}", task_id);
+    if (auto iter = running_tasks.equal_range(task_id);
+        iter.first != running_tasks.cend()) {
+      stopped_tasks.push_back(task_id);
+      for (auto beg = iter.first; beg != iter.second; ++beg) {
+        if (beg->second->operation_status == task_status_e::Ongoing) {
+          beg->second->stop();
+        }
+      }
+    }
+  }
+  return stopped_tasks;
+}
+
 void session::stop_tasks_handler(string_request const &request,
                                  std::string_view const &optional_query) {
   if (content_type_ != "application/json")
@@ -367,24 +457,9 @@ void session::stop_tasks_handler(string_request const &request,
     json::array_t const task_id_list = json_root.get<json::array_t>();
     if (task_id_list.empty()) {
       return error_handler(bad_request("empty task list", request));
-    }
-    auto &running_tasks = utilities::get_response_queue();
-    std::vector<uint32_t> stopped_tasks{};
-    stopped_tasks.reserve(task_id_list.size());
-    for (std::size_t index = 0; index != task_id_list.size(); ++index) {
-      auto task_id = task_id_list[index].get<json::number_integer_t>();
-      spdlog::info("Trying to stop: {}", task_id);
-      if (auto iter = running_tasks.equal_range(task_id);
-          iter.first != running_tasks.cend()) {
-        stopped_tasks.push_back(task_id);
-        for (auto beg = iter.first; beg != iter.second; ++beg) {
-          if (beg->second->operation_status == task_status_e::Ongoing) {
-            beg->second->stop();
-          }
-        }
-      }
-    }
-    return send_response(json_success(stopped_tasks, request));
+    };
+    return send_response(
+        json_success(stop_running_tasks_impl(task_id_list), request));
   } catch (std::exception const &e) {
     spdlog::error("exception in stop_tasks: {}", e.what());
     return error_handler(bad_request("unable to stop tasks", request));
@@ -416,7 +491,7 @@ void session::restart_tasks_handler(string_request const &request,
       for (auto &stopped_task : stopped_tasks) {
         task_queue.push_back(std::move(stopped_task));
       }
-      return send_response(json_success(task_list, request));
+      return send_response(json_success(stopped_tasks, request));
     }
     return error_handler(server_error("not able to restart tasks",
                                       utilities::error_type_e::ServerError,
@@ -487,8 +562,8 @@ void session::schedule_task_handler(string_request const &request,
       return error_handler(bad_request("json object is not parsable", request));
     }
   } else if (method == http::verb::delete_) {
-    return error_handler(
-        server_error("not implemented yet", error_type_e::ServerError, request));
+    return error_handler(server_error("not implemented yet",
+                                      error_type_e::ServerError, request));
   } else {
     auto const query_pairs{split_optional_queries(optional_query)};
     auto const id_iter = utilities::find_query_key(query_pairs, "id");
@@ -497,7 +572,8 @@ void session::schedule_task_handler(string_request const &request,
         return error_handler(bad_request("uploader id unspecified", request));
       }
       auto const user_id = id_iter->second;
-      auto db_connector = wudi_server::database_connector_t::s_get_db_connector();
+      auto db_connector =
+          wudi_server::database_connector_t::s_get_db_connector();
       return send_response(
           json_success(db_connector->get_all_tasks(user_id), request));
     } catch (std::exception const &e) {
@@ -643,3 +719,11 @@ session::split_optional_queries(std::string_view const &optional_query) {
   return result;
 }
 } // namespace wudi_server
+
+std::vector<uint32_t> operator+(std::vector<uint32_t> const &a,
+                                std::vector<uint32_t> const &b) {
+  std::vector<uint32_t> c(std::begin(a), std::end(b));
+  for (auto const &temp : b)
+    c.push_back(temp);
+  return c;
+}

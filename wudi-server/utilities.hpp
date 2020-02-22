@@ -427,6 +427,20 @@ void get_file_content(std::string const &filename, filter<T> filter,
   }
 }
 
+auto normalize_paths(std::string &str) {
+  for (std::string::size_type i = 0; i != str.size(); ++i) {
+    if (str[i] == '#')
+      str[i] = '\\';
+  }
+};
+
+auto remove_file(std::string &filename) {
+  std::error_code ec{};
+  normalize_paths(filename);
+  if (std::filesystem::exists(filename))
+    std::filesystem::remove(filename, ec);
+};
+
 template <typename T>
 using threadsafe_cv_container = threadsafe_container<T, std::deque<T>, true>;
 
@@ -440,6 +454,7 @@ std::vector<boost::string_view> split_string_view(boost::string_view const &str,
 void to_json(json &j, upload_result_t const &item);
 void to_json(json &j, website_result_t const &);
 void to_json(json &j, task_result_t const &);
+void to_json(json &j, atomic_task_t const &);
 [[nodiscard]] std::string view_to_string(boost::string_view const &str_view);
 [[nodiscard]] std::string
 intlist_to_string(std::vector<atomic_task_t> const &vec);

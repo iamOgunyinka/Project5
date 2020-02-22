@@ -37,12 +37,7 @@ start_new_task(atomic_task_t &scheduled_task) {
 
 std::unique_ptr<background_worker_t>
 continue_recent_task(atomic_task_t &scheduled_task) {
-  auto normalize_paths = [](std::string &str) {
-    for (std::string::size_type i = 0; i != str.size(); ++i) {
-      if (str[i] == '#')
-        str[i] = '\\';
-    }
-  };
+  using utilities::normalize_paths;
   using utilities::task_status_e;
 
   auto db_connector = wudi_server::database_connector_t::s_get_db_connector();

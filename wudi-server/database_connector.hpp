@@ -23,7 +23,7 @@ otl_stream &operator>>(otl_stream &, utilities::upload_result_t &);
 otl_stream &operator>>(otl_stream &, utilities::website_result_t &);
 otl_stream &operator>>(otl_stream &, utilities::atomic_task_t &);
 
-void log_sql_error( otl_exception const& exception );
+void log_sql_error(otl_exception const &exception);
 
 struct db_config_t {
   std::string username;
@@ -56,7 +56,10 @@ public:
   bool get_stopped_tasks(std::vector<uint32_t> const &tasks,
                          std::vector<utilities::atomic_task_t> &);
   bool remove_stopped_tasks(std::vector<utilities::atomic_task_t> const &tasks);
-
+  bool remove_stopped_tasks(std::vector<uint32_t> const &tasks);
+  bool remove_completed_tasks(std::vector<uint32_t> const &tasks);
+  std::vector<utilities::task_result_t>
+  get_completed_tasks(std::vector<uint32_t> const &);
   bool remove_uploads(std::vector<boost::string_view> const &ids = {});
   std::vector<utilities::website_result_t>
   get_websites(std::vector<uint32_t> const &ids);
@@ -71,7 +74,8 @@ public:
   bool add_upload(utilities::upload_request_t const &upload_request);
 
   template <typename T>
-  std::vector<utilities::upload_result_t> get_uploads(std::vector<T> const &ids) {
+  std::vector<utilities::upload_result_t>
+  get_uploads(std::vector<T> const &ids) {
     std::string sql_statement{};
     if (ids.empty()) {
       sql_statement = "SELECT id, filename, total_numbers, upload_date, "

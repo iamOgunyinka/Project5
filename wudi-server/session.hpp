@@ -6,6 +6,9 @@
 #include <memory>
 #include <optional>
 
+std::vector<uint32_t> operator+(std::vector<uint32_t> const &a,
+                                std::vector<uint32_t> const &b);
+
 namespace wudi_server {
 namespace asio = boost::asio;
 namespace beast = boost::beast;
@@ -33,6 +36,11 @@ class session {
   std::vector<std::shared_ptr<void>> websockets_;
 
 private:
+  std::vector<uint32_t> stop_running_tasks_impl(json::array_t const &tasks);
+  std::vector<uint32_t> delete_completed_tasks_impl(json::array_t const &tasks);
+  std::vector<uint32_t> delete_stopped_tasks_impl(json::array_t const &tasks);
+
+private:
   session *shared_from_this() { return this; }
   void add_endpoint_interfaces();
   void http_read_data();
@@ -57,6 +65,7 @@ private:
   void website_handler(string_request const &, std::string_view const &);
   void stop_tasks_handler(string_request const &, std::string_view const &);
   void restart_tasks_handler(string_request const &, std::string_view const &);
+  void remove_tasks_handler(string_request const &, std::string_view const &);
 
   static string_response json_success(json const &body,
                                       string_request const &req);
@@ -69,14 +78,14 @@ private:
                                           string_request const &req);
   static string_response server_error(std::string const &, error_type_e,
                                       string_request const &);
-  static string_response get_error(std::string const &, error_type_e, http::status,
-                                   string_request const &);
+  static string_response get_error(std::string const &, error_type_e,
+                                   http::status, string_request const &);
   static utilities::string_view_pair_list
   split_optional_queries(std::string_view const &args);
 
 public:
   session(net::io_context &io, asio::ip::tcp::socket &&socket,
-          command_line_interface const &args );
+          command_line_interface const &args);
   void run();
 };
 } // namespace wudi_server
