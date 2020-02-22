@@ -3,11 +3,10 @@
 #include <spdlog/spdlog.h>
 
 namespace wudi_server {
-server::server(asio::io_context &context, command_line_interface const &args,
-               std::shared_ptr<DatabaseConnector> db)
+server::server(asio::io_context &context, command_line_interface const &args)
     : io_context_{context}, endpoint_{asio::ip::make_address(args.ip_address),
                                       args.port},
-      acceptor_{asio::make_strand(io_context_)}, args_{args}, db_{db} {
+      acceptor_{asio::make_strand(io_context_)}, args_{args} {
   beast::error_code ec{}; // used when we don't need to throw all around
   acceptor_.open(endpoint_.protocol(), ec);
   if (ec) {
@@ -46,7 +45,7 @@ void server::on_connection_accepted(beast::error_code const &ec,
     spdlog::info("connected to: {}",
                  boost::lexical_cast<std::string>(socket.remote_endpoint()));
     sessions_.push_back(
-        std::make_shared<session>(io_context_, std::move(socket), args_, db_));
+        std::make_shared<session>(io_context_, std::move(socket), args_));
     sessions_.back()->run();
   }
   accept_connections();

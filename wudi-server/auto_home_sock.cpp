@@ -10,17 +10,17 @@ namespace wudi_server {
 using utilities::request_handler;
 using namespace fmt::v6::literals;
 
-std::string const auto_home_socket::password_base64_hash{
+std::string const auto_home_socket_t::password_base64_hash{
     "bGFueHVhbjM2OUBnbWFpbC5jb206TGFueHVhbjk2Mw=="};
 
-auto_home_socket::auto_home_socket(bool &stopped, net::io_context &io_context,
+auto_home_socket_t::auto_home_socket_t(bool &stopped, net::io_context &io_context,
                                    safe_proxy &proxy_provider,
-                                   utilities::number_stream &numbers)
+                                   utilities::number_stream_t &numbers)
     : web_base(stopped, io_context, proxy_provider, numbers) {}
 
-auto_home_socket::~auto_home_socket() {}
+auto_home_socket_t::~auto_home_socket_t() {}
 
-void auto_home_socket::prepare_request_data(bool use_authentication_header) {
+void auto_home_socket_t::prepare_request_data(bool use_authentication_header) {
   std::string const payload{
       address_ +
       "phone={}&isOverSea=0&validcodetype=1"_format(current_number_)};
@@ -44,7 +44,7 @@ void auto_home_socket::prepare_request_data(bool use_authentication_header) {
   post_request_.prepare_payload();
 }
 
-void auto_home_socket::on_data_received(beast::error_code ec,
+void auto_home_socket_t::on_data_received(beast::error_code ec,
                                         std::size_t const) {
 
   static std::array<std::size_t, 10> redirect_codes{300, 301, 302, 303, 304,
@@ -83,12 +83,12 @@ void auto_home_socket::on_data_received(beast::error_code ec,
     std::size_t const closing_brace_index = body.find_last_of('}');
 
     if (status_code != 200 || opening_brace_index == std::string::npos) {
-      signal_(SearchResultType::Unknown, current_number_);
+      signal_(search_result_type_e::Unknown, current_number_);
       send_next();
       return;
     } else {
       if (closing_brace_index == std::string::npos) {
-        signal_(SearchResultType::Unknown, current_number_);
+        signal_(search_result_type_e::Unknown, current_number_);
         send_next();
         return;
       } else {
@@ -97,7 +97,7 @@ void auto_home_socket::on_data_received(beast::error_code ec,
         try {
           document = json::parse(body);
         } catch (std::exception const &) {
-          signal_(SearchResultType::Unknown, current_number_);
+          signal_(search_result_type_e::Unknown, current_number_);
           send_next();
           return;
         }
@@ -109,19 +109,19 @@ void auto_home_socket::on_data_received(beast::error_code ec,
     if (object.find("success") != object.end()) {
       std::string const msg = object["Msg"].get<json::string_t>();
       if (msg == "Msg.MobileExist" || msg == "MobileExist") {
-        signal_(SearchResultType::Registered, current_number_);
+        signal_(search_result_type_e::Registered, current_number_);
       } else if (msg == "Msg.MobileSuccess" || msg == "MobileSuccess") {
-        signal_(SearchResultType::NotRegistered, current_number_);
+        signal_(search_result_type_e::NotRegistered, current_number_);
       } else if (msg == "Msg.MobileNotExist" || msg == "MobileNotExist") {
-        signal_(SearchResultType::Registered, current_number_);
+        signal_(search_result_type_e::Registered, current_number_);
       } else {
-        signal_(SearchResultType::Unknown, current_number_);
+        signal_(search_result_type_e::Unknown, current_number_);
       }
     } else {
-      signal_(SearchResultType::Unknown, current_number_);
+      signal_(search_result_type_e::Unknown, current_number_);
     }
   } catch (...) {
-    signal_(SearchResultType::Unknown, current_number_);
+    signal_(search_result_type_e::Unknown, current_number_);
   }
   send_next();
 }

@@ -1,4 +1,5 @@
 #include "websocket_updates.hpp"
+#include "database_connector.hpp"
 #include "utilities.hpp"
 #include <spdlog/spdlog.h>
 
@@ -11,6 +12,17 @@ void to_json(json &j, ws_subscription_result const &item) {
 
 void to_json(json &j, ws_subscription_result::sub_task_result const &item) {
   j = json{{"processed", item.processed}, {"status", item.status}};
+}
+
+websocket_updates::~websocket_updates() {
+  beast::error_code ec{};
+  websock_stream_.close(beast::websocket::close_code::going_away, ec);
+  read_buffer_.consume(read_buffer_.size());
+  timer_.cancel();
+  task_ids_.clear();
+  result_.clear();
+  queue_.clear();
+  spdlog::info("WS destroyed");
 }
 
 void websocket_updates::on_websocket_accepted(beast::error_code const ec) {
@@ -100,7 +112,7 @@ void websocket_updates::interpret_message(
         return send_message(
             error(WebsocketErrorType::SubscriptionFailed, request_type));
       }
-      start_ping_timer();
+      // start_ping_timer();
       return send_message(
           success(json(result_), ResponseType::UpdateSuccessful));
     }
@@ -119,7 +131,7 @@ void websocket_updates::interpret_message(
     send_message(error(WebsocketErrorType::InvalidRequest, request_type));
   }
 }
-
+/*
 void websocket_updates::start_ping_timer() {
   timer_.cancel();
   timer_.expires_from_now(boost::posix_time::seconds(20));
@@ -130,7 +142,7 @@ void websocket_updates::start_ping_timer() {
     }
   });
 }
-
+*/
 bool websocket_updates::process_login(json::object_t login_info) {
   if (logged_in_)
     return true;
@@ -139,7 +151,7 @@ bool websocket_updates::process_login(json::object_t login_info) {
         login_info["username"].get<json::string_t>();
     json::string_t const password =
         login_info["password"].get<json::string_t>();
-    auto db_connector = DatabaseConnector::GetDBConnector();
+    auto db_connector = database_connector_t::s_get_db_connector();
     return db_connector->get_login_role(username, password).first != -1;
   } catch (std::exception const &e) {
     spdlog::error("process login error: {}", e.what());
@@ -150,7 +162,7 @@ bool websocket_updates::process_login(json::object_t login_info) {
 bool websocket_updates::process_subscription(
     json::array_t const &task_list,
     std::vector<ws_subscription_result> &result) {
-  using utilities::TaskStatus;
+  using utilities::task_status_e;
 
   if (!logged_in_ || task_list.empty())
     return false;
@@ -174,7 +186,7 @@ bool websocket_updates::process_subscription(
       uint32_t const status = static_cast<int>(beg->second->operation_status);
       result.back().sub_tasks.push_back({status, processed});
       (void)beg->second->progress_signal().connect(
-          [=](uint32_t task_id, uint32_t processed, TaskStatus status) {
+          [=](uint32_t task_id, uint32_t processed, task_status_e status) {
             on_task_progressed(std::distance(task_range.first, beg), task_id,
                                processed, (uint32_t)status);
           });
@@ -193,14 +205,13 @@ void websocket_updates::on_task_progressed(std::size_t const index,
                                            uint32_t const task_id,
                                            uint32_t const processed,
                                            uint32_t const status) {
-
   auto iter = std::find_if(result_.begin(), result_.end(),
                            [task_id](ws_subscription_result const &item) {
                              return item.task_id == task_id;
                            });
   if (iter == result_.end())
     return;
-  using utilities::TaskStatus;
+  using utilities::task_status_e;
   iter->sub_tasks[index].processed = processed;
   iter->sub_tasks[index].status = status;
   return send_message(success(*iter, ResponseType::NewUpdate));

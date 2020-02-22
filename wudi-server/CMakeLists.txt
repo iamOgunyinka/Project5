@@ -62,10 +62,12 @@ message("${PROJECT_NAME}: CURR BIN DIR: ${CMAKE_CURRENT_BINARY_DIR}")
 # Source Files
 set(SRC_FILES
     ./backgroundworker.cpp
+    ./database_connector.cpp
     ./auto_home_sock.cpp
     ./main.cpp
     ./safe_proxy.cpp
     ./server.cpp
+    ./worker.cpp
     ./session.cpp
     ./utilities.cpp
     ./jj_games_socket.cpp
@@ -82,6 +84,8 @@ set(HEADERS_FILES
     utilities.hpp
     web_base.hpp
     jj_games_socket.hpp
+    database_connector.hpp
+    worker.hpp
 )
 source_group("Headers" FILES ${HEADERS_FILES})
 

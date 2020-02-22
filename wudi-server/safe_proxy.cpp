@@ -1,6 +1,7 @@
 #include "safe_proxy.hpp"
 #include "utilities.hpp"
 #include <boost/algorithm/string.hpp>
+#include <boost/lexical_cast.hpp>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -29,11 +30,10 @@ void safe_proxy::get_more_proxies() {
     http_request_ = {};
     http_request_.method(http::verb::get);
     http_request_.target(
-        R"(/api/ip?app_key=d9c96cbb82ce73721589f1d63125690e&pack=208774&num=100&xy=1&type=1&lb=\r\n&mr=1)");
+        R"(/api/ip?app_key=d9c96cbb82ce73721589f1d63125690e&pack=208774&num=100&xy=1&type=1&lb=\n&mr=1)");
     http_request_.version(11);
     http_request_.set(http::field::host, uri_.host() + ":80");
     http_request_.set(http::field::user_agent, utilities::get_random_agent());
-    std::cout << http_request_ << std::endl;
     http::write(http_tcp_stream_, http_request_);
     beast::flat_buffer buffer{};
     http::response<http::string_body> server_response{};
@@ -47,12 +47,13 @@ void safe_proxy::get_more_proxies() {
     }
     auto &response_body = server_response.body();
     std::vector<std::string> ips;
-    boost::split(ips, response_body, boost::is_any_of("\r\n"));
+    boost::split(ips, response_body, [](char const ch) { return ch == '\n'; });
     if (ips.empty()) {
       is_free = true;
       has_error = true;
       return spdlog::error("IPs empty");
     }
+    spdlog::info("Grabbed {} proxies", ips.size());
     for (auto &line : ips) {
       if (line.empty())
         continue;
@@ -96,16 +97,15 @@ void safe_proxy::save_proxies_to_file() {
     }
   }
   for (auto const &proxy : this->endpoints_) {
-    proxy_set.insert(proxy->endpoint.address().to_string() + ":" +
-                     std::to_string(proxy->endpoint.port()));
+    proxy_set.insert(boost::lexical_cast<std::string>(proxy->endpoint));
   }
 
   std::ofstream file{http_proxy_filename, std::ios::app | std::ios::out};
   if (file) {
     for (auto const &proxy : proxy_set) {
       file << proxy << "\n";
-      file.close();
     }
+    file.close();
   }
 }
 
@@ -113,13 +113,16 @@ void safe_proxy::load_proxy_file() {
   std::filesystem::path const http_filename_path{http_proxy_filename};
   if (!std::filesystem::exists(http_filename_path)) {
     get_more_proxies();
-    if (!endpoints_.empty())
+    if (!endpoints_.empty()) {
       save_proxies_to_file();
+    }
     return;
   }
   std::ifstream proxy_file{http_filename_path};
-  if (!proxy_file)
-    return get_more_proxies();
+  if (!proxy_file) {
+    get_more_proxies();
+    return save_proxies_to_file();
+  }
   std::string line{};
   std::vector<std::string> ip_port{};
   while (std::getline(proxy_file, line)) {

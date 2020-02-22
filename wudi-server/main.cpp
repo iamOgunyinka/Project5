@@ -1,12 +1,14 @@
+#include "database_connector.hpp"
 #include "jj_games_socket.hpp"
 #include "server.hpp"
+#include "worker.hpp"
 #include <CLI11/CLI11.hpp>
 #include <atomic>
 #include <spdlog/spdlog.h>
 #include <thread>
 
 int main(int argc, char *argv[]) {
-  custom_curl::LibCurlRAII curl_global{};
+  custom_curl::curl_wrapper_t curl_global{};
   CLI::App cli_parser{"Wu-di: an asynchronous web server for Farasha trading"};
   wudi_server::command_line_interface args{};
   auto const thread_count = std::thread::hardware_concurrency();
@@ -24,8 +26,8 @@ int main(int argc, char *argv[]) {
                         "Launch type(production, development)", true);
   CLI11_PARSE(cli_parser, argc, argv);
 
-  auto database_connector{wudi_server::DatabaseConnector::GetDBConnector()};
-  auto db_config = wudi_server::utilities::parse_database_file(
+  auto database_connector{wudi_server::database_connector_t::s_get_db_connector()};
+  auto db_config = wudi_server::parse_database_file(
       args.database_config_filename, args.launch_type);
   if (!db_config) {
     std::cerr << "Unable to get database configuration values\n";
@@ -35,7 +37,7 @@ int main(int argc, char *argv[]) {
   std::atomic_bool stop = false;
   std::mutex task_mutex{};
   {
-    using wudi_server::utilities::background_task_executor;
+    using wudi_server::background_task_executor;
     using wudi_server::utilities::read_task_file;
     using namespace wudi_server::utilities;
 
@@ -55,8 +57,7 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
   wudi_server::asio::io_context context{static_cast<int>(thread_count)};
-  auto server_instance =
-      std::make_shared<wudi_server::server>(context, args, database_connector);
+  auto server_instance = std::make_shared<wudi_server::server>(context, args);
   server_instance->run();
 
   std::vector<std::thread> threads{};

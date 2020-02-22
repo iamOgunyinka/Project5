@@ -1,12 +1,7 @@
 #pragma once
 
 #include <boost/asio.hpp>
-#include <boost/asio/bind_executor.hpp>
-#include <boost/asio/signal_set.hpp>
-#include <boost/asio/strand.hpp>
-#include <boost/beast/core.hpp>
-#include <boost/beast/http.hpp>
-#include <boost/beast/version.hpp>
+#include <boost/beast.hpp>
 #include <boost/beast/websocket.hpp>
 #include <memory>
 #include <nlohmann/json.hpp>
@@ -57,13 +52,11 @@ class websocket_updates
     : public std::enable_shared_from_this<websocket_updates> {
   websocket::stream<beast::tcp_stream> websock_stream_;
   beast::flat_buffer read_buffer_;
-  std::string write_buffer_;
   bool logged_in_ = false;
   net::deadline_timer timer_;
   std::set<int> task_ids_;
   std::vector<ws_subscription_result> result_{};
   std::vector<std::unique_ptr<std::string>> queue_{};
-  // std::vector<boost::signals2::connection> signal_connections_{};
   static std::string error(WebsocketErrorType, RequestType);
 
   template <typename T>
@@ -88,11 +81,12 @@ private:
   void on_task_progressed(std::size_t, uint32_t, uint32_t, uint32_t);
   void on_data_written(beast::error_code ec);
   void send_message(std::string_view const message);
-  void start_ping_timer();
+  // void start_ping_timer();
 
 public:
   websocket_updates(net::io_context &io, net::ip::tcp::socket &&tcp_socket)
       : websock_stream_{std::move(tcp_socket)}, timer_{io} {}
+  ~websocket_updates();
   void run(beast::http::request<beast::http::empty_body> &&request);
 };
 

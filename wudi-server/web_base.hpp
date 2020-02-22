@@ -12,17 +12,18 @@ namespace beast = boost::beast;
 namespace net = boost::asio;
 namespace http = beast::http;
 
-using utilities::ProxyAddress;
-using utilities::SearchResultType;
+using utilities::proxy_address_t;
+using utilities::search_result_type_e;
 using tcp = boost::asio::ip::tcp;
 using CustomStringList = std::vector<std::string>;
-using ProxyList = std::vector<ProxyAddress>;
+using ProxyList = std::vector<proxy_address_t>;
+using utilities::search_result_type_e;
 
 template <typename DerivedClass> class web_base {
 protected:
   net::io_context &io_;
   beast::tcp_stream tcp_stream_;
-  utilities::number_stream &numbers_;
+  utilities::number_stream_t &numbers_;
   safe_proxy &proxy_provider_;
   bool &stopped_;
 
@@ -30,8 +31,7 @@ protected:
   http::request<http::string_body> post_request_{};
   http::response<http::string_body> response_{};
   std::string current_number_{};
-  boost::signals2::signal<void(utilities::SearchResultType, std::string_view)>
-      signal_;
+  boost::signals2::signal<void(search_result_type_e, std::string_view)> signal_;
   std::size_t connect_count_{};
   std::size_t send_count_{};
   EndpointList temp_list_;
@@ -60,7 +60,7 @@ protected:
 
 public:
   web_base(bool &stopped, net::io_context &, safe_proxy &,
-           utilities::number_stream &);
+           utilities::number_stream_t &);
   void start_connect();
   ~web_base();
   auto &signal() { return signal_; }
@@ -84,8 +84,6 @@ template <typename DerivedClass> void web_base<DerivedClass>::close_socket() {
 
 template <typename DerivedClass>
 void web_base<DerivedClass>::resend_http_request() {
-  if (stopped_)
-    return;
   if (++send_count_ >= utilities::MaxRetries) {
     current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
     choose_next_proxy();
@@ -96,8 +94,6 @@ void web_base<DerivedClass>::resend_http_request() {
 }
 
 template <typename DerivedClass> void web_base<DerivedClass>::send_http_data() {
-  if (stopped_)
-    return;
   tcp_stream_.expires_after(
       std::chrono::milliseconds(utilities::TimeoutMilliseconds));
   http::async_write(tcp_stream_, post_request_,
@@ -114,8 +110,6 @@ void web_base<DerivedClass>::on_data_sent(beast::error_code ec,
 }
 
 template <typename DerivedClass> void web_base<DerivedClass>::receive_data() {
-  if (stopped_)
-    return;
   tcp_stream_.expires_after(
       std::chrono::milliseconds(utilities::TimeoutMilliseconds * 3)); // 3*3secs
   response_ = {};
@@ -132,13 +126,13 @@ template <typename DerivedClass> void web_base<DerivedClass>::start_connect() {
 }
 
 template <typename DerivedClass> void web_base<DerivedClass>::send_next() {
-  if (stopped_)
-    return;
   try {
+    if (stopped_)
+      return;
     current_number_ = numbers_.get();
     prepare_request_data();
     connect();
-  } catch (utilities::empty_container_exception &) {
+  } catch (utilities::empty_container_exception_t &) {
     return;
   }
 }
@@ -153,7 +147,7 @@ template <typename DerivedClass> void web_base<DerivedClass>::reconnect() {
 }
 
 template <typename DerivedClass> void web_base<DerivedClass>::connect() {
-  if (temp_list_.empty() || stopped_)
+  if (temp_list_.empty())
     return;
   tcp_stream_.expires_after(
       std::chrono::milliseconds(utilities::TimeoutMilliseconds));
@@ -172,8 +166,6 @@ void web_base<DerivedClass>::on_connected(
 
 template <typename DerivedClass>
 void web_base<DerivedClass>::choose_next_proxy() {
-  if (stopped_)
-    return;
   send_count_ = 0;
   connect_count_ = 0;
   temp_list_.clear();
@@ -183,7 +175,7 @@ void web_base<DerivedClass>::choose_next_proxy() {
   } else {
     spdlog::error("error getting next endpoint");
     current_endpoint_ = nullptr;
-    signal_(SearchResultType::Unknown, current_number_);
+    signal_(search_result_type_e::Unknown, current_number_);
   }
 }
 
@@ -209,7 +201,7 @@ web_base<DerivedClass>::on_data_received(beast::error_code ec,
 template <typename DerivedClass>
 web_base<DerivedClass>::web_base(bool &stopped, net::io_context &io_context,
                                  safe_proxy &proxy_provider,
-                                 utilities::number_stream &numbers)
+                                 utilities::number_stream_t &numbers)
     : io_{io_context}, tcp_stream_{net::make_strand(io_)}, numbers_{numbers},
       proxy_provider_{proxy_provider}, stopped_{stopped} {}
 

@@ -17,17 +17,6 @@
 #include <variant>
 #include <vector>
 
-#define OTL_BIG_INT long long
-#define OTL_ODBC_MYSQL
-#define OTL_STL
-#ifdef _WIN32
-#define OTL_ODBC_WINDOWS
-#else
-#define OTL_ODBC_UNIX
-#endif
-#define OTL_SAFE_EXCEPTION_ON
-#include <otlv4/otlv4.h>
-
 namespace fmt {
 template <> struct formatter<boost::string_view> {
   template <typename ParseContext> constexpr auto parse(ParseContext &ctxt) {
@@ -67,16 +56,16 @@ namespace net = boost::asio;
 
 using nlohmann::json;
 using namespace fmt::v6::literals;
-struct DatabaseConnector;
+struct database_connector_t;
 
 namespace utilities {
-enum class SearchResultType {
+enum class search_result_type_e {
   Registered = 0xA,
   NotRegistered = 0xB,
   Unknown = 0XF
 };
 
-enum class ErrorType {
+enum class error_type_e {
   NoError,
   ResourceNotFound,
   RequiresUpdate,
@@ -86,20 +75,20 @@ enum class ErrorType {
   Unauthorized
 };
 
-enum Constants {
+enum constants_e {
   WorkerThreadCount = 10,
   SleepTimeoutSec = 5,
   FiveMegabytes = 1024 * 1024 * 5
 };
 
-enum Anonymous {
-  MaxRetries = 3,
+enum anonymous_e {
+  MaxRetries = 2,
   LenUserAgents = 18,
   MaxOpenSockets = 50,
   TimeoutMilliseconds = 3'000
 };
 
-struct ScheduledTask {
+struct scheduled_task_t {
   uint32_t task_id{};
   uint32_t progress{};
   uint32_t scheduler_id{};
@@ -110,7 +99,7 @@ struct ScheduledTask {
   std::string last_processed_number{};
 };
 
-struct TaskResult {
+struct task_result_t {
   int task_status;
   uint32_t total_numbers;
   uint32_t id;
@@ -120,14 +109,13 @@ struct TaskResult {
   std::string scheduled_date;
 };
 
-struct AtomicTask {
+struct atomic_task_t {
   enum class task_type { stopped, fresh };
   struct fresh_task {
     uint32_t website_id{};
     std::vector<uint32_t> number_ids{};
   };
   struct stopped_task {
-    uint32_t task_id{};
     std::string input_filename{};
     std::string website_address{};
     std::string ok_filename{};
@@ -153,25 +141,7 @@ struct command_line_interface {
   std::string database_config_filename{"../scripts/config/database.ini"};
 };
 
-struct DbConfig {
-  std::string username;
-  std::string password;
-  std::string db_dns;
-
-  operator bool() {
-    return !(username.empty() && password.empty() && db_dns.empty());
-  }
-};
-
-struct UploadResult {
-  int32_t upload_id;
-  int32_t total_numbers;
-  std::string upload_date;
-  std::string filename;
-  std::string name_on_disk;
-};
-
-struct UploadRequest {
+struct upload_request_t {
   boost::string_view const upload_filename;
   boost::string_view const name_on_disk;
   boost::string_view const uploader_id;
@@ -179,7 +149,15 @@ struct UploadRequest {
   std::size_t const total_numbers;
 };
 
-enum class TaskStatus : uint32_t {
+struct upload_result_t {
+  int32_t upload_id;
+  int32_t total_numbers;
+  std::string upload_date;
+  std::string filename;
+  std::string name_on_disk;
+};
+
+enum class task_status_e : uint32_t {
   NotStarted,
   Ongoing,
   Stopped,
@@ -190,8 +168,8 @@ enum class TaskStatus : uint32_t {
 using string_view_pair = std::pair<boost::string_view, boost::string_view>;
 using string_view_pair_list = std::vector<string_view_pair>;
 
-class AtomicTaskResult {
-  boost::signals2::signal<void(uint32_t, uint32_t, TaskStatus)>
+class atomic_task_result_t {
+  boost::signals2::signal<void(uint32_t, uint32_t, task_status_e)>
       progress_signal_;
   bool stopped_ = false;
 
@@ -200,7 +178,7 @@ public:
   uint32_t website_id{};
   uint32_t processed{};
   uint32_t total_numbers{};
-  TaskStatus operation_status{TaskStatus::NotStarted};
+  task_status_e operation_status{task_status_e::NotStarted};
 
   std::filesystem::path ok_filename;
   std::filesystem::path not_ok_filename;
@@ -210,19 +188,19 @@ public:
   std::ofstream not_ok_file;
   std::ofstream unknown_file;
 
-  boost::signals2::signal<void(uint32_t, uint32_t, TaskStatus)> &
+  boost::signals2::signal<void(uint32_t, uint32_t, task_status_e)> &
   progress_signal();
   bool &stopped();
   void stop();
 };
 
-struct WebsiteResult {
+struct website_result_t {
   int32_t id{};
   std::string address{};
   std::string alias{};
 };
 
-struct ProxyAddress {
+struct proxy_address_t {
   std::string ip{};
   std::string port{};
 };
@@ -244,13 +222,13 @@ private:
   std::string query_;
 };
 
-struct empty_container_exception : public std::runtime_error {
-  empty_container_exception() : std::runtime_error("") {}
+struct empty_container_exception_t : public std::runtime_error {
+  empty_container_exception_t() : std::runtime_error("") {}
 };
 
-class number_stream {
+class number_stream_t {
 public:
-  number_stream(std::ifstream &file_stream);
+  number_stream_t(std::ifstream &file_stream);
   std::string get() noexcept(false);
   bool empty();
   decltype(std::declval<std::ifstream>().rdbuf()) dump();
@@ -351,7 +329,7 @@ public:
   T get() {
     std::lock_guard<std::mutex> lock{mutex_};
     if (container_.empty())
-      throw empty_container_exception{};
+      throw empty_container_exception_t{};
     T value = container_.front();
     container_.pop_front();
     --total_;
@@ -452,33 +430,26 @@ void get_file_content(std::string const &filename, filter<T> filter,
 template <typename T>
 using threadsafe_cv_container = threadsafe_container<T, std::deque<T>, true>;
 
-otl_stream &operator>>(otl_stream &os, TaskResult &item);
-otl_stream &operator>>(otl_stream &, UploadResult &);
-otl_stream &operator>>(otl_stream &, WebsiteResult &);
-otl_stream &operator>>(otl_stream &, AtomicTask &);
-
-bool operator<(AtomicTaskResult const &task_1, AtomicTaskResult const &task_2);
+bool operator<(atomic_task_result_t const &task_1,
+               atomic_task_result_t const &task_2);
 std::string svector_to_string(std::vector<boost::string_view> const &vec);
 std::string decode_url(boost::string_view const &encoded_string);
 bool is_valid_number(std::string_view const, std::string &);
 std::vector<boost::string_view> split_string_view(boost::string_view const &str,
                                                   char const *delimeter);
-void to_json(json &j, UploadResult const &item);
-void to_json(json &j, WebsiteResult const &);
-void to_json(json &j, TaskResult const &);
-void log_sql_error(otl_exception const &exception);
+void to_json(json &j, upload_result_t const &item);
+void to_json(json &j, website_result_t const &);
+void to_json(json &j, task_result_t const &);
 [[nodiscard]] std::string view_to_string(boost::string_view const &str_view);
+[[nodiscard]] std::string
+intlist_to_string(std::vector<atomic_task_t> const &vec);
 [[nodiscard]] std::string intlist_to_string(std::vector<uint32_t> const &vec);
-[[nodiscard]] DbConfig parse_database_file(std::string const &filename,
-                                           std::string const &config_name);
 [[nodiscard]] std::string_view bv2sv(boost::string_view);
 std::string get_random_agent();
-void background_task_executor(std::atomic_bool &stopped, std::mutex &,
-                              std::shared_ptr<DatabaseConnector> &);
 
-threadsafe_cv_container<AtomicTask> &get_scheduled_tasks();
+threadsafe_cv_container<atomic_task_t> &get_scheduled_tasks();
 
-std::multimap<uint32_t, std::shared_ptr<AtomicTaskResult>> &
+std::multimap<uint32_t, std::shared_ptr<atomic_task_result_t>> &
 get_response_queue();
 
 sharedtask_ptr<uint32_t> &get_task_counter();
@@ -488,95 +459,27 @@ std::size_t timet_to_string(std::string &, std::size_t,
 bool read_task_file(std::string_view);
 string_view_pair_list::const_iterator
 find_query_key(string_view_pair_list const &, boost::string_view const &);
-void continue_recent_task(AtomicTask &scheduled_task);
-void start_new_task(AtomicTask &scheduled_task);
 } // namespace utilities
 
-using Callback = std::function<void(http::request<http::string_body> const &,
-                                    std::string_view const &)>;
+using callback_t = std::function<void(http::request<http::string_body> const &,
+                                      std::string_view const &)>;
 
-struct Rule {
+struct rule_t {
   std::size_t num_verbs_{};
   std::array<http::verb, 3> verbs_{};
-  Callback route_callback_;
+  callback_t route_callback_;
 
-  Rule(std::initializer_list<http::verb> &&verbs, Callback callback);
+  rule_t(std::initializer_list<http::verb> &&verbs, callback_t callback);
 };
 
-class Endpoint {
-  std::map<std::string, Rule> endpoints;
-  using iterator = std::map<std::string, Rule>::iterator;
+class endpoint_t {
+  std::map<std::string, rule_t> endpoints;
+  using iterator = std::map<std::string, rule_t>::iterator;
 
 public:
   void add_endpoint(std::string const &, std::initializer_list<http::verb>,
-                    Callback &&);
-  std::optional<Endpoint::iterator> get_rules(std::string const &target);
+                    callback_t &&);
+  std::optional<endpoint_t::iterator> get_rules(std::string const &target);
   std::optional<iterator> get_rules(boost::string_view const &target);
-};
-
-struct DatabaseConnector {
-  utilities::DbConfig db_config;
-  otl_connect otl_connector_;
-  std::mutex db_mutex_;
-  bool is_running = false;
-
-private:
-  void keep_sql_server_busy();
-
-public:
-  static std::shared_ptr<DatabaseConnector> GetDBConnector();
-  DatabaseConnector &username(std::string const &username);
-  DatabaseConnector &password(std::string const &password);
-  DatabaseConnector &database_name(std::string const &db_name);
-  bool connect();
-
-public:
-  bool save_stopped_task(utilities::AtomicTask const &);
-  bool get_stopped_tasks(std::vector<uint32_t> const &tasks,
-                         std::vector<utilities::AtomicTask> &);
-  bool remove_stopped_tasks(std::vector<uint32_t> const &tasks);
-
-  bool remove_uploads(std::vector<boost::string_view> const &ids = {});
-  std::vector<utilities::WebsiteResult>
-  get_websites(std::vector<uint32_t> const &ids);
-  std::optional<utilities::WebsiteResult> get_website(uint32_t const id);
-  bool add_website(std::string_view const address,
-                   std::string_view const alias);
-  bool add_task(utilities::ScheduledTask &task);
-  bool change_task_status(uint32_t task_id, utilities::TaskStatus);
-  std::vector<utilities::TaskResult> get_all_tasks(boost::string_view);
-  std::pair<int, int> get_login_role(std::string_view const,
-                                     std::string_view const);
-  bool add_upload(utilities::UploadRequest const &upload_request);
-
-  template <typename T>
-  std::vector<utilities::UploadResult> get_uploads(std::vector<T> const &ids) {
-    std::string sql_statement{};
-    if (ids.empty()) {
-      sql_statement = "SELECT id, filename, total_numbers, upload_date, "
-                      "name_on_disk FROM tb_uploads";
-    } else {
-      if constexpr (std::is_same_v<T, boost::string_view>) {
-        sql_statement = "SELECT id, filename, total_numbers, upload_date, "
-                        "name_on_disk FROM tb_uploads WHERE id IN "
-                        "({})"_format(utilities::svector_to_string(ids));
-      } else {
-        sql_statement = "SELECT id, filename, total_numbers, upload_date, "
-                        "name_on_disk FROM tb_uploads WHERE id IN "
-                        "({})"_format(utilities::intlist_to_string(ids));
-      }
-    }
-    std::vector<utilities::UploadResult> result{};
-    try {
-      otl_stream db_stream(1'000'000, sql_statement.c_str(), otl_connector_);
-      utilities::UploadResult item{};
-      while (db_stream >> item) {
-        result.push_back(std::move(item));
-      }
-    } catch (otl_exception const &e) {
-      utilities::log_sql_error(e);
-    }
-    return result;
-  }
 };
 } // namespace wudi_server

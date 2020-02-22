@@ -6,8 +6,6 @@
 #include <memory>
 #include <optional>
 
-#define private_functions private
-
 namespace wudi_server {
 namespace asio = boost::asio;
 namespace beast = boost::beast;
@@ -16,7 +14,7 @@ using string_response = http::response<http::string_body>;
 using string_request = http::request<http::string_body>;
 using dynamic_request = http::request_parser<http::string_body>;
 using nlohmann::json;
-using utilities::ErrorType;
+using utilities::error_type_e;
 
 class session {
   using dynamic_body_ptr = std::unique_ptr<dynamic_request>;
@@ -31,8 +29,7 @@ class session {
   string_body_ptr client_request_{};
   boost::string_view content_type_{};
   std::shared_ptr<void> resp_;
-  Endpoint endpoint_apis_;
-  std::shared_ptr<DatabaseConnector> db_connector;
+  endpoint_t endpoint_apis_;
   std::vector<std::shared_ptr<void>> websockets_;
 
 private:
@@ -70,19 +67,16 @@ private:
   static string_response method_not_allowed(string_request const &request);
   static string_response successful_login(int const id, int const role,
                                           string_request const &req);
-  static string_response server_error(std::string const &, ErrorType,
+  static string_response server_error(std::string const &, error_type_e,
                                       string_request const &);
-  static string_response get_error(std::string const &, ErrorType, http::status,
+  static string_response get_error(std::string const &, error_type_e, http::status,
                                    string_request const &);
   static utilities::string_view_pair_list
   split_optional_queries(std::string_view const &args);
 
 public:
   session(net::io_context &io, asio::ip::tcp::socket &&socket,
-          command_line_interface const &args,
-          std::shared_ptr<DatabaseConnector>);
+          command_line_interface const &args );
   void run();
 };
 } // namespace wudi_server
-
-#undef private_functions
