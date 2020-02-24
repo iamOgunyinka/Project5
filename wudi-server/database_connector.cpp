@@ -322,25 +322,21 @@ bool database_connector_t::remove_stopped_tasks(
   }
 }
 
-std::vector<utilities::task_result_t>
-database_connector_t::get_completed_tasks(std::vector<uint32_t> const &ids) {
+bool database_connector_t::remove_filtered_tasks(
+    boost::string_view const user_id, std::vector<uint32_t> const &ids) {
   std::string const sql_statement =
-      "SELECT id, total_numbers, status,"
-      "date_scheduled, websites, uploads, progress FROM "
-      "tb_tasks WHERE scheduler_id="
-      "{} AND status={}"_format(utilities::intlist_to_string(ids),
-                                utilities::task_status_e::Completed);
-  std::vector<utilities::task_result_t> result{};
+      "DELETE FROM tb_tasks WHERE scheduler_id="
+      "{} AND id in ({})"_format(user_id.to_string(),
+                                 utilities::intlist_to_string(ids));
   try {
-    otl_stream db_stream(1'000, sql_statement.c_str(), otl_connector_);
-    utilities::task_result_t item{};
-    while (db_stream >> item) {
-      result.push_back(std::move(item));
-    }
+    std::lock_guard<std::mutex> lock_g{db_mutex_};
+    otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
+                            otl_exception::enabled);
+    return true;
   } catch (otl_exception const &e) {
     log_sql_error(e);
+    return false;
   }
-  return result;
 }
 
 bool database_connector_t::remove_completed_tasks(
@@ -362,6 +358,8 @@ bool database_connector_t::remove_completed_tasks(
 
 bool database_connector_t::remove_stopped_tasks(
     std::vector<atomic_task_t> const &task_ids) {
+  if (task_ids.empty())
+    return false;
   std::string const sql_statement =
       "DELETE FROM tb_stopped_tasks WHERE task_id IN ({})"_format(
           utilities::intlist_to_string(task_ids));

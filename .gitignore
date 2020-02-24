@@ -81,3 +81,5 @@ Thumbs.db
 /wudi-server/x64/Release
 /wudi-server/x64/Debug
 x64/
+/wudi-server/over/autohome
+/wudi-server/stopped_files

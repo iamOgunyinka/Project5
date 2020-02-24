@@ -8,14 +8,45 @@
 #include <spdlog/spdlog.h>
 
 namespace wudi_server {
+
 using namespace fmt::v6::literals;
+
+rule_t::rule_t(std::initializer_list<http::verb> &&verbs, callback_t callback)
+    : num_verbs_{verbs.size()}, route_callback_{std::move(callback)} {
+  if (verbs.size() > 5)
+    throw std::runtime_error{"maximum number of verbs is 5"};
+  for (int i = 0; i != verbs.size(); ++i) {
+    verbs_[i] = *(verbs.begin() + i);
+  }
+}
+
+void endpoint_t::add_endpoint(std::string const &route,
+                              std::initializer_list<http::verb> verbs,
+                              callback_t &&callback) {
+  if (route.empty() || route[0] != '/')
+    throw std::runtime_error{"A valid route starts with a /"};
+  endpoints.emplace(route, rule_t{std::move(verbs), std::move(callback)});
+}
+
+std::optional<endpoint_t::iterator>
+endpoint_t::get_rules(std::string const &target) {
+  auto iter = endpoints.find(target);
+  if (iter == endpoints.end())
+    return std::nullopt;
+  return iter;
+}
+
+std::optional<endpoint_t::iterator>
+endpoint_t::get_rules(boost::string_view const &target) {
+  return get_rules(std::string(target.data(), target.size()));
+}
 
 void session::http_read_data() {
   buffer_.clear();
   empty_body_parser_.emplace();
   empty_body_parser_->body_limit(utilities::FiveMegabytes);
   beast::get_lowest_layer(tcp_stream_)
-      .expires_after(std::chrono::minutes(args_.timeout_mins));
+      .expires_after(std::chrono::minutes(utilities::MaxRetries));
   http::async_read_header(
       tcp_stream_, buffer_, *empty_body_parser_,
       beast::bind_front_handler(&session::on_header_read, shared_from_this()));
@@ -113,15 +144,14 @@ void session::error_handler(string_response &&response, bool close_socket) {
 void session::on_data_written(beast::error_code ec,
                               std::size_t const bytes_written) {
   if (ec) {
-    spdlog::error(ec.message());
-    return;
+    return spdlog::error(ec.message());
   }
   resp_ = nullptr;
   http_read_data();
 }
 
 void session::login_handler(string_request const &request,
-                            std::string_view const &optional_query) {
+                            url_query const &optional_query) {
   spdlog::info("[login_handler] {}", request.target());
   if (request.method() == http::verb::get) {
     return error_handler(bad_request("POST username && password", request));
@@ -149,16 +179,15 @@ void session::login_handler(string_request const &request,
 }
 
 void session::index_page_handler(string_request const &request,
-                                 std::string_view const &optional_query) {
+                                 url_query const &) {
   spdlog::info("[index_page_handler] {}", request.target());
   return error_handler(
       get_error("login", error_type_e::NoError, http::status::ok, request));
 }
 
 void session::upload_handler(string_request const &request,
-                             std::string_view const &optional_query) {
+                             url_query const &optional_query) {
   spdlog::info("[/upload_handler] {}", request.target());
-  auto const query_pairs{split_optional_queries(optional_query)};
   static std::string uploads_directory{"uploads/"};
   auto const method = request.method();
   auto db_connector = database_connector_t::s_get_db_connector();
@@ -174,11 +203,11 @@ void session::upload_handler(string_request const &request,
     }
     spdlog::info("[/upload_handler(type)] -> {}", content_type_);
     boost::string_view filename_view = parser["filename"];
-    auto total_iter = utilities::find_query_key(query_pairs, "total");
-    auto uploader_iter = utilities::find_query_key(query_pairs, "uploader");
-    auto time_iter = utilities::find_query_key(query_pairs, "time");
-    if (filename_view.empty() ||
-        utilities::any_of(query_pairs, total_iter, uploader_iter, time_iter)) {
+    auto total_iter = optional_query.find("total");
+    auto uploader_iter = optional_query.find("uploader");
+    auto time_iter = optional_query.find("time");
+    if (filename_view.empty() || utilities::any_of(optional_query, total_iter,
+                                                   uploader_iter, time_iter)) {
       return error_handler(bad_request("key parameters is missing", request));
     }
 
@@ -238,9 +267,10 @@ void session::upload_handler(string_request const &request,
     }
   } else {
     std::vector<boost::string_view> ids{};
-    auto const id_iter = utilities::find_query_key(query_pairs, "id");
-    if (id_iter != query_pairs.cend()) {
-      ids = utilities::split_string_view(id_iter->second, "|");
+    auto const id_iter = optional_query.find("id");
+    if (id_iter != optional_query.cend()) {
+      using utilities::split_string_view;
+      ids = split_string_view(id_iter->second, "|");
     }
     // GET method
     if (method == http::verb::get) {
@@ -277,9 +307,10 @@ void session::upload_handler(string_request const &request,
 void session::handle_requests(string_request const &request) {
   std::string const request_target{utilities::decode_url(request.target())};
   if (request_target.empty())
-    return index_page_handler(request, "");
+    return index_page_handler(request, {});
   auto const method = request.method();
-  auto split = utilities::split_string_view(request_target, "?");
+  boost::string_view request_target_view = request_target;
+  auto split = utilities::split_string_view(request_target_view, "?");
   if (auto iter = endpoint_apis_.get_rules(split[0]); iter.has_value()) {
     auto iter_end =
         iter.value()->second.verbs_.cbegin() + iter.value()->second.num_verbs_;
@@ -288,18 +319,16 @@ void session::handle_requests(string_request const &request) {
     if (found_iter == iter_end) {
       return error_handler(method_not_allowed(request));
     }
-    std::string_view const query =
-        split.size() > 1 ? std::string_view(split[1].data(), split[1].size())
-                         : "";
-    return iter.value()->second.route_callback_(request, query);
+    boost::string_view const query_string = split.size() > 1 ? split[1] : "";
+    auto url_query_{split_optional_queries(query_string)};
+    return iter.value()->second.route_callback_(request, url_query_);
   } else {
     return error_handler(not_found(request));
   }
 }
 
-session::session(net::io_context &io, asio::ip::tcp::socket &&socket,
-                 command_line_interface const &args)
-    : io_context_{io}, tcp_stream_{std::move(socket)}, args_{args} {
+session::session(net::io_context &io, asio::ip::tcp::socket &&socket)
+    : io_context_{io}, tcp_stream_{std::move(socket)} {
   add_endpoint_interfaces();
 }
 
@@ -348,7 +377,7 @@ void session::add_endpoint_interfaces() {
 }
 
 void session::download_handler(string_request const &request,
-                               std::string_view const &optional_query) {
+                               url_query const &optional_query) {
   // we only handle POST(application/json) requests here, not any other.
   if (content_type_ != "application/json") {
     return error_handler(bad_request("invalid content-type", request));
@@ -365,54 +394,43 @@ void session::download_handler(string_request const &request,
 }
 
 void session::remove_tasks_handler(string_request const &req,
-                                   std::string_view const &optional_query) {
+                                   url_query const &optional_query) {
   if (content_type_ != "application/json")
     return error_handler(bad_request("invalid content-type", req));
   try {
     using utilities::task_status_e;
+    auto user_id_iter = optional_query.find("id");
+    if (user_id_iter == optional_query.cend())
+      return error_handler(bad_request("user id is missing", req));
     json json_root = json::parse(req.body());
     json::object_t task_type_object = json_root.get<json::object_t>();
     if (task_type_object.empty()) {
       return error_handler(bad_request("empty task list", req));
     }
-    json::array_t const user_running_tasks =
-        task_type_object["running"].get<json::array_t>();
-    json::array_t const user_stopped_tasks =
-        task_type_object["stopped"].get<json::array_t>();
-    json::array_t const user_completed_tasks =
-        task_type_object["completed"].get<json::array_t>();
-
-    std::vector<uint32_t> running_tasks{}, stopped_tasks{}, completed_tasks{};
-    if (!user_running_tasks.empty()) {
-      running_tasks = stop_running_tasks_impl(user_running_tasks);
+    json::array_t const user_specified_tasks =
+        task_type_object["id"].get<json::array_t>();
+    std::vector<uint32_t> tasks{};
+    tasks.reserve(user_specified_tasks.size());
+    for (auto const &task : user_specified_tasks) {
+      tasks.emplace_back(task.get<json::number_integer_t>());
     }
-
-    if (!user_stopped_tasks.empty()) {
-      stopped_tasks = delete_stopped_tasks_impl(user_stopped_tasks);
-    }
-    if (!user_completed_tasks.empty()) {
-      completed_tasks = delete_completed_tasks_impl(user_completed_tasks);
-    }
-
-    return send_response(
-        success(running_tasks + stopped_tasks + completed_tasks, req));
+    [[maybe_unused]] auto stopped_tasks = stop_running_tasks_impl(tasks, false);
+    delete_stopped_tasks_impl(tasks);
+    delete_other_tasks_impl(user_id_iter->second, tasks);
+    return send_response(json_success(tasks, req));
   } catch (std::exception const &e) {
     spdlog::error("exception in remove_tasks_handler: {}", e.what());
     return error_handler(bad_request("unable to remove tasks", req));
   }
 }
 
-std::vector<uint32_t>
-session::delete_stopped_tasks_impl(json::array_t const &user_stopped_tasks) {
+void session::delete_stopped_tasks_impl(
+    std::vector<uint32_t> const &user_stopped_tasks) {
   using utilities::atomic_task_t;
   using utilities::remove_file;
   auto db_connector = database_connector_t::s_get_db_connector();
   std::vector<atomic_task_t> tasks{};
-  std::vector<uint32_t> temp{};
-  for (auto const task_id : user_stopped_tasks)
-    temp.push_back(task_id.get<json::number_integer_t>());
-  db_connector->get_stopped_tasks(temp, tasks);
-
+  db_connector->get_stopped_tasks(user_stopped_tasks, tasks);
   for (auto &task : tasks) {
     auto &stopped_task = std::get<atomic_task_t::stopped_task>(task.task);
     remove_file(stopped_task.input_filename);
@@ -420,25 +438,37 @@ session::delete_stopped_tasks_impl(json::array_t const &user_stopped_tasks) {
     remove_file(stopped_task.ok_filename);
     remove_file(stopped_task.unknown_filename);
   }
-  db_connector->remove_stopped_tasks(temp);
-  return temp;
+  db_connector->remove_stopped_tasks(user_stopped_tasks);
+  return;
+}
+
+void session::delete_other_tasks_impl(boost::string_view const user_id,
+                                      std::vector<uint32_t> const &all_tasks) {
+  auto db_connector = database_connector_t::s_get_db_connector();
+  db_connector->remove_filtered_tasks(user_id, all_tasks);
+  auto &response_queue = utilities::get_response_queue();
+  for (auto const &task : all_tasks) {
+    response_queue.erase(task);
+  }
 }
 
 std::vector<uint32_t>
-session::stop_running_tasks_impl(json::array_t const &task_id_list) {
+session::stop_running_tasks_impl(std::vector<uint32_t> const &task_id_list,
+                                 bool save_state) {
   using utilities::task_status_e;
 
   auto &running_tasks = utilities::get_response_queue();
   std::vector<uint32_t> stopped_tasks{};
   stopped_tasks.reserve(task_id_list.size());
   for (std::size_t index = 0; index != task_id_list.size(); ++index) {
-    auto task_id = task_id_list[index].get<json::number_integer_t>();
+    auto const &task_id = task_id_list[index];
     spdlog::info("Trying to stop: {}", task_id);
     if (auto iter = running_tasks.equal_range(task_id);
         iter.first != running_tasks.cend()) {
       stopped_tasks.push_back(task_id);
       for (auto beg = iter.first; beg != iter.second; ++beg) {
         if (beg->second->operation_status == task_status_e::Ongoing) {
+          beg->second->save_state() = save_state;
           beg->second->stop();
         }
       }
@@ -448,18 +478,48 @@ session::stop_running_tasks_impl(json::array_t const &task_id_list) {
 }
 
 void session::stop_tasks_handler(string_request const &request,
-                                 std::string_view const &optional_query) {
+                                 url_query const &optional_query) {
   if (content_type_ != "application/json")
     return error_handler(bad_request("invalid content-type", request));
   try {
+    using utilities::atomic_task_t;
     using utilities::task_status_e;
     json json_root = json::parse(request.body());
     json::array_t const task_id_list = json_root.get<json::array_t>();
     if (task_id_list.empty()) {
       return error_handler(bad_request("empty task list", request));
     };
-    return send_response(
-        json_success(stop_running_tasks_impl(task_id_list), request));
+    std::vector<uint32_t> tasks{};
+    tasks.reserve(task_id_list.size());
+    for (auto const &task : task_id_list) {
+      tasks.emplace_back(task.get<json::number_integer_t>());
+    }
+    auto &queued_task = utilities::get_scheduled_tasks();
+    auto interesting_tasks = queued_task.remove_task(
+        tasks, [](atomic_task_t &task, std::vector<uint32_t> const &ids) {
+          for (auto const &id : ids)
+            if (task.task_id == id)
+              return true;
+          return false;
+        });
+    auto db_connector = database_connector_t::s_get_db_connector();
+    for (auto const &task : interesting_tasks) {
+      atomic_task_t stopped_task{};
+      stopped_task.type_ = atomic_task_t::task_type::stopped;
+      stopped_task.task_id = task.task_id;
+      stopped_task.website_id = task.website_id;
+      stopped_task.processed = 0;
+      stopped_task.total = task.total;
+      auto &st_task = stopped_task.task.emplace<atomic_task_t::stopped_task>();
+      st_task.not_ok_filename = st_task.ok_filename = st_task.unknown_filename =
+          st_task.website_address = "{free}";
+
+      auto const &fresh_task = std::get<atomic_task_t::fresh_task>(task.task);
+      st_task.input_filename =
+          utilities::intlist_to_string(fresh_task.number_ids);
+      db_connector->save_stopped_task(stopped_task);
+    }
+    return send_response(json_success(stop_running_tasks_impl(tasks), request));
   } catch (std::exception const &e) {
     spdlog::error("exception in stop_tasks: {}", e.what());
     return error_handler(bad_request("unable to stop tasks", request));
@@ -467,7 +527,7 @@ void session::stop_tasks_handler(string_request const &request,
 }
 
 void session::restart_tasks_handler(string_request const &request,
-                                    std::string_view const &optional_query) {
+                                    url_query const &optional_query) {
   if (content_type_ != "application/json")
     return error_handler(bad_request("invalid content-type", request));
   try {
@@ -494,8 +554,7 @@ void session::restart_tasks_handler(string_request const &request,
       return send_response(json_success(stopped_tasks, request));
     }
     return error_handler(server_error("not able to restart tasks",
-                                      utilities::error_type_e::ServerError,
-                                      request));
+                                      error_type_e::ServerError, request));
   } catch (std::exception const &e) {
     spdlog::error("exception in restart_tasks: {}", e.what());
     return error_handler(bad_request("unable to restarts tasks", request));
@@ -503,7 +562,7 @@ void session::restart_tasks_handler(string_request const &request,
 }
 
 void session::schedule_task_handler(string_request const &request,
-                                    std::string_view const &optional_query) {
+                                    url_query const &optional_query) {
   using http::verb;
   using wudi_server::utilities::get_scheduled_tasks;
 
@@ -542,13 +601,14 @@ void session::schedule_task_handler(string_request const &request,
       auto &tasks{get_scheduled_tasks()};
 
       // split the main task into sub-tasks, based on the number of websites
+      using utilities::atomic_task_t;
       for (auto const &website_id : task.website_ids) {
-        utilities::atomic_task_t atom_task;
+        atomic_task_t atom_task;
         atom_task.type_ = utilities::atomic_task_t::task_type::fresh;
         atom_task.task_id = task.task_id;
         atom_task.total = task.total_numbers;
-        atom_task.task.emplace<0>();
-        auto &new_atomic_task = std::get<0>(atom_task.task);
+        auto &new_atomic_task =
+            atom_task.task.emplace<atomic_task_t::fresh_task>();
         new_atomic_task.website_id = website_id;
         new_atomic_task.number_ids = task.number_ids;
         tasks.push_back(std::move(atom_task));
@@ -565,10 +625,9 @@ void session::schedule_task_handler(string_request const &request,
     return error_handler(server_error("not implemented yet",
                                       error_type_e::ServerError, request));
   } else {
-    auto const query_pairs{split_optional_queries(optional_query)};
-    auto const id_iter = utilities::find_query_key(query_pairs, "id");
+    auto const id_iter = optional_query.find("id");
     try {
-      if (id_iter == std::cend(query_pairs)) {
+      if (id_iter == optional_query.cend()) {
         return error_handler(bad_request("uploader id unspecified", request));
       }
       auto const user_id = id_iter->second;
@@ -584,7 +643,7 @@ void session::schedule_task_handler(string_request const &request,
 }
 
 void session::website_handler(string_request const &request,
-                              std::string_view const &query) {
+                              url_query const &) {
   auto db_connector = wudi_server::database_connector_t::s_get_db_connector();
   spdlog::info("[website_handler] {}", request.target());
   if (request.method() == http::verb::get) {
@@ -654,8 +713,7 @@ string_response session::successful_login(int const id, int const role,
 }
 
 string_response session::get_error(std::string const &error_message,
-                                   utilities::error_type_e type,
-                                   http::status status,
+                                   error_type_e type, http::status status,
                                    string_request const &req) {
   json::object_t result_obj;
   result_obj["status"] = type;
@@ -703,17 +761,16 @@ void session::send_response(string_response &&response) {
       beast::bind_front_handler(&session::on_data_written, shared_from_this()));
 }
 
-utilities::string_view_pair_list
-session::split_optional_queries(std::string_view const &optional_query) {
-  utilities::string_view_pair_list result{};
+url_query
+session::split_optional_queries(boost::string_view const &optional_query) {
+  url_query result{};
   if (!optional_query.empty()) {
-    boost::string_view query{optional_query.data(), optional_query.size()};
-    auto queries = utilities::split_string_view(query, "&");
+    auto queries = utilities::split_string_view(optional_query, "&");
     for (auto const &q : queries) {
       auto split = utilities::split_string_view(q, "=");
       if (split.size() < 2)
         continue;
-      result.emplace_back(split[0], split[1]);
+      result.emplace(split[0], split[1]);
     }
   }
   return result;
@@ -722,7 +779,7 @@ session::split_optional_queries(std::string_view const &optional_query) {
 
 std::vector<uint32_t> operator+(std::vector<uint32_t> const &a,
                                 std::vector<uint32_t> const &b) {
-  std::vector<uint32_t> c(std::begin(a), std::end(b));
+  std::vector<uint32_t> c(std::cbegin(a), std::cend(a));
   for (auto const &temp : b)
     c.push_back(temp);
   return c;

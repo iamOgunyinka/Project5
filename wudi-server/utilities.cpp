@@ -164,6 +164,20 @@ bool is_valid_number(std::string_view const number, std::string &buffer) {
   return true;
 }
 
+void normalize_paths(std::string &str) {
+  for (std::string::size_type i = 0; i != str.size(); ++i) {
+    if (str[i] == '#')
+      str[i] = '\\';
+  }
+};
+
+void remove_file(std::string &filename) {
+  std::error_code ec{};
+  normalize_paths(filename);
+  if (std::filesystem::exists(filename))
+    std::filesystem::remove(filename, ec);
+}
+
 std::string view_to_string(boost::string_view const &str_view) {
   std::string str{str_view.begin(), str_view.end()};
   boost::trim(str);
@@ -326,6 +340,7 @@ number_stream_t::number_stream_t(std::ifstream &file_stream)
 
 std::string number_stream_t::get() noexcept(false) {
   std::string number{};
+  std::lock_guard<std::mutex> lock_g{mutex_};
   while (std::getline(input_stream, number)) {
     boost::trim(number);
     if (number.empty() || !is_valid_number(number, number))
@@ -337,8 +352,14 @@ std::string number_stream_t::get() noexcept(false) {
 
 bool number_stream_t::empty() { return !(input_stream && !input_stream.eof()); }
 
-decltype(std::declval<std::ifstream>().rdbuf()) number_stream_t::dump() {
+decltype(std::declval<std::ifstream>().rdbuf()) number_stream_t::dump_s() {
   return input_stream.rdbuf();
+}
+
+std::vector<std::string> &number_stream_t::dump() { return temporaries_; }
+
+void number_stream_t::push_back(std::string const &str) {
+  temporaries_.push_back(str);
 }
 
 boost::signals2::signal<void(uint32_t, uint32_t, task_status_e)> &
@@ -347,39 +368,9 @@ atomic_task_result_t::progress_signal() {
 }
 
 bool &atomic_task_result_t::stopped() { return stopped_; }
+bool &atomic_task_result_t::save_state() { return save_state_; }
 
 void atomic_task_result_t::stop() { stopped_ = true; }
 
 } // namespace utilities
-
-rule_t::rule_t(std::initializer_list<http::verb> &&verbs, callback_t callback)
-    : num_verbs_{verbs.size()}, route_callback_{std::move(callback)} {
-  if (verbs.size() > 5)
-    throw std::runtime_error{"maximum number of verbs is 5"};
-  for (int i = 0; i != verbs.size(); ++i) {
-    verbs_[i] = *(verbs.begin() + i);
-  }
-}
-
-void endpoint_t::add_endpoint(std::string const &route,
-                              std::initializer_list<http::verb> verbs,
-                              callback_t &&callback) {
-  if (route.empty() || route[0] != '/')
-    throw std::runtime_error{"A valid route starts with a /"};
-  endpoints.emplace(route, rule_t{std::move(verbs), std::move(callback)});
-}
-
-std::optional<endpoint_t::iterator>
-endpoint_t::get_rules(std::string const &target) {
-  auto iter = endpoints.find(target);
-  if (iter == endpoints.end())
-    return std::nullopt;
-  return iter;
-}
-
-std::optional<endpoint_t::iterator>
-endpoint_t::get_rules(boost::string_view const &target) {
-  return get_rules(std::string(target.data(), target.size()));
-}
-
 } // namespace wudi_server

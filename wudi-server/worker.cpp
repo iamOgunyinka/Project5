@@ -80,6 +80,43 @@ continue_recent_task(atomic_task_t &scheduled_task) {
       std::move(scheduled_task), task_result, get_network_context());
 }
 
+std::unique_ptr<background_worker_t>
+resume_unstarted_task(utilities::atomic_task_t &scheduled_task) {
+  auto string_to_intlist = [](std::string const &str, char const *delim = ",") {
+    std::vector<uint32_t> list{};
+    auto split = utilities::split_string_view(str, delim);
+    for (auto const &s : split) {
+      list.push_back(std::stoul(boost::trim_copy(s.to_string())));
+    }
+    return list;
+  };
+
+  auto db_connector = wudi_server::database_connector_t::s_get_db_connector();
+  auto &task = std::get<atomic_task_t::stopped_task>(scheduled_task.task);
+  std::optional<website_result_t> website =
+      db_connector->get_website(scheduled_task.task_id);
+  std::vector<upload_result_t> numbers =
+      db_connector->get_uploads(string_to_intlist(task.input_filename));
+  if (!website || numbers.empty()) {
+    spdlog::error("No such website or numbers is empty");
+    return {};
+  }
+  task.input_filename.clear();
+  task.not_ok_filename.clear();
+  task.ok_filename.clear();
+  task.unknown_filename.clear();
+  task.website_address.clear();
+  auto &response_queue = utilities::get_response_queue();
+
+  auto task_result = std::make_shared<atomic_task_result_t>();
+  task_result->task_id = scheduled_task.task_id;
+  task_result->website_id = scheduled_task.website_id;
+  response_queue.emplace(scheduled_task.task_id, task_result);
+  return std::make_unique<background_worker_t>(std::move(*website),
+                                               std::move(numbers), task_result,
+                                               get_network_context());
+}
+
 void background_task_executor(
     std::atomic_bool &stopped, std::mutex &mutex,
     std::shared_ptr<database_connector_t> &db_connector) {
@@ -94,7 +131,12 @@ void background_task_executor(
     if (scheduled_task.type_ == atomic_task_t::task_type::fresh) {
       worker = start_new_task(scheduled_task);
     } else {
-      worker = continue_recent_task(scheduled_task);
+      auto &task = std::get<atomic_task_t::stopped_task>(scheduled_task.task);
+      if (task.website_address == "{free}") {
+        worker = resume_unstarted_task(scheduled_task);
+      } else {
+        worker = continue_recent_task(scheduled_task);
+      }
     }
     if (worker) {
       task_counter.insert(scheduled_task.task_id, [=](uint32_t task_id) {

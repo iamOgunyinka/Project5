@@ -21,6 +21,29 @@ std::string const background_worker_t::http_proxy_filename{
     "./http_proxy_servers.txt"};
 
 background_worker_t::~background_worker_t() {
+
+  using utilities::task_status_e;
+  if (task_result_ptr_->stopped() &&
+      task_result_ptr_->operation_status == task_status_e::Ongoing) {
+    task_result_ptr_->operation_status = task_status_e::Stopped;
+    task_result_ptr_->progress_signal().disconnect_all_slots();
+    if (task_result_ptr_->save_state()) {
+      std::string const filename =
+          "./stopped_files/{}.txt"_format(std::time(nullptr));
+      if (create_file_directory(filename) &&
+          save_status_to_persistence(filename)) {
+        spdlog::info("saved task -> {}:{} to persistent storage",
+                     task_result_ptr_->task_id, task_result_ptr_->website_id);
+      } else {
+        if (std::filesystem::exists(filename)) {
+          std::filesystem::remove(filename);
+        }
+        spdlog::error("unable to save task-> {}:{} to persistent storage",
+                      task_result_ptr_->task_id, task_result_ptr_->website_id);
+      }
+    }
+  }
+
   task_result_ptr_->not_ok_file.close();
   task_result_ptr_->ok_file.close();
   task_result_ptr_->unknown_file.close();
@@ -131,7 +154,11 @@ bool background_worker_t::save_status_to_persistence(
     spdlog::error("Unable to save file to hard disk");
     return false;
   }
-  out_file << number_stream_->dump();
+  out_file << number_stream_->dump_s();
+  for (auto const &number : number_stream_->dump()) {
+    if (!number.empty())
+      out_file << number << "\n";
+  }
   out_file.close();
   if (input_file.is_open()) {
     input_file.close();
@@ -141,7 +168,10 @@ bool background_worker_t::save_status_to_persistence(
   if (ec) {
     spdlog::error("Unable to remove file because: {}", ec.message());
   }
-  return db_connector->save_stopped_task(stopped_task);
+  db_connector->save_stopped_task(stopped_task);
+  db_connector->change_task_status(stopped_task.task_id,
+                                   task_result_ptr_->processed,
+                                   task_result_ptr_->operation_status);
 }
 
 bool background_worker_t::open_output_files() {
@@ -218,7 +248,7 @@ void background_worker_t::run_number_crawler() {
       type_ = website_type::AutoHomeRegister;
     }
   }
-  
+
   std::list<std::shared_ptr<void>> sockets{};
   if (context_.stopped())
     context_.restart();
@@ -239,26 +269,6 @@ void background_worker_t::run_number_crawler() {
     }
   }
   context_.run();
-
-  using utilities::task_status_e;
-  if (task_result_ptr_->stopped() &&
-      task_result_ptr_->operation_status == task_status_e::Ongoing) {
-    task_result_ptr_->operation_status = task_status_e::Stopped;
-    task_result_ptr_->progress_signal().disconnect_all_slots();
-    std::string const filename =
-        "./stopped_files/{}.txt"_format(std::time(nullptr));
-    if (create_file_directory(filename) &&
-        save_status_to_persistence(filename)) {
-      spdlog::info("saved task -> {}:{} to persistent storage",
-                   task_result_ptr_->task_id, task_result_ptr_->website_id);
-    } else {
-      if (std::filesystem::exists(filename)) {
-        std::filesystem::remove(filename);
-      }
-      spdlog::error("unable to save task-> {}:{} to persistent storage",
-                    task_result_ptr_->task_id, task_result_ptr_->website_id);
-    }
-  }
   sockets.clear();
 }
 

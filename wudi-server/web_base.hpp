@@ -2,7 +2,6 @@
 
 #include "safe_proxy.hpp"
 #include "utilities.hpp"
-#include "web_base.hpp"
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 #include <boost/signals2.hpp>
@@ -15,8 +14,6 @@ namespace http = beast::http;
 using utilities::proxy_address_t;
 using utilities::search_result_type_e;
 using tcp = boost::asio::ip::tcp;
-using CustomStringList = std::vector<std::string>;
-using ProxyList = std::vector<proxy_address_t>;
 using utilities::search_result_type_e;
 
 template <typename DerivedClass> class web_base {
@@ -48,7 +45,6 @@ protected:
   void receive_data();
   void reconnect();
   void resend_http_request();
-
   void choose_next_proxy();
   void send_next();
   void set_authentication_header();
@@ -84,7 +80,7 @@ template <typename DerivedClass> void web_base<DerivedClass>::close_socket() {
 
 template <typename DerivedClass>
 void web_base<DerivedClass>::resend_http_request() {
-  if (++send_count_ >= utilities::MaxRetries) {
+  if (++send_count_ >= utilities::MaxRetries ) {
     current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
     choose_next_proxy();
     connect();
@@ -126,14 +122,18 @@ template <typename DerivedClass> void web_base<DerivedClass>::start_connect() {
 }
 
 template <typename DerivedClass> void web_base<DerivedClass>::send_next() {
+  if (stopped_) {
+    if (!current_number_.empty()) {
+      numbers_.push_back(current_number_);
+    }
+    current_number_.clear();
+    return;
+  }
   try {
-    if (stopped_)
-      return;
     current_number_ = numbers_.get();
     prepare_request_data();
     connect();
   } catch (utilities::empty_container_exception_t &) {
-    return;
   }
 }
 
@@ -147,8 +147,12 @@ template <typename DerivedClass> void web_base<DerivedClass>::reconnect() {
 }
 
 template <typename DerivedClass> void web_base<DerivedClass>::connect() {
-  if (temp_list_.empty())
+  if (temp_list_.empty() || stopped_) {
+    if (stopped_ && !current_number_.empty())
+      numbers_.push_back(current_number_);
+    current_number_.clear();
     return;
+  }
   tcp_stream_.expires_after(
       std::chrono::milliseconds(utilities::TimeoutMilliseconds));
   tcp_stream_.async_connect(

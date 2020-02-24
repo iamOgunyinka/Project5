@@ -5,7 +5,6 @@
 #include "utilities.hpp"
 #include <boost/signals2.hpp>
 #include <fstream>
-#include <map>
 #include <optional>
 #include <vector>
 

@@ -6,7 +6,6 @@
 #endif
 
 #include "safe_proxy.hpp"
-#include "utilities.hpp"
 #include <boost/signals2.hpp>
 #include <curl/curl.h>
 #include <functional>
@@ -17,7 +16,50 @@
 
 using tcp = boost::asio::ip::tcp;
 
+namespace wudi_server {
+namespace utilities {
+class number_stream_t;
+enum class search_result_type_e;
+} // namespace utilities
+} // namespace wudi_server
+
 namespace custom_curl {
+template <typename Key, typename Value> class custom_map {
+  std::map<Key, Value> map_{};
+
+public:
+  custom_map() = default;
+
+  bool contains(Key const &key) { return map_.find(key) != map_.cend(); }
+
+  std::optional<Value> value(Key const &key) {
+    if (auto iter = map_.find(key); iter == map_.cend())
+      return std::nullopt;
+    else
+      return iter->second;
+  }
+
+  void insert(Key key, Value const &value) {
+    map_.emplace(std::forward<Key>(key), value);
+  }
+
+  void clear() {
+    for (auto &data : map_) {
+      boost::beast::error_code ec{};
+      if (data.second && data.second->is_open())
+        data.second->close(ec);
+    }
+  }
+
+  bool remove(Key const &key) {
+    if (auto iter = map_.find(key); iter != map_.cend()) {
+      iter->second.reset();
+      map_.erase(iter);
+      return true;
+    }
+    return false;
+  }
+};
 
 template <typename T> struct custom_curl_list_t {
 private:
@@ -34,9 +76,7 @@ public:
   }
 };
 
-using custom_map_t =
-    wudi_server::utilities::custom_map<curl_socket_t,
-                                       std::shared_ptr<tcp::socket>>;
+using custom_map_t = custom_map<curl_socket_t, std::shared_ptr<tcp::socket>>;
 
 struct curl_wrapper_t {
   curl_wrapper_t() { curl_global_init(CURL_GLOBAL_ALL); }

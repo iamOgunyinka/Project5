@@ -17,6 +17,9 @@ start_new_task(utilities::atomic_task_t &scheduled_task);
 std::unique_ptr<background_worker_t>
 continue_recent_task(utilities::atomic_task_t &scheduled_task);
 
+std::unique_ptr<background_worker_t>
+resume_unstarted_task(utilities::atomic_task_t &scheduled_task);
+
 void background_task_executor(std::atomic_bool &stopped, std::mutex &,
                               std::shared_ptr<database_connector_t> &);
 

@@ -1,8 +1,6 @@
 #pragma once
 #include <array>
 #include <boost/algorithm/string.hpp>
-#include <boost/asio/io_context.hpp>
-#include <boost/beast.hpp>
 #include <boost/signals2.hpp>
 #include <boost/utility/string_view.hpp>
 #include <deque>
@@ -13,7 +11,6 @@
 #include <set>
 #include <spdlog/spdlog.h>
 #include <sstream>
-#include <string>
 #include <variant>
 #include <vector>
 
@@ -51,9 +48,6 @@ template <> struct formatter<std::vector<int32_t>> {
 } // namespace fmt
 
 namespace wudi_server {
-namespace http = boost::beast::http;
-namespace net = boost::asio;
-
 using nlohmann::json;
 using namespace fmt::v6::literals;
 struct database_connector_t;
@@ -65,27 +59,14 @@ enum class search_result_type_e {
   Unknown = 0XF
 };
 
-enum class error_type_e {
-  NoError,
-  ResourceNotFound,
-  RequiresUpdate,
-  BadRequest,
-  ServerError,
-  MethodNotAllowed,
-  Unauthorized
-};
-
 enum constants_e {
-  WorkerThreadCount = 10,
-  SleepTimeoutSec = 5,
-  FiveMegabytes = 1024 * 1024 * 5
-};
-
-enum anonymous_e {
   MaxRetries = 2,
+  SleepTimeoutSec = 5,
+  WorkerThreadCount = 10,
   LenUserAgents = 18,
-  MaxOpenSockets = 50,
-  TimeoutMilliseconds = 3'000
+  MaxOpenSockets = 2,
+  TimeoutMilliseconds = 3'000,
+  FiveMegabytes = 1024 * 1024 * 5
 };
 
 struct scheduled_task_t {
@@ -131,16 +112,6 @@ struct atomic_task_t {
   std::variant<fresh_task, stopped_task> task;
 };
 
-struct command_line_interface {
-  std::size_t thread_count{};
-  uint16_t port{80};
-  uint16_t timeout_mins{15};
-  std::string ip_address{"127.0.0.1"};
-  std::string scheduled_snapshot;
-  std::string launch_type{"development"};
-  std::string database_config_filename{"../scripts/config/database.ini"};
-};
-
 struct upload_request_t {
   boost::string_view const upload_filename;
   boost::string_view const name_on_disk;
@@ -172,6 +143,7 @@ class atomic_task_result_t {
   boost::signals2::signal<void(uint32_t, uint32_t, task_status_e)>
       progress_signal_;
   bool stopped_ = false;
+  bool save_state_ = true;
 
 public:
   uint32_t task_id{};
@@ -191,6 +163,7 @@ public:
   boost::signals2::signal<void(uint32_t, uint32_t, task_status_e)> &
   progress_signal();
   bool &stopped();
+  bool &save_state();
   void stop();
 };
 
@@ -206,7 +179,7 @@ struct proxy_address_t {
 };
 
 struct request_handler {
-  static std::array<char const *, LenUserAgents> const user_agents;
+  static std::array<char const *, constants_e::LenUserAgents> const user_agents;
 };
 
 struct uri {
@@ -231,47 +204,14 @@ public:
   number_stream_t(std::ifstream &file_stream);
   std::string get() noexcept(false);
   bool empty();
-  decltype(std::declval<std::ifstream>().rdbuf()) dump();
+  decltype(std::declval<std::ifstream>().rdbuf()) dump_s();
+  std::vector<std::string> &dump();
+  void push_back(std::string const &);
 
 private:
   std::ifstream &input_stream;
-};
-
-template <typename Key, typename Value> class custom_map {
-  std::map<Key, Value> map_{};
-
-public:
-  custom_map() = default;
-
-  bool contains(Key const &key) { return map_.find(key) != map_.cend(); }
-
-  std::optional<Value> value(Key const &key) {
-    if (auto iter = map_.find(key); iter == map_.cend())
-      return std::nullopt;
-    else
-      return iter->second;
-  }
-
-  void insert(Key key, Value const &value) {
-    map_.emplace(std::forward<Key>(key), value);
-  }
-
-  void clear() {
-    for (auto &data : map_) {
-      boost::beast::error_code ec{};
-      if (data.second && data.second->is_open())
-        data.second->close(ec);
-    }
-  }
-
-  bool remove(Key const &key) {
-    if (auto iter = map_.find(key); iter != map_.cend()) {
-      iter->second.reset();
-      map_.erase(iter);
-      return true;
-    }
-    return false;
-  }
+  std::vector<std::string> temporaries_;
+  std::mutex mutex_;
 };
 
 template <typename Key> class sharedtask_ptr {
@@ -379,6 +319,20 @@ public:
     total_ = container_.size();
     return value;
   }
+
+  template <typename U, typename Func>
+  std::vector<T> remove_task(U &&keys, Func &&function) {
+    if (container_.empty())
+      return {};
+    std::unique_lock<std::mutex> u_lock{mutex_};
+    std::vector<T> result{};
+    for (auto &task : container_) {
+      if (function(task, keys))
+        result.emplace_back(std::move(task));
+    }
+    return result;
+  }
+
   template <typename U> void push_back(U &&data) {
     std::lock_guard<std::mutex> lock_{mutex_};
     container_.push_back(std::forward<U>(data));
@@ -427,25 +381,13 @@ void get_file_content(std::string const &filename, filter<T> filter,
   }
 }
 
-auto normalize_paths(std::string &str) {
-  for (std::string::size_type i = 0; i != str.size(); ++i) {
-    if (str[i] == '#')
-      str[i] = '\\';
-  }
-};
-
-auto remove_file(std::string &filename) {
-  std::error_code ec{};
-  normalize_paths(filename);
-  if (std::filesystem::exists(filename))
-    std::filesystem::remove(filename, ec);
-};
-
 template <typename T>
 using threadsafe_cv_container = threadsafe_container<T, std::deque<T>, true>;
 
 bool operator<(atomic_task_result_t const &task_1,
                atomic_task_result_t const &task_2);
+void normalize_paths(std::string &str);
+void remove_file(std::string &filename);
 std::string svector_to_string(std::vector<boost::string_view> const &vec);
 std::string decode_url(boost::string_view const &encoded_string);
 bool is_valid_number(std::string_view const, std::string &);
@@ -475,26 +417,4 @@ bool read_task_file(std::string_view);
 string_view_pair_list::const_iterator
 find_query_key(string_view_pair_list const &, boost::string_view const &);
 } // namespace utilities
-
-using callback_t = std::function<void(http::request<http::string_body> const &,
-                                      std::string_view const &)>;
-
-struct rule_t {
-  std::size_t num_verbs_{};
-  std::array<http::verb, 3> verbs_{};
-  callback_t route_callback_;
-
-  rule_t(std::initializer_list<http::verb> &&verbs, callback_t callback);
-};
-
-class endpoint_t {
-  std::map<std::string, rule_t> endpoints;
-  using iterator = std::map<std::string, rule_t>::iterator;
-
-public:
-  void add_endpoint(std::string const &, std::initializer_list<http::verb>,
-                    callback_t &&);
-  std::optional<endpoint_t::iterator> get_rules(std::string const &target);
-  std::optional<iterator> get_rules(boost::string_view const &target);
-};
 } // namespace wudi_server

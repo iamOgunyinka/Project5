@@ -1,12 +1,26 @@
 #pragma once
-#include "session.hpp"
+#include <boost/asio.hpp>
+#include <boost/beast.hpp>
 #include <list>
 #include <memory>
 
-#define private_functions private
-
 namespace wudi_server {
+namespace utilities {
+struct command_line_interface {
+  std::size_t thread_count{};
+  uint16_t port{80};
+  uint16_t timeout_mins{15};
+  std::string ip_address{"127.0.0.1"};
+  std::string scheduled_snapshot;
+  std::string launch_type{"development"};
+  std::string database_config_filename{"../scripts/config/database.ini"};
+};
+} // namespace utilities
+namespace asio = boost::asio;
+namespace beast = boost::beast;
+
 using utilities::command_line_interface;
+class session;
 
 class server : public std::enable_shared_from_this<server> {
   asio::io_context &io_context_;
@@ -19,7 +33,9 @@ class server : public std::enable_shared_from_this<server> {
 public:
   server(asio::io_context &context, command_line_interface const &args);
   void run();
-  private_functions : void accept_connections();
+
+private:
+  void accept_connections();
   void on_connection_accepted(beast::error_code const &ec,
                               asio::ip::tcp::socket socket);
 };

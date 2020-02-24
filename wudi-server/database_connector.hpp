@@ -58,8 +58,8 @@ public:
   bool remove_stopped_tasks(std::vector<utilities::atomic_task_t> const &tasks);
   bool remove_stopped_tasks(std::vector<uint32_t> const &tasks);
   bool remove_completed_tasks(std::vector<uint32_t> const &tasks);
-  std::vector<utilities::task_result_t>
-  get_completed_tasks(std::vector<uint32_t> const &);
+  bool remove_filtered_tasks(boost::string_view const,
+                             std::vector<uint32_t> const &);
   bool remove_uploads(std::vector<boost::string_view> const &ids = {});
   std::vector<utilities::website_result_t>
   get_websites(std::vector<uint32_t> const &ids);

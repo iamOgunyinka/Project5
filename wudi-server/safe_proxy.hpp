@@ -1,13 +1,9 @@
-#ifndef SAFE_PROXY_HPP
-#define SAFE_PROXY_HPP
+#pragma once
+
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 #include <memory>
 #include <optional>
-
-#ifndef private_functions
-#define private_functions private
-#endif // !private_functions
 
 namespace wudi_server {
 namespace beast = boost::beast;
@@ -48,7 +44,8 @@ private:
   std::atomic_bool is_free = true;
   std::atomic_bool has_error = false;
 
-  private_functions : void load_proxy_file();
+private:
+  void load_proxy_file();
   void get_more_proxies();
   void save_proxies_to_file();
 
@@ -59,6 +56,3 @@ public:
   std::optional<endpoint_ptr> next_endpoint();
 };
 } // namespace wudi_server
-
-#undef private_functions
-#endif // SAFE_PROXY_HPP
