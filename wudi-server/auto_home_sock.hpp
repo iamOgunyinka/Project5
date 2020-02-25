@@ -8,8 +8,7 @@ using tcp = boost::asio::ip::tcp;
 
 class auto_home_socket_t : public web_base<auto_home_socket_t> {
   static std::string const password_base64_hash;
-  std::string const address_ =
-      "https://account.autohome.com.cn/AccountApi/CheckPhone";
+  static std::string const address_;
 
 public:
   void on_data_received(beast::error_code, std::size_t const);

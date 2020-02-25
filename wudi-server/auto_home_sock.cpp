@@ -11,6 +11,9 @@ namespace wudi_server {
 using utilities::request_handler;
 using namespace fmt::v6::literals;
 
+std::string const auto_home_socket_t::address_ =
+    "https://account.autohome.com.cn/AccountApi/CheckPhone";
+
 std::string const auto_home_socket_t::password_base64_hash{
     "bGFueHVhbjM2OUBnbWFpbC5jb206TGFueHVhbjk2Mw=="};
 
@@ -27,11 +30,11 @@ void auto_home_socket_t::prepare_request_data(bool use_authentication_header) {
   post_request_.method(beast::http::verb::post);
   post_request_.version(11);
   post_request_.target(address_);
-  post_request_.set(beast::http::field::connection, "keep-alive");
   if (use_authentication_header) {
     post_request_.set(beast::http::field::proxy_authorization,
                       "Basic " + password_base64_hash);
   }
+  post_request_.set(beast::http::field::connection, "keep-alive");
   post_request_.set(beast::http::field::host,
                     utilities::uri{address_}.host() + ":443");
   post_request_.set(beast::http::field::cache_control, "no-cache");
@@ -43,7 +46,6 @@ void auto_home_socket_t::prepare_request_data(bool use_authentication_header) {
   post_request_.body() =
       "isOverSea=0&phone={}&validcodetype=1"_format(current_number_);
   post_request_.prepare_payload();
-  std::cout << post_request_ << std::endl;
 }
 
 void auto_home_socket_t::on_data_received(beast::error_code ec,
@@ -106,7 +108,7 @@ void auto_home_socket_t::on_data_received(beast::error_code ec,
       }
     }
   }
-  // spdlog::info("{} gave {}", current_number_, body);
+
   try {
     json::object_t object = document.get<json::object_t>();
     if (object.find("success") != object.end()) {
