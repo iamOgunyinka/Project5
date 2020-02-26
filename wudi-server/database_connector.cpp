@@ -205,7 +205,7 @@ bool database_connector_t::add_task(utilities::scheduled_task_t &task) {
       "INSERT INTO tb_tasks (scheduler_id, date_scheduled, websites, uploads, "
       "progress, total_numbers, status)"
       "VALUES( {}, \"{}\", \"{}\", \"{}\", 0, {}, {} )"_format(
-          task.scheduler_id, time_str, intlist_to_string(task.website_ids),
+          task.scheduler_id, time_str, task.website_id,
           intlist_to_string(task.number_ids), task.total_numbers,
           static_cast<int>(utilities::task_status_e::NotStarted))};
   spdlog::info(sql_statement);
@@ -234,7 +234,7 @@ bool database_connector_t::change_task_status(uint32_t task_id,
     std::lock_guard<std::mutex> lock_g{db_mutex_};
     int const status = otl_cursor::direct_exec(
         otl_connector_, sql_statement.c_str(), otl_exception::enabled);
-    return status > 0;
+    return true;
   } catch (otl_exception const &e) {
     log_sql_error(e);
     return false;

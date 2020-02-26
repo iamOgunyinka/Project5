@@ -571,6 +571,7 @@ void session::schedule_task_handler(string_request const &request,
     if (content_type_ != "application/json") {
       return error_handler(bad_request("invalid content-type", request));
     }
+    std::vector<uint32_t> task_ids{};
     try {
       json json_root = json::parse(request.body());
       json::object_t task_object = json_root.get<json::object_t>();
@@ -578,31 +579,27 @@ void session::schedule_task_handler(string_request const &request,
       json::array_t number_ids = task_object["numbers"].get<json::array_t>();
       json::number_integer_t total =
           task_object["total"].get<json::number_integer_t>();
-      utilities::scheduled_task_t task{};
-      task.total_numbers = total;
-      task.scheduled_dt =
-          static_cast<int>(task_object["date"].get<json::number_integer_t>());
-      task.scheduler_id = static_cast<int>(
-          task_object["scheduler"].get<json::number_integer_t>());
-
-      for (auto const &number_id : number_ids) {
-        task.number_ids.push_back(
-            static_cast<int>(number_id.get<json::number_integer_t>()));
-      }
-      for (auto const &website_id : websites_ids) {
-        task.website_ids.push_back(
-            static_cast<int>(website_id.get<json::number_integer_t>()));
-      }
-      if (!database_connector_t::s_get_db_connector()->add_task(task)) {
-        return error_handler(server_error("unable to schedule task",
-                                          error_type_e::ServerError, request));
-      }
-      spdlog::info("Added new task{}", task.website_ids.size() <= 1 ? "" : "s");
       auto &tasks{get_scheduled_tasks()};
-
-      // split the main task into sub-tasks, based on the number of websites
       using utilities::atomic_task_t;
-      for (auto const &website_id : task.website_ids) {
+      for (auto const &website_id : websites_ids) {
+        utilities::scheduled_task_t task{};
+        task.total_numbers = total;
+        task.scheduled_dt =
+            static_cast<int>(task_object["date"].get<json::number_integer_t>());
+        task.scheduler_id = static_cast<int>(
+            task_object["scheduler"].get<json::number_integer_t>());
+
+        for (auto const &number_id : number_ids) {
+          task.number_ids.push_back(
+              static_cast<int>(number_id.get<json::number_integer_t>()));
+        }
+        task.website_id =
+            static_cast<int>(website_id.get<json::number_integer_t>());
+        if (!database_connector_t::s_get_db_connector()->add_task(task)) {
+          return error_handler(server_error(
+              "unable to schedule task", error_type_e::ServerError, request));
+        }
+        
         atomic_task_t atom_task;
         atom_task.type_ = utilities::atomic_task_t::task_type::fresh;
         atom_task.task_id = task.task_id;
@@ -611,10 +608,13 @@ void session::schedule_task_handler(string_request const &request,
             atom_task.task.emplace<atomic_task_t::fresh_task>();
         new_atomic_task.website_id = website_id;
         new_atomic_task.number_ids = task.number_ids;
+        task_ids.push_back(task.task_id);
         tasks.push_back(std::move(atom_task));
+        spdlog::info("Added new task => {}", task_ids.back());
       }
+
       json::object_t obj;
-      obj["id"] = task.task_id;
+      obj["ids"] = task_ids;
       json j = obj;
       return send_response(json_success(j, request));
     } catch (std::exception const &e) {

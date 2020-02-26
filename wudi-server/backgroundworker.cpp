@@ -35,8 +35,9 @@ background_worker_t::~background_worker_t() {
         spdlog::info("saved task -> {}:{} to persistent storage",
                      task_result_ptr_->task_id, task_result_ptr_->website_id);
       } else {
-        if (std::filesystem::exists(filename)) {
-          std::filesystem::remove(filename);
+        std::error_code ec{};
+        if (std::filesystem::exists(filename, ec)) {
+          std::filesystem::remove(filename, ec);
         }
         spdlog::error("unable to save task-> {}:{} to persistent storage",
                       task_result_ptr_->task_id, task_result_ptr_->website_id);
@@ -125,7 +126,7 @@ bool background_worker_t::save_status_to_persistence(
     }
   };
   using utilities::atomic_task_t;
-  auto db_connector = wudi_server::database_connector_t::s_get_db_connector();
+  auto db_connector = database_connector_t::s_get_db_connector();
   atomic_task_t stopped_task{};
   stopped_task.type_ = atomic_task_t::task_type::stopped;
   stopped_task.task.emplace<atomic_task_t::stopped_task>();
@@ -168,10 +169,10 @@ bool background_worker_t::save_status_to_persistence(
   if (ec) {
     spdlog::error("Unable to remove file because: {}", ec.message());
   }
-  db_connector->save_stopped_task(stopped_task);
-  db_connector->change_task_status(stopped_task.task_id,
-                                   task_result_ptr_->processed,
-                                   task_result_ptr_->operation_status);
+  return db_connector->save_stopped_task(stopped_task) &&
+         db_connector->change_task_status(stopped_task.task_id,
+                                          task_result_ptr_->processed,
+                                          task_result_ptr_->operation_status);
 }
 
 bool background_worker_t::open_output_files() {
@@ -254,8 +255,8 @@ void background_worker_t::run_number_crawler() {
     context_.restart();
   if (type_ == website_type::JJGames) {
     // we only need one socket of this type
-    auto socket_ptr = std::make_shared<jj_games_socket_t>(
-        stopped, context_, safe_proxy_, *number_stream_);
+    auto socket_ptr = std::make_shared<jj_games_single_interface>(
+        stopped, safe_proxy_, *number_stream_);
     sockets.push_back(socket_ptr); // keep a type-erased copy
     (void)socket_ptr->signal().connect(callback);
     socket_ptr->start_connect();
@@ -267,8 +268,8 @@ void background_worker_t::run_number_crawler() {
       (void)socket_ptr->signal().connect(callback);
       socket_ptr->start_connect();
     }
+    context_.run();
   }
-  context_.run();
   sockets.clear();
 }
 

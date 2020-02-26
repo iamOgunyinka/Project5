@@ -8,7 +8,7 @@
 #include <thread>
 
 int main(int argc, char *argv[]) {
-  custom_curl::curl_wrapper_t curl_global{};
+  wudi_server::curl_wrapper_t curl_global{};
   CLI::App cli_parser{"Wu-di: an asynchronous web server for Farasha trading"};
   wudi_server::command_line_interface args{};
   auto const thread_count = std::thread::hardware_concurrency();
@@ -38,10 +38,7 @@ int main(int argc, char *argv[]) {
   std::mutex task_mutex{};
   {
     using wudi_server::background_task_executor;
-    using wudi_server::utilities::read_task_file;
     using namespace wudi_server::utilities;
-
-    read_task_file(args.scheduled_snapshot);
 
     for (int i = 0; i != WorkerThreadCount; ++i) {
       std::thread t{background_task_executor, std::ref(stop),

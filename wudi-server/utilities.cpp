@@ -43,53 +43,6 @@ void to_json(json &j, atomic_task_t const &task) {
   j = json{{"id", task.task_id}};
 }
 
-bool read_task_file(std::string_view filename) {
-  std::filesystem::path const file_path{filename};
-  std::error_code ec{};
-  auto const file_size = std::filesystem::file_size(file_path, ec);
-  if (file_size == 0 || ec)
-    return false;
-  std::ifstream in_file{file_path};
-  if (!in_file)
-    return false;
-  std::vector<char> file_buffer(file_size);
-  in_file.read(file_buffer.data(), file_size);
-
-  auto &tasks = get_scheduled_tasks();
-  try {
-    json json_root =
-        json::parse(std::string_view(file_buffer.data(), file_size));
-    file_buffer = {};
-    if (!json_root.is_array())
-      return false;
-    json::array_t task_list = json_root.get<json::array_t>();
-    for (auto const &json_task : task_list) {
-      utilities::scheduled_task_t task{};
-      json::object_t task_object = json_task.get<json::object_t>();
-      task.task_id =
-          static_cast<int>(task_object["id"].get<json::number_integer_t>());
-      task.progress = static_cast<int>(
-          task_object["progress"].get<json::number_integer_t>());
-      json::array_t websites = task_object["websites"].get<json::array_t>();
-      for (auto const &website_id : websites) {
-        task.website_ids.push_back(
-            static_cast<int>(website_id.get<json::number_integer_t>()));
-      }
-      json::array_t numbers = task_object["numbers"].get<json::array_t>();
-      for (auto const &number_id : numbers) {
-        task.number_ids.push_back(
-            static_cast<int>(number_id.get<json::number_integer_t>()));
-      }
-      task.last_processed_number = task_object["last"].get<json::string_t>();
-      // tasks.push_back(std::move(task));
-    }
-    return true;
-  } catch (std::exception const &e) {
-    spdlog::error(e.what());
-  }
-  return false;
-}
-
 string_view_pair_list::const_iterator
 find_query_key(string_view_pair_list const &query_pairs,
                boost::string_view const &key) {

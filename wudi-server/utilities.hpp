@@ -74,8 +74,8 @@ struct scheduled_task_t {
   uint32_t progress{};
   uint32_t scheduler_id{};
   uint32_t scheduled_dt{};
-  uint64_t total_numbers{};
-  std::vector<uint32_t> website_ids{};
+  uint32_t total_numbers{};
+  uint32_t website_id{};
   std::vector<uint32_t> number_ids{};
   std::string last_processed_number{};
 };
@@ -413,7 +413,6 @@ sharedtask_ptr<uint32_t> &get_task_counter();
 
 std::size_t timet_to_string(std::string &, std::size_t,
                             char const * = "%Y-%m-%d %H:%M:%S");
-bool read_task_file(std::string_view);
 string_view_pair_list::const_iterator
 find_query_key(string_view_pair_list const &, boost::string_view const &);
 } // namespace utilities
