@@ -173,7 +173,7 @@ bool database_connector_t::add_upload(
   using utilities::bv2sv;
   std::string const sql_statement{
       "insert into tb_uploads (uploader_id, filename, upload_date, "
-      "total_numbers, name_on_disk ) VALUES( {}, \"{}\", \"{}\", {}, \"{}\" )"_format(
+      "total_numbers, name_on_disk) VALUES( {}, \"{}\", \"{}\", {}, \"{}\" )"_format(
           bv2sv(upload_request.uploader_id),
           bv2sv(upload_request.upload_filename),
           bv2sv(upload_request.upload_date), upload_request.total_numbers,
@@ -192,15 +192,17 @@ bool database_connector_t::add_upload(
 }
 
 bool database_connector_t::add_task(utilities::scheduled_task_t &task) {
+  using utilities::intlist_to_string;
+  using utilities::task_status_e;
+  using utilities::timet_to_string;
   std::string time_str{};
-  if (std::size_t const count =
-          utilities::timet_to_string(time_str, task.scheduled_dt);
-      count != std::string::npos) {
+  std::size_t const count = timet_to_string(time_str, task.scheduled_dt);
+  if (count != std::string::npos) {
     time_str.resize(count);
   } else {
     time_str = std::to_string(task.scheduled_dt);
   }
-  using utilities::intlist_to_string;
+
   std::string sql_statement{
       "INSERT INTO tb_tasks (scheduler_id, date_scheduled, websites, uploads, "
       "progress, total_numbers, status)"
@@ -234,6 +236,25 @@ bool database_connector_t::change_task_status(uint32_t task_id,
     std::lock_guard<std::mutex> lock_g{db_mutex_};
     int const status = otl_cursor::direct_exec(
         otl_connector_, sql_statement.c_str(), otl_exception::enabled);
+    return true;
+  } catch (otl_exception const &e) {
+    log_sql_error(e);
+    return false;
+  }
+}
+
+bool database_connector_t::add_completed_task(atomic_task_t &task) {
+  auto &completed_task = std::get<atomic_task_t::stopped_task>(task.task);
+  std::string const sql_statement =
+      "INSERT INTO tb_completed_tasks(task_id, website_id, "
+      "ok_filename, not_ok_filename, unknown_filename) VALUES({}, {}, "
+      "\"{}\", \"{}\", \"{}\")"_format(
+          task.task_id, task.website_id, completed_task.ok_filename,
+          completed_task.not_ok_filename, completed_task.unknown_filename);
+  try {
+    std::lock_guard<std::mutex> llock{db_mutex_};
+    otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
+                            otl_exception::enabled);
     return true;
   } catch (otl_exception const &e) {
     log_sql_error(e);

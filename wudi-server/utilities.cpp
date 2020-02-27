@@ -43,14 +43,6 @@ void to_json(json &j, atomic_task_t const &task) {
   j = json{{"id", task.task_id}};
 }
 
-string_view_pair_list::const_iterator
-find_query_key(string_view_pair_list const &query_pairs,
-               boost::string_view const &key) {
-  return std::find_if(
-      query_pairs.cbegin(), query_pairs.cend(),
-      [=](string_view_pair const &str) { return str.first == key; });
-}
-
 std::string decode_url(boost::string_view const &encoded_string) {
   std::string src{};
   for (size_t i = 0; i < encoded_string.size();) {
@@ -261,16 +253,10 @@ threadsafe_cv_container<atomic_task_t> &get_scheduled_tasks() {
   return tasks;
 }
 
-std::multimap<uint32_t, std::shared_ptr<atomic_task_result_t>> &
+std::map<uint32_t, std::shared_ptr<atomic_task_result_t>> &
 get_response_queue() {
-  static std::multimap<uint32_t, std::shared_ptr<atomic_task_result_t>>
-      task_result;
+  static std::map<uint32_t, std::shared_ptr<atomic_task_result_t>> task_result;
   return task_result;
-}
-
-sharedtask_ptr<uint32_t> &get_task_counter() {
-  static sharedtask_ptr<uint32_t> task_counter{};
-  return task_counter;
 }
 
 std::size_t timet_to_string(std::string &output, std::size_t t,

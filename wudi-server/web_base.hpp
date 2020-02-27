@@ -64,7 +64,6 @@ public:
 
 template <typename DerivedClass> web_base<DerivedClass>::~web_base() {
   close_socket();
-  spdlog::info("Closing sockets");
 }
 
 template <typename DerivedClass> void web_base<DerivedClass>::close_socket() {

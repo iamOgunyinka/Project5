@@ -581,27 +581,27 @@ void session::schedule_task_handler(string_request const &request,
           task_object["total"].get<json::number_integer_t>();
       auto &tasks{get_scheduled_tasks()};
       using utilities::atomic_task_t;
+      utilities::scheduled_task_t task{};
+      task.total_numbers = total;
+      task.scheduled_dt =
+          static_cast<int>(task_object["date"].get<json::number_integer_t>());
+      task.scheduler_id = static_cast<int>(
+          task_object["scheduler"].get<json::number_integer_t>());
+      for (auto const &number_id : number_ids) {
+        task.number_ids.push_back(
+            static_cast<int>(number_id.get<json::number_integer_t>()));
+      }
       for (auto const &website_id : websites_ids) {
-        utilities::scheduled_task_t task{};
-        task.total_numbers = total;
-        task.scheduled_dt =
-            static_cast<int>(task_object["date"].get<json::number_integer_t>());
-        task.scheduler_id = static_cast<int>(
-            task_object["scheduler"].get<json::number_integer_t>());
-
-        for (auto const &number_id : number_ids) {
-          task.number_ids.push_back(
-              static_cast<int>(number_id.get<json::number_integer_t>()));
-        }
-        task.website_id =
-            static_cast<int>(website_id.get<json::number_integer_t>());
+        task.website_id = website_id.get<json::number_integer_t>();
         if (!database_connector_t::s_get_db_connector()->add_task(task)) {
           return error_handler(server_error(
               "unable to schedule task", error_type_e::ServerError, request));
         }
-        
+        // an hack to make sure DB don't reject duplicate insertion
+        ++task.scheduled_dt;
+
         atomic_task_t atom_task;
-        atom_task.type_ = utilities::atomic_task_t::task_type::fresh;
+        atom_task.type_ = atomic_task_t::task_type::fresh;
         atom_task.task_id = task.task_id;
         atom_task.total = task.total_numbers;
         auto &new_atomic_task =
@@ -780,7 +780,9 @@ session::split_optional_queries(boost::string_view const &optional_query) {
 std::vector<uint32_t> operator+(std::vector<uint32_t> const &a,
                                 std::vector<uint32_t> const &b) {
   std::vector<uint32_t> c(std::cbegin(a), std::cend(a));
-  for (auto const &temp : b)
+  c.reserve(a.size() + b.size());
+  for (auto const &temp : b) {
     c.push_back(temp);
+  }
   return c;
 }

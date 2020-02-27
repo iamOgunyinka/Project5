@@ -17,8 +17,6 @@ namespace http = boost::beast::http;
 enum class website_type { Unknown, AutoHomeRegister, JJGames };
 
 class background_worker_t {
-  static std::string const http_proxy_filename;
-
 public:
   background_worker_t(
       website_result_t &&, std::vector<upload_result_t> &&,
@@ -45,6 +43,7 @@ private:
   net::io_context &context_;
   safe_proxy safe_proxy_;
   int current_progress_{};
+  int temp_progress_{};
   website_type type_;
   std::shared_ptr<utilities::number_stream_t> number_stream_;
   website_result_t website_info_;

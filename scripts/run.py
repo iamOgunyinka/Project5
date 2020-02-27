@@ -32,7 +32,6 @@ class Task(db.Model):
 	websites = db.Column(db.Text, nullable=False)
 	uploads = db.Column(db.Text, nullable=False)
 	progress = db.Column(db.Integer, nullable=False, default=0, unique=False)
-	note = db.Column(db.String(512), nullable=True, unique=False)
 
 class StoppedTask(db.Model):
 	__tablename__ = 'tb_stopped_tasks'
@@ -46,7 +45,16 @@ class StoppedTask(db.Model):
 	ok_filename = db.Column(db.String(128), nullable=False, unique=True)
 	not_ok_filename = db.Column(db.String(128), nullable=False, unique=True)
 	unknown_filename = db.Column(db.String(128), nullable=False, unique=True)
-	
+
+class CompletedTask(db.Model):
+	__tablename__ = 'tb_completed_tasks'
+	id = db.Column(db.Integer, primary_key=True, unique=True,index=True)
+	task_id = db.Column(db.Integer, nullable=False,unique=False)
+	website_id = db.Column(db.Integer, nullable=False, unique=False)
+	ok_filename = db.Column(db.String(128), nullable=False, unique=True)
+	not_ok_filename = db.Column(db.String(128), nullable=False, unique=True)
+	unknown_filename = db.Column(db.String(128), nullable=False, unique=True)
+
 class Upload(db.Model):
 	__tablename__ = 'tb_uploads'
 	id = db.Column(db.Integer, primary_key=True, unique=True, index=True)
@@ -56,13 +64,6 @@ class Upload(db.Model):
 	upload_date = db.Column(db.String(32), nullable=False)
 	total_numbers = db.Column(db.Integer, nullable=False)
 	numbers = db.relationship('Number', backref='upload')
-
-class Number(db.Model):
-	__tablename__ = 'tb_numbers'
-	id = db.Column(db.Integer, primary_key=True, unique=True, index=True)
-	upload_id = db.Column(db.Integer, db.ForeignKey('tb_uploads.id'), nullable=False)
-	number = db.Column(db.String(14), nullable=False)
-
 
 def create_app(config_name):
 	app = Flask(__name__)

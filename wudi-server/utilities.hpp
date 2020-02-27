@@ -136,9 +136,6 @@ enum class task_status_e : uint32_t {
   Completed
 };
 
-using string_view_pair = std::pair<boost::string_view, boost::string_view>;
-using string_view_pair_list = std::vector<string_view_pair>;
-
 class atomic_task_result_t {
   boost::signals2::signal<void(uint32_t, uint32_t, task_status_e)>
       progress_signal_;
@@ -212,40 +209,6 @@ private:
   std::ifstream &input_stream;
   std::vector<std::string> temporaries_;
   std::mutex mutex_;
-};
-
-template <typename Key> class sharedtask_ptr {
-  std::map<Key, uint32_t> map_{};
-  std::mutex mutex_;
-
-  bool contains(Key const &key) {
-    std::lock_guard<std::mutex> lock_g{mutex_};
-    return map_.find(key) != map_.cend();
-  }
-
-public:
-  sharedtask_ptr() = default;
-
-  template <typename Callable> void insert(Key key, Callable function) {
-    if (!contains(key)) {
-      function(key);
-    }
-    std::lock_guard<std::mutex> lock_g{mutex_};
-    ++map_[key];
-  }
-
-  template <typename Callable> bool remove(Key const &key, Callable &&func) {
-    if (!contains(key))
-      return false;
-    std::lock_guard<std::mutex> lock_g{mutex_};
-    auto &value = map_[key];
-    --value;
-    if (value > 0)
-      return true;
-    map_.erase(key);
-    func(key);
-    return true;
-  }
 };
 
 template <typename T, typename Container = std::deque<T>, bool use_cv = false>
@@ -384,36 +347,27 @@ void get_file_content(std::string const &filename, filter<T> filter,
 template <typename T>
 using threadsafe_cv_container = threadsafe_container<T, std::deque<T>, true>;
 
-bool operator<(atomic_task_result_t const &task_1,
-               atomic_task_result_t const &task_2);
+std::string get_random_agent();
 void normalize_paths(std::string &str);
 void remove_file(std::string &filename);
 std::string svector_to_string(std::vector<boost::string_view> const &vec);
 std::string decode_url(boost::string_view const &encoded_string);
 bool is_valid_number(std::string_view const, std::string &);
-std::vector<boost::string_view> split_string_view(boost::string_view const &str,
-                                                  char const *delimeter);
-void to_json(json &j, upload_result_t const &item);
-void to_json(json &j, website_result_t const &);
 void to_json(json &j, task_result_t const &);
 void to_json(json &j, atomic_task_t const &);
-[[nodiscard]] std::string view_to_string(boost::string_view const &str_view);
-[[nodiscard]] std::string
-intlist_to_string(std::vector<atomic_task_t> const &vec);
-[[nodiscard]] std::string intlist_to_string(std::vector<uint32_t> const &vec);
-[[nodiscard]] std::string_view bv2sv(boost::string_view);
-std::string get_random_agent();
-
+void to_json(json &j, website_result_t const &);
+void to_json(json &j, upload_result_t const &item);
+std::string view_to_string(boost::string_view const &str_view);
+std::string intlist_to_string(std::vector<atomic_task_t> const &vec);
+std::string intlist_to_string(std::vector<uint32_t> const &vec);
+std::string_view bv2sv(boost::string_view);
 threadsafe_cv_container<atomic_task_t> &get_scheduled_tasks();
-
-std::multimap<uint32_t, std::shared_ptr<atomic_task_result_t>> &
-get_response_queue();
-
-sharedtask_ptr<uint32_t> &get_task_counter();
-
+std::map<uint32_t, std::shared_ptr<atomic_task_result_t>> &get_response_queue();
 std::size_t timet_to_string(std::string &, std::size_t,
                             char const * = "%Y-%m-%d %H:%M:%S");
-string_view_pair_list::const_iterator
-find_query_key(string_view_pair_list const &, boost::string_view const &);
+std::vector<boost::string_view> split_string_view(boost::string_view const &str,
+                                                  char const *delimeter);
+bool operator<(atomic_task_result_t const &task_1,
+               atomic_task_result_t const &task_2);
 } // namespace utilities
 } // namespace wudi_server

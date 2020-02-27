@@ -18,7 +18,10 @@
 
 namespace wudi_server {
 
-otl_stream &operator>>(otl_stream &os, utilities::task_result_t &item);
+using utilities::atomic_task_t;
+using utilities::task_result_t;
+
+otl_stream &operator>>(otl_stream &, task_result_t &item);
 otl_stream &operator>>(otl_stream &, utilities::upload_result_t &);
 otl_stream &operator>>(otl_stream &, utilities::website_result_t &);
 otl_stream &operator>>(otl_stream &, utilities::atomic_task_t &);
@@ -67,7 +70,11 @@ public:
   bool add_website(std::string_view const address,
                    std::string_view const alias);
   bool add_task(utilities::scheduled_task_t &task);
-  bool change_task_status(uint32_t, uint32_t, utilities::task_status_e);
+  bool change_task_status(uint32_t const task_id, uint32_t const processed,
+                          utilities::task_status_e const);
+  bool add_completed_task(utilities::atomic_task_t &task);
+  std::vector<utilities::atomic_task_t>
+  get_completed_tasks(std::vector<uint32_t> const &);
   std::vector<utilities::task_result_t> get_all_tasks(boost::string_view);
   std::pair<int, int> get_login_role(std::string_view const,
                                      std::string_view const);

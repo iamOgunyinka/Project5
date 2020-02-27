@@ -15,10 +15,14 @@ auto create_file_directory(std::filesystem::path const &path) -> bool {
   ec = {};
   std::filesystem::create_directories(f, ec);
   return !ec;
-};
+}
 
-std::string const background_worker_t::http_proxy_filename{
-    "./http_proxy_servers.txt"};
+auto replace_special_chars(std::string &str) -> void {
+  for (std::string::size_type i = 0; i != str.size(); ++i) {
+    if (str[i] == '\\')
+      str[i] = '#';
+  }
+}
 
 background_worker_t::~background_worker_t() {
 
@@ -44,7 +48,6 @@ background_worker_t::~background_worker_t() {
       }
     }
   }
-
   task_result_ptr_->not_ok_file.close();
   task_result_ptr_->ok_file.close();
   task_result_ptr_->unknown_file.close();
@@ -87,7 +90,22 @@ void background_worker_t::on_data_result_obtained(
     task_result_ptr_->unknown_file.flush();
     break;
   }
+
   spdlog::info("Processed: {} of {}", processed, total);
+  int const progress = (processed * 100) / total;
+  auto &signal = task_result_ptr_->progress_signal();
+  bool const signallable = (processed % 10) == 0;
+  bool const progress_made = progress > current_progress_;
+
+  // every 10 numbers or when real progress is made
+  if (progress_made || signallable) {
+    if (progress_made) {
+      current_progress_ = progress;
+    }
+    signal(task_result_ptr_->task_id, processed,
+           task_result_ptr_->operation_status);
+  }
+
   if (processed == total) {
     if (std::filesystem::exists(input_filename)) {
       if (input_file.is_open())
@@ -95,16 +113,28 @@ void background_worker_t::on_data_result_obtained(
       std::filesystem::remove(input_filename);
     }
     task_result_ptr_->operation_status = utilities::task_status_e::Completed;
+    atomic_task_t completed_task{};
+    auto &task = completed_task.task.emplace<atomic_task_t::stopped_task>();
+    task.not_ok_filename = task_result_ptr_->not_ok_filename.string();
+    task.ok_filename = task_result_ptr_->ok_filename.string();
+    task.unknown_filename = task_result_ptr_->unknown_filename.string();
+    completed_task.task_id = task_result_ptr_->task_id;
+    completed_task.website_id = task_result_ptr_->website_id;
+
+    replace_special_chars(task.ok_filename);
+    replace_special_chars(task.not_ok_filename);
+    replace_special_chars(task.unknown_filename);
+
+    auto db_connector = database_connector_t::s_get_db_connector();
+    if (db_connector->change_task_status(task_result_ptr_->task_id, total,
+                                         task_result_ptr_->operation_status) &&
+        db_connector->add_completed_task(completed_task)) {
+      spdlog::info("Saved completed task successfully");
+    } else {
+      spdlog::error("Unable to save completed tasks");
+    }
     spdlog::info("Done processing task -> {}:{}", task_result_ptr_->task_id,
                  task_result_ptr_->website_id);
-  }
-
-  int const progress = (processed * 100) / total;
-  auto &signal = task_result_ptr_->progress_signal();
-  if (progress > current_progress_) {
-    current_progress_ = progress;
-    signal(task_result_ptr_->task_id, processed,
-           task_result_ptr_->operation_status);
   }
 }
 
@@ -119,12 +149,7 @@ bool background_worker_t::save_status_to_persistence(
     }
     return "";
   };
-  auto replace_special_chars = [](std::string &str) {
-    for (std::string::size_type i = 0; i != str.size(); ++i) {
-      if (str[i] == '\\')
-        str[i] = '#';
-    }
-  };
+
   using utilities::atomic_task_t;
   auto db_connector = database_connector_t::s_get_db_connector();
   atomic_task_t stopped_task{};

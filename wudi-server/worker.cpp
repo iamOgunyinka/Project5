@@ -16,7 +16,6 @@ start_new_task(atomic_task_t &scheduled_task) {
   auto &task = std::get<atomic_task_t::fresh_task>(scheduled_task.task);
   std::optional<website_result_t> website =
       db_connector->get_website(task.website_id);
-  spdlog::info(intlist_to_string(task.number_ids));
   std::vector<upload_result_t> numbers =
       db_connector->get_uploads(task.number_ids);
   if (!website || numbers.empty()) {
@@ -49,16 +48,18 @@ continue_recent_task(atomic_task_t &scheduled_task) {
   normalize_paths(task.not_ok_filename);
   normalize_paths(task.unknown_filename);
 
-  if (task.website_address.empty() ||
-      !std::filesystem::exists(task.input_filename)) {
-    spdlog::error("website address is empty or file does not exist anymore");
+  if (task.website_address.empty()) {
+    spdlog::error("website address is empty");
+    return {};
+  }
+  if (!std::filesystem::exists(task.input_filename)) {
+    spdlog::error("file does not exist anymore");
     return {};
   }
   std::shared_ptr<atomic_task_result_t> task_result{};
   auto &response_queue = utilities::get_response_queue();
-  auto &task_counter = utilities::get_task_counter();
-  auto iter = response_queue.equal_range(scheduled_task.task_id);
-  if (iter.first == response_queue.cend()) {
+  auto iter = response_queue.find(scheduled_task.task_id);
+  if (iter == response_queue.cend()) {
     task_result = std::make_shared<atomic_task_result_t>();
     task_result->task_id = scheduled_task.task_id;
     task_result->website_id = scheduled_task.website_id;
@@ -69,12 +70,7 @@ continue_recent_task(atomic_task_t &scheduled_task) {
     task_result->unknown_filename = task.unknown_filename;
     response_queue.emplace(scheduled_task.task_id, task_result);
   } else {
-    for (auto first = iter.first; first != iter.second; ++first) {
-      if (first->second->website_id == scheduled_task.website_id) {
-        task_result = first->second;
-        break;
-      }
-    }
+    task_result = iter->second;
   }
   return std::make_unique<background_worker_t>(
       std::move(scheduled_task), task_result, get_network_context());
@@ -94,7 +90,7 @@ resume_unstarted_task(utilities::atomic_task_t &scheduled_task) {
   auto db_connector = wudi_server::database_connector_t::s_get_db_connector();
   auto &task = std::get<atomic_task_t::stopped_task>(scheduled_task.task);
   std::optional<website_result_t> website =
-      db_connector->get_website(scheduled_task.task_id);
+      db_connector->get_website(scheduled_task.website_id);
   std::vector<upload_result_t> numbers =
       db_connector->get_uploads(string_to_intlist(task.input_filename));
   if (!website || numbers.empty()) {
@@ -121,12 +117,9 @@ void background_task_executor(
     std::atomic_bool &stopped, std::mutex &mutex,
     std::shared_ptr<database_connector_t> &db_connector) {
 
-  using utilities::task_status_e;
-
   auto &scheduled_tasks = utilities::get_scheduled_tasks();
   while (!stopped) {
     auto scheduled_task = std::move(scheduled_tasks.get());
-    auto &task_counter = utilities::get_task_counter();
     std::shared_ptr<background_worker_t> worker{};
     if (scheduled_task.type_ == atomic_task_t::task_type::fresh) {
       worker = start_new_task(scheduled_task);
@@ -139,17 +132,13 @@ void background_task_executor(
       }
     }
     if (worker) {
-      task_counter.insert(scheduled_task.task_id, [=](uint32_t task_id) {
-        db_connector->change_task_status(
-            task_id, worker->task_result()->processed, task_status_e::Ongoing);
-      });
+      db_connector->change_task_status(scheduled_task.task_id,
+                                       worker->task_result()->processed,
+                                       utilities::task_status_e::Ongoing);
       worker->run();
-      task_counter.remove(scheduled_task.task_id, [=](uint32_t const task_id) {
-        db_connector->change_task_status(
-            task_id, worker->task_result()->processed,
-            worker->task_result()->operation_status);
-      });
       // if we are here, we are done.
+    } else {
+      db_connector->save_stopped_task(scheduled_task);
     }
   }
 }
