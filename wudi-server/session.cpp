@@ -474,22 +474,23 @@ void session::download_handler(string_request const &request,
     for (auto &task : tasks) {
       auto &stopped_task = std::get<atomic_task_t::stopped_task>(task.task);
       if (std::find(website_ids.cbegin(), website_ids.cend(),
-                    task.website_id) != website_ids.cend()) {
-        utilities::normalize_paths(stopped_task.not_ok_filename);
-        utilities::normalize_paths(stopped_task.ok_filename);
-        utilities::normalize_paths(stopped_task.unknown_filename);
-        if (needs_ok) { // provides numbers that are OK.
-          paths.emplace_back(copy_file_n(stopped_task.ok_filename, temp_path,
-                                         user_from, user_to));
-        }
-        if (needs_not_ok) {
-          paths.emplace_back(copy_file_n(stopped_task.not_ok_filename,
-                                         temp_path, user_from, user_to));
-        }
-        if (needs_unknown) {
-          paths.emplace_back(copy_file_n(stopped_task.unknown_filename,
-                                         temp_path, user_from, user_to));
-        }
+                    task.website_id) == website_ids.cend()) {
+        continue;
+      }
+      utilities::normalize_paths(stopped_task.not_ok_filename);
+      utilities::normalize_paths(stopped_task.ok_filename);
+      utilities::normalize_paths(stopped_task.unknown_filename);
+      if (needs_ok) { // provides numbers that are OK.
+        paths.emplace_back(copy_file_n(stopped_task.ok_filename, temp_path,
+                                       user_from, user_to));
+      }
+      if (needs_not_ok) {
+        paths.emplace_back(copy_file_n(stopped_task.not_ok_filename, temp_path,
+                                       user_from, user_to));
+      }
+      if (needs_unknown) {
+        paths.emplace_back(copy_file_n(stopped_task.unknown_filename, temp_path,
+                                       user_from, user_to));
       }
     }
 
