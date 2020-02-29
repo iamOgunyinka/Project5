@@ -16,7 +16,7 @@ set(PROJECT_NAME woody)
 
 include_directories(${PROJECT_DIR}/third-party/)
 link_directories(/usr/lib)
-link_libraries(pthread ssl crypto odbc z stdc++fs curl)
+link_libraries(pthread ssl crypto odbc z stdc++fs curl zip)
 
 # Outputs
 set(OUTPUT_DEBUG ${PROJECT_DIR}/bin)

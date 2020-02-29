@@ -56,6 +56,8 @@ public:
 
 public:
   bool save_stopped_task(utilities::atomic_task_t const &);
+  bool get_completed_tasks(std::vector<uint32_t> const &,
+                           std::vector<utilities::atomic_task_t> &);
   bool get_stopped_tasks(std::vector<uint32_t> const &tasks,
                          std::vector<utilities::atomic_task_t> &);
   bool remove_stopped_tasks(std::vector<utilities::atomic_task_t> const &tasks);
@@ -73,8 +75,7 @@ public:
   bool change_task_status(uint32_t const task_id, uint32_t const processed,
                           utilities::task_status_e const);
   bool add_completed_task(utilities::atomic_task_t &task);
-  std::vector<utilities::atomic_task_t>
-  get_completed_tasks(std::vector<uint32_t> const &);
+
   std::vector<utilities::task_result_t> get_all_tasks(boost::string_view);
   std::pair<int, int> get_login_role(std::string_view const,
                                      std::string_view const);

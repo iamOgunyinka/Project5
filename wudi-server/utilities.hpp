@@ -91,7 +91,7 @@ struct task_result_t {
 };
 
 struct atomic_task_t {
-  enum class task_type { stopped, fresh };
+  enum class task_type { stopped, fresh, completed };
   struct fresh_task {
     uint32_t website_id{};
     std::vector<uint32_t> number_ids{};

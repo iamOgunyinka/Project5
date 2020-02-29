@@ -20,6 +20,12 @@ otl_stream &operator>>(otl_stream &os, utilities::website_result_t &web) {
 }
 
 otl_stream &operator>>(otl_stream &db_stream, atomic_task_t &task) {
+  if (task.type_ == atomic_task_t::task_type::completed) {
+    db_stream >> task.task_id >> task.website_id;
+    auto &old_task = std::get<atomic_task_t::stopped_task>(task.task);
+    return db_stream >> old_task.ok_filename >> old_task.not_ok_filename >>
+           old_task.unknown_filename;
+  }
   db_stream >> task.task_id >> task.website_id >> task.processed >> task.total;
   if (task.type_ == atomic_task_t::task_type::fresh) {
     auto &new_task = std::get<atomic_task_t::fresh_task>(task.task);
@@ -327,6 +333,27 @@ bool database_connector_t::get_stopped_tasks(
   }
 }
 
+bool database_connector_t::get_completed_tasks(
+    std::vector<uint32_t> const &task_ids, std::vector<atomic_task_t> &tasks) {
+  std::string const sql_statement =
+      "SELECT task_id, website_id, ok_filename, not_ok_filename, "
+      "unknown_filename FROM tb_completed_tasks WHERE task_id in ({})"_format(
+          utilities::intlist_to_string(task_ids));
+  spdlog::info("SQL statement: {}", sql_statement);
+  try {
+    otl_stream db_stream(1'000, sql_statement.c_str(), otl_connector_);
+    atomic_task_t stopped_task{};
+    stopped_task.type_ = atomic_task_t::task_type::completed;
+    stopped_task.task.emplace<atomic_task_t::stopped_task>();
+    while (db_stream >> stopped_task) {
+      tasks.push_back(stopped_task);
+    }
+    return true;
+  } catch (otl_exception const &e) {
+    log_sql_error(e);
+    return false;
+  }
+}
 bool database_connector_t::remove_stopped_tasks(
     std::vector<uint32_t> const &tasks) {
   std::string const sql_statement =

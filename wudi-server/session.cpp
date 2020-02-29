@@ -6,6 +6,7 @@
 #include <fstream>
 #include <gzip/decompress.hpp>
 #include <spdlog/spdlog.h>
+#include <zip.h>
 
 namespace wudi_server {
 
@@ -376,6 +377,43 @@ void session::add_endpoint_interfaces() {
                 std::placeholders::_1, std::placeholders::_2));
 }
 
+std::filesystem::path
+session::copy_file_n(std::filesystem::path const &source,
+                     std::filesystem::path const &dest,
+                     json::number_integer_t const user_from,
+                     json::number_integer_t const user_to) {
+  std::error_code ec{};
+  if (user_from == 0) {
+    std::filesystem::copy_file(source, dest, ec);
+    return source;
+  }
+  if (!std::filesystem::exists(source, ec))
+    return {};
+  auto current_time = std::time(nullptr);
+  std::filesystem::path temp_file{dest / "{}.txt"_format(current_time)};
+  while (std::filesystem::exists(temp_file, ec)) {
+    ++current_time;
+    temp_file = dest / "{}.txt"_format(current_time);
+  }
+  std::ifstream in_file{source};
+  std::ofstream out_file{temp_file};
+  if (!(in_file && out_file))
+    return {};
+  json::number_integer_t current = 1;
+  std::string line{};
+  while (std::getline(in_file, line)) {
+    if (current >= user_from && current <= user_to) {
+      out_file << line << "\n";
+    }
+    if (current > user_to)
+      break;
+    ++current;
+  }
+  in_file.close();
+  out_file.close();
+  return temp_file;
+}
+
 void session::download_handler(string_request const &request,
                                url_query const &optional_query) {
   // we only handle POST(application/json) requests here, not any other.
@@ -384,8 +422,78 @@ void session::download_handler(string_request const &request,
   }
   try {
     json json_root = json::parse(request.body());
-    json::array_t task_object = json_root.get<json::array_t>();
+    json::object_t task_object = json_root.get<json::object_t>();
+    json::array_t const user_task_ids =
+        task_object["tasks"].get<json::array_t>();
+    json::array_t const user_website_ids =
+        task_object["websites"].get<json::array_t>();
+    json::array_t const user_download_types =
+        task_object["type"].get<json::array_t>();
+    json::number_integer_t user_from = 0;
+    json::number_integer_t user_to = 0;
+    if (auto iter = task_object.find("from"); iter != task_object.end()) {
+      user_from = iter->second.get<json::number_integer_t>();
+      user_to = task_object["to"].get<json::number_integer_t>();
+    }
+    auto db_connector = database_connector_t::s_get_db_connector();
+    std::vector<atomic_task_t> tasks{};
+    std::vector<uint32_t> task_ids{};
+    std::vector<uint32_t> website_ids{};
+    task_ids.reserve(user_task_ids.size());
+    for (auto const &user_task_id : user_task_ids) {
+      task_ids.push_back(user_task_id.get<json::number_integer_t>());
+    }
+    for (auto const &user_website_id : user_website_ids) {
+      website_ids.push_back(user_website_id.get<json::number_integer_t>());
+    }
+    if (!(db_connector->get_stopped_tasks(task_ids, tasks) &&
+          db_connector->get_completed_tasks(task_ids, tasks))) {
+      return error_handler(
+          server_error("failed", error_type_e::ServerError, request));
+    }
+    bool needs_ok = false, needs_not_ok = false, needs_unknown = false;
+    for (std::size_t index = 0; index != user_download_types.size(); ++index) {
+      std::string const str = user_download_types[index].get<json::string_t>();
+      if (str == "ok")
+        needs_ok = true;
+      else if (str == "not_ok")
+        needs_not_ok = true;
+      else if (str == "others")
+        needs_unknown = true;
+    }
+    std::error_code ec{};
+    std::filesystem::path const temp_path =
+        std::filesystem::temp_directory_path(ec);
+    if (ec) {
+      spdlog::error("Unable to get temp path: {}", ec.message());
+      return error_handler(server_error("unable to get temp path",
+                                        error_type_e::ServerError, request));
+    }
+    ec = {};
+    std::vector<std::filesystem::path> paths{};
+    for (auto &task : tasks) {
+      auto &stopped_task = std::get<atomic_task_t::stopped_task>(task.task);
+      if (std::find(website_ids.cbegin(), website_ids.cend(),
+                    task.website_id) != website_ids.cend()) {
+        utilities::normalize_paths(stopped_task.not_ok_filename);
+        utilities::normalize_paths(stopped_task.ok_filename);
+        utilities::normalize_paths(stopped_task.unknown_filename);
+        if (needs_ok) { // provides numbers that are OK.
+          paths.emplace_back(copy_file_n(stopped_task.ok_filename, temp_path,
+                                         user_from, user_to));
+        }
+        if (needs_not_ok) {
+          paths.emplace_back(copy_file_n(stopped_task.not_ok_filename,
+                                         temp_path, user_from, user_to));
+        }
+        if (needs_unknown) {
+          paths.emplace_back(copy_file_n(stopped_task.unknown_filename,
+                                         temp_path, user_from, user_to));
+        }
+      }
+    }
 
+    return send_response(success("ok", request));
   } catch (std::exception const &e) {
     spdlog::error("exception in `download_handler`: {}", e.what());
     return error_handler(

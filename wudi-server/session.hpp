@@ -74,6 +74,10 @@ private:
   void delete_stopped_tasks_impl(std::vector<uint32_t> const &tasks);
   void delete_other_tasks_impl(boost::string_view const,
                                std::vector<uint32_t> const &tasks);
+  std::filesystem::path copy_file_n(std::filesystem::path const &source,
+                                    std::filesystem::path const &dest,
+                                    json::number_integer_t const from = 0,
+                                    json::number_integer_t const to = 0);
 
 private:
   session *shared_from_this() { return this; }
