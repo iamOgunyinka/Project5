@@ -9,7 +9,7 @@
 
 namespace wudi_server {
 std::filesystem::path const download_path =
-    std::filesystem::current_path() / "downloads/zip_files/";
+    std::filesystem::current_path() / "downloads" / "zip_files";
 
 using namespace fmt::v6::literals;
 
@@ -376,6 +376,10 @@ void session::add_endpoint_interfaces() {
       "/remove", {verb::post},
       std::bind(&session::remove_tasks_handler, shared_from_this(),
                 std::placeholders::_1, std::placeholders::_2));
+  endpoint_apis_.add_endpoint(
+      "/get_file", {verb::get},
+      std::bind(&session::get_file_handler, shared_from_this(),
+                std::placeholders::_1, std::placeholders::_2));
 }
 
 std::filesystem::path session::copy_file_n(
@@ -485,19 +489,19 @@ void session::download_handler(string_request const &request,
       utilities::normalize_paths(stopped_task.unknown_filename);
       if (needs_ok) { // provides numbers that are OK.
         std::string const filename =
-            "task_{}_website_{}_ok"_format(task.task_id, task.website_id);
+            "task_{}_website_{}_ok.txt"_format(task.task_id, task.website_id);
         paths.emplace_back(copy_file_n(stopped_task.ok_filename, temp_path,
                                        filename, user_from, user_to));
       }
       if (needs_not_ok) {
-        std::string const filename =
-            "task_{}_website_{}_not_ok"_format(task.task_id, task.website_id);
+        std::string const filename = "task_{}_website_{}_not_ok.txt"_format(
+            task.task_id, task.website_id);
         paths.emplace_back(copy_file_n(stopped_task.not_ok_filename, temp_path,
                                        filename, user_from, user_to));
       }
       if (needs_unknown) {
-        std::string const filename =
-            "task_{}_website_{}_unknown"_format(task.task_id, task.website_id);
+        std::string const filename = "task_{}_website_{}_unknown.txt"_format(
+            task.task_id, task.website_id);
         paths.emplace_back(copy_file_n(stopped_task.unknown_filename, temp_path,
                                        filename, user_from, user_to));
       }
@@ -525,7 +529,8 @@ void session::download_handler(string_request const &request,
       std::filesystem::create_directories(download_path, ec);
     }
     ec = {};
-    if (!std::filesystem::copy_file(czip_file_path, download_path, ec)) {
+    std::filesystem::copy(czip_file_path, download_path, ec);
+    if (ec) {
       spdlog::error("Unable to copy zip file from temp to download path: {}",
                     ec.message());
       return error_handler(server_error("unable to copy zip",
@@ -629,6 +634,22 @@ session::stop_running_tasks_impl(std::vector<uint32_t> const &task_id_list,
     }
   }
   return stopped_tasks;
+}
+
+void session::get_file_handler(string_request const &request,
+                               url_query const &optional_query) {
+  if (content_type_ != "application/json") {
+    return error_handler(bad_request("invalid content-type", request));
+  }
+  auto iter = optional_query.find("filename");
+  if (iter == optional_query.cend()) {
+    return error_handler(bad_request("key paramter missing", request));
+  }
+  std::filesystem::path const file_path =
+      download_path / iter->second.to_string();
+  if (!std::filesystem::exists(file_path)) {
+    return error_handler(bad_request("file does not exist", request));
+  }
 }
 
 void session::stop_tasks_handler(string_request const &request,

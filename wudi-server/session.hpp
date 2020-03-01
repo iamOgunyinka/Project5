@@ -2,10 +2,10 @@
 
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
+#include <filesystem>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <optional>
-#include <filesystem>
 
 std::vector<uint32_t> operator+(std::vector<uint32_t> const &a,
                                 std::vector<uint32_t> const &b);
@@ -104,6 +104,7 @@ private:
   void schedule_task_handler(string_request const &request,
                              url_query const &query);
   void website_handler(string_request const &, url_query const &);
+  void get_file_handler(string_request const &, url_query const &);
   void stop_tasks_handler(string_request const &, url_query const &);
   void restart_tasks_handler(string_request const &, url_query const &);
   void remove_tasks_handler(string_request const &, url_query const &);

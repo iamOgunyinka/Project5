@@ -106,7 +106,7 @@ void background_worker_t::on_data_result_obtained(
            task_result_ptr_->operation_status);
   }
 
-  if (processed == total) {
+  if (processed >= total) {
     if (std::filesystem::exists(input_filename)) {
       if (input_file.is_open())
         input_file.close();
