@@ -5,6 +5,7 @@
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <filesystem>
 
 std::vector<uint32_t> operator+(std::vector<uint32_t> const &a,
                                 std::vector<uint32_t> const &b);
@@ -76,8 +77,10 @@ private:
                                std::vector<uint32_t> const &tasks);
   std::filesystem::path copy_file_n(std::filesystem::path const &source,
                                     std::filesystem::path const &dest,
+                                    std::string const &filename,
                                     json::number_integer_t const from = 0,
                                     json::number_integer_t const to = 0);
+  std::string create_temporary_url(std::filesystem::path const &);
 
 private:
   session *shared_from_this() { return this; }

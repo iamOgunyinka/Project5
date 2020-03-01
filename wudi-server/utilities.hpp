@@ -64,7 +64,7 @@ enum constants_e {
   SleepTimeoutSec = 5,
   WorkerThreadCount = 10,
   LenUserAgents = 18,
-  MaxOpenSockets = 2,
+  MaxOpenSockets = 5,
   TimeoutMilliseconds = 3'000,
   FiveMegabytes = 1024 * 1024 * 5
 };

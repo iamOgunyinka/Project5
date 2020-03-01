@@ -2,13 +2,14 @@
 #include "database_connector.hpp"
 #include "websocket_updates.hpp"
 #include <boost/algorithm/string.hpp>
-#include <filesystem>
 #include <fstream>
 #include <gzip/decompress.hpp>
 #include <spdlog/spdlog.h>
-#include <zip.h>
+#include <zip_file.hpp>
 
 namespace wudi_server {
+std::filesystem::path const download_path =
+    std::filesystem::current_path() / "downloads/zip_files/";
 
 using namespace fmt::v6::literals;
 
@@ -377,23 +378,25 @@ void session::add_endpoint_interfaces() {
                 std::placeholders::_1, std::placeholders::_2));
 }
 
-std::filesystem::path
-session::copy_file_n(std::filesystem::path const &source,
-                     std::filesystem::path const &dest,
-                     json::number_integer_t const user_from,
-                     json::number_integer_t const user_to) {
+std::filesystem::path session::copy_file_n(
+    std::filesystem::path const &source, std::filesystem::path const &temp_dest,
+    std::string const &filename, json::number_integer_t const user_from,
+    json::number_integer_t const user_to) {
   std::error_code ec{};
   if (user_from == 0) {
-    std::filesystem::copy_file(source, dest, ec);
-    return source;
+    std::filesystem::path dest = temp_dest / filename;
+    if (std::filesystem::copy_file(source, dest, ec)) {
+      return dest;
+    }
+    return {};
   }
   if (!std::filesystem::exists(source, ec))
     return {};
-  auto current_time = std::time(nullptr);
-  std::filesystem::path temp_file{dest / "{}.txt"_format(current_time)};
+  std::size_t counter{1};
+  std::filesystem::path temp_file{temp_dest / "{}.txt"_format(filename)};
   while (std::filesystem::exists(temp_file, ec)) {
-    ++current_time;
-    temp_file = dest / "{}.txt"_format(current_time);
+    temp_file = temp_dest / "{}_{}.txt"_format(filename, counter);
+    ++counter;
   }
   std::ifstream in_file{source};
   std::ofstream out_file{temp_file};
@@ -481,25 +484,67 @@ void session::download_handler(string_request const &request,
       utilities::normalize_paths(stopped_task.ok_filename);
       utilities::normalize_paths(stopped_task.unknown_filename);
       if (needs_ok) { // provides numbers that are OK.
+        std::string const filename =
+            "task_{}_website_{}_ok"_format(task.task_id, task.website_id);
         paths.emplace_back(copy_file_n(stopped_task.ok_filename, temp_path,
-                                       user_from, user_to));
+                                       filename, user_from, user_to));
       }
       if (needs_not_ok) {
+        std::string const filename =
+            "task_{}_website_{}_not_ok"_format(task.task_id, task.website_id);
         paths.emplace_back(copy_file_n(stopped_task.not_ok_filename, temp_path,
-                                       user_from, user_to));
+                                       filename, user_from, user_to));
       }
       if (needs_unknown) {
+        std::string const filename =
+            "task_{}_website_{}_unknown"_format(task.task_id, task.website_id);
         paths.emplace_back(copy_file_n(stopped_task.unknown_filename, temp_path,
-                                       user_from, user_to));
+                                       filename, user_from, user_to));
       }
     }
-
-    return send_response(success("ok", request));
+    // remove all empty files from the `paths`
+    paths.erase(std::remove_if(paths.begin(), paths.end(),
+                               [](std::filesystem::path const &path) {
+                                 return path.string().empty() ||
+                                        std::filesystem::file_size(path) == 0;
+                               }),
+                paths.end());
+    if (paths.empty())
+      return send_response(success("empty", request));
+    std::filesystem::path const czip_file_path =
+        temp_path / "{}.zip"_format(std::time(nullptr));
+    miniz_cpp::zip_file zip_file{};
+    for (auto const &path : paths) {
+      zip_file.write(path.string());
+      std::error_code ec{};
+      std::filesystem::remove(path, ec);
+    }
+    zip_file.save(czip_file_path.string());
+    if (!std::filesystem::exists(download_path)) {
+      std::error_code ec{};
+      std::filesystem::create_directories(download_path, ec);
+    }
+    ec = {};
+    if (!std::filesystem::copy_file(czip_file_path, download_path, ec)) {
+      spdlog::error("Unable to copy zip file from temp to download path: {}",
+                    ec.message());
+      return error_handler(server_error("unable to copy zip",
+                                        error_type_e::ServerError, request));
+    }
+    std::filesystem::remove(czip_file_path);
+    json::object_t json_url;
+    json_url["url"] =
+        create_temporary_url(download_path / czip_file_path.filename());
+    return send_response(json_success(json_url, request));
   } catch (std::exception const &e) {
     spdlog::error("exception in `download_handler`: {}", e.what());
     return error_handler(
         bad_request("unable to process JSON request", request));
   }
+}
+
+std::string session::create_temporary_url(std::filesystem::path const &path) {
+  return path.filename().string();
 }
 
 void session::remove_tasks_handler(string_request const &req,
