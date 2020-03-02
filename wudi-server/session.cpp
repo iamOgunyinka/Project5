@@ -538,18 +538,13 @@ void session::download_handler(string_request const &request,
     }
     std::filesystem::remove(czip_file_path);
     json::object_t json_url;
-    json_url["url"] =
-        create_temporary_url(download_path / czip_file_path.filename());
+    json_url["filename"] = czip_file_path.filename().string();
     return send_response(json_success(json_url, request));
   } catch (std::exception const &e) {
     spdlog::error("exception in `download_handler`: {}", e.what());
     return error_handler(
         bad_request("unable to process JSON request", request));
   }
-}
-
-std::string session::create_temporary_url(std::filesystem::path const &path) {
-  return path.filename().string();
 }
 
 void session::remove_tasks_handler(string_request const &req,
@@ -638,6 +633,7 @@ session::stop_running_tasks_impl(std::vector<uint32_t> const &task_id_list,
 
 void session::get_file_handler(string_request const &request,
                                url_query const &optional_query) {
+  spdlog::info("In GetFile handler: {}", request.target());
   if (content_type_ != "application/json") {
     return error_handler(bad_request("invalid content-type", request));
   }
@@ -647,9 +643,38 @@ void session::get_file_handler(string_request const &request,
   }
   std::filesystem::path const file_path =
       download_path / iter->second.to_string();
-  if (!std::filesystem::exists(file_path)) {
+  std::error_code ec_{};
+  if (!std::filesystem::exists(file_path, ec_)) {
     return error_handler(bad_request("file does not exist", request));
   }
+  http::file_body::value_type file;
+  beast::error_code ec{};
+  file.open(file_path.string().c_str(), beast::file_mode::read, ec);
+  if (ec) {
+    return error_handler(server_error("unable to open file specified",
+                                      error_type_e::ServerError, request));
+  }
+  file_response_.emplace(std::piecewise_construct, std::make_tuple(),
+                         std::make_tuple(alloc_));
+
+  file_response_->result(http::status::ok);
+  file_response_->keep_alive(false);
+  file_response_->set(http::field::server, "wudi-server");
+  file_response_->set(http::field::content_type,
+                      "application/zip, application/octet-stream, "
+                      "application/x-zip-compressed, multipart/x-zip");
+  file_response_->body() = std::move(file);
+  file_response_->prepare_payload();
+  file_serializer_.emplace(*file_response_);
+  http::async_write(tcp_stream_, *file_serializer_,
+                    [self = shared_from_this(), file_path](
+                        beast::error_code ec, std::size_t const size_written) {
+                      self->file_serializer_.reset();
+                      self->file_response_.reset();
+                      std::error_code temp_ec{};
+                      std::filesystem::remove(file_path, temp_ec);
+                      self->on_data_written(ec, size_written);
+                    });
 }
 
 void session::stop_tasks_handler(string_request const &request,

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "fields_alloc.hpp"
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 #include <filesystem>
@@ -57,6 +58,8 @@ class session {
   using dynamic_body_ptr = std::unique_ptr<dynamic_request>;
   using string_body_ptr =
       std::unique_ptr<http::request_parser<http::string_body>>;
+  using alloc_t = fields_alloc<char>;
+
   asio::io_context &io_context_;
   beast::tcp_stream tcp_stream_;
   beast::flat_buffer buffer_{};
@@ -67,6 +70,13 @@ class session {
   std::shared_ptr<void> resp_;
   endpoint_t endpoint_apis_;
   std::vector<std::shared_ptr<void>> websockets_;
+  std::optional<http::response<http::file_body, http::basic_fields<alloc_t>>>
+      file_response_;
+  alloc_t alloc_{8192};
+  // The file-based response serializer.
+  std::optional<
+      http::response_serializer<http::file_body, http::basic_fields<alloc_t>>>
+      file_serializer_;
 
 private:
   std::vector<uint32_t>
@@ -80,7 +90,6 @@ private:
                                     std::string const &filename,
                                     json::number_integer_t const from = 0,
                                     json::number_integer_t const to = 0);
-  std::string create_temporary_url(std::filesystem::path const &);
 
 private:
   session *shared_from_this() { return this; }
