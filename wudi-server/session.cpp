@@ -58,12 +58,19 @@ void session::on_header_read(beast::error_code ec, std::size_t const) {
   if (ec == http::error::end_of_stream)
     return shutdown_socket();
   if (ec) {
-    spdlog::info(ec.message());
     return error_handler(
         server_error(ec.message(), error_type_e::ServerError, string_request{}),
         true);
   } else {
     if (websocket::is_upgrade(empty_body_parser_->get())) {
+      if (websockets_.size() > 20) {
+        websockets_.erase(
+            std::remove_if(websockets_.begin(), websockets_.end(),
+                           [](std::shared_ptr<websocket_updates> ptr) {
+                             return ptr->is_closed();
+                           }),
+            websockets_.end());
+      }
       auto ws = std::make_shared<websocket_updates>(
           io_context_, tcp_stream_.release_socket());
       websockets_.push_back(ws);
@@ -110,7 +117,6 @@ void session::on_data_read(beast::error_code ec, std::size_t const) {
         server_error(ec.message(), error_type_e::ServerError, string_request{}),
         true);
   } else if (ec) {
-    fputs(ec.message().c_str(), stderr);
     return error_handler(
         server_error(ec.message(), error_type_e::ServerError, string_request{}),
         true);
@@ -119,11 +125,17 @@ void session::on_data_read(beast::error_code ec, std::size_t const) {
   }
 }
 
+bool session::is_closed() {
+  return !beast::get_lowest_layer(tcp_stream_).socket().is_open();
+}
+
 void session::shutdown_socket() {
   beast::error_code ec{};
   beast::get_lowest_layer(tcp_stream_)
       .socket()
       .shutdown(asio::socket_base::shutdown_send, ec);
+  ec = {};
+  beast::get_lowest_layer(tcp_stream_).socket().close(ec);
   beast::get_lowest_layer(tcp_stream_).close();
 }
 

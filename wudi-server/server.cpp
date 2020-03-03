@@ -43,6 +43,15 @@ void server::on_connection_accepted(beast::error_code const &ec,
   if (ec) {
     spdlog::error("error on connection: {}", ec.message());
   } else {
+    if (sessions_.size() > 20) {
+      auto beg = std::remove_if(sessions_.begin(), sessions_.end(),
+                                [](std::shared_ptr<session> &session) {
+                                  return session->is_closed();
+                                });
+      if (beg != sessions_.end()) {
+        sessions_.erase(beg, sessions_.end());
+      }
+    }
     spdlog::info("connected to: {}",
                  boost::lexical_cast<std::string>(socket.remote_endpoint()));
     sessions_.push_back(

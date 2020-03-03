@@ -12,16 +12,23 @@ void to_json(json &j, ws_subscription_result const &item) {
            {"total", item.total}};
 }
 
+void websocket_updates::close_socket() {
+  if (!is_closed()) {
+    read_buffer_.clear();
+    task_ids_.clear();
+    result_.clear();
+    queue_.clear();
+    beast::error_code ec{};
+    websock_stream_.close(beast::websocket::close_code::going_away, ec);
+  }
+}
+
 websocket_updates::~websocket_updates() {
-  beast::error_code ec{};
-  websock_stream_.close(beast::websocket::close_code::going_away, ec);
-  read_buffer_.consume(read_buffer_.size());
-  timer_.cancel();
-  task_ids_.clear();
-  result_.clear();
-  queue_.clear();
+  close_socket();
   spdlog::info("WS destroyed");
 }
+
+bool websocket_updates::is_closed() { return !websock_stream_.is_open(); }
 
 void websocket_updates::on_websocket_accepted(beast::error_code const ec) {
   if (!ec)
@@ -50,10 +57,10 @@ void websocket_updates::run(
 void websocket_updates::on_error_occurred(beast::error_code const ec) {
   // perform error handling actions
   spdlog::error("WebSocket error[on_error_occurred]: {}", ec.message());
+  close_socket();
 }
 
 void websocket_updates::read_websock_data() {
-  read_buffer_.consume(read_buffer_.size());
   read_buffer_.clear();
   websock_stream_.async_read(
       read_buffer_,
@@ -64,22 +71,22 @@ void websocket_updates::read_websock_data() {
 void websocket_updates::on_data_read(beast::error_code const ec,
                                      std::size_t const) {
   if (ec == websocket::error::closed) {
+    close_socket();
     return spdlog::info("A websocket session has been ended");
   }
   if (ec) {
-    spdlog::error("websocket error: {}", ec.message());
-    // send back some kind of error message
-    return send_message(
-        error(ws_error_type_e::InvalidRequest, ws_request_type_e::None));
+    close_socket();
+    return spdlog::error("websocket error: {}", ec.message());
   }
-  websock_stream_.text(websock_stream_.got_text());
-  interpret_message(read_buffer_.data());
-  read_buffer_.consume(read_buffer_.size());
-  read_buffer_.clear();
-  websock_stream_.async_read(
-      read_buffer_,
-      std::bind(&websocket_updates::on_data_read, shared_from_this(),
-                std::placeholders::_1, std::placeholders::_2));
+  if (!is_closed()) {
+    websock_stream_.text(websock_stream_.got_text());
+    interpret_message(read_buffer_.data());
+    read_buffer_.clear();
+    websock_stream_.async_read(
+        read_buffer_,
+        std::bind(&websocket_updates::on_data_read, shared_from_this(),
+                  std::placeholders::_1, std::placeholders::_2));
+  }
 }
 
 void websocket_updates::interpret_message(
@@ -155,7 +162,6 @@ bool websocket_updates::process_subscription(
   auto &task_queue = utilities::get_response_queue();
   for (std::size_t i = 0; i != task_list.size(); ++i) {
     auto const user_task_id = task_list[i].get<json::number_integer_t>();
-    spdlog::info(user_task_id);
     if (task_ids_.find(user_task_id) != task_ids_.cend())
       continue;
     task_ids_.insert(user_task_id);
@@ -199,20 +205,22 @@ void websocket_updates::on_task_progressed(uint32_t const task_id,
 
 void websocket_updates::on_data_written(beast::error_code const ec) {
   if (ec == websocket::error::closed) {
-    return websock_stream_.async_close(websocket::close_code::normal,
-                                       [](beast::error_code) {});
+    return close_socket();
   }
   if (ec) {
+    close_socket();
     return spdlog::error("websocket_updates::on_data_written: {}",
                          ec.message());
   }
-  queue_.erase(queue_.begin());
-  if (!queue_.empty()) {
-    websock_stream_.async_write(
-        net::buffer(*queue_.front()),
-        [self = shared_from_this()](beast::error_code ec, std::size_t const) {
-          self->on_data_written(ec);
-        });
+  if (!is_closed()) {
+    queue_.erase(queue_.begin());
+    if (!queue_.empty()) {
+      websock_stream_.async_write(
+          net::buffer(*queue_.front()),
+          [self = shared_from_this()](beast::error_code ec, std::size_t const) {
+            self->on_data_written(ec);
+          });
+    }
   }
 }
 
@@ -226,14 +234,16 @@ std::string websocket_updates::error(ws_error_type_e error_type,
 }
 
 void websocket_updates::send_message(std::string_view const message) {
-  queue_.push_back(std::make_unique<std::string>(
-      std::string(message.data(), message.size())));
-  if (queue_.size() > 1)
-    return;
-  websock_stream_.async_write(
-      net::buffer(*queue_.front()),
-      [self = shared_from_this()](beast::error_code ec, std::size_t const) {
-        self->on_data_written(ec);
-      });
+  if (!is_closed()) {
+    queue_.push_back(std::make_unique<std::string>(
+        std::string(message.data(), message.size())));
+    if (queue_.size() > 1)
+      return;
+    websock_stream_.async_write(
+        net::buffer(*queue_.front()),
+        [self = shared_from_this()](beast::error_code ec, std::size_t const) {
+          self->on_data_written(ec);
+        });
+  }
 }
 } // namespace wudi_server

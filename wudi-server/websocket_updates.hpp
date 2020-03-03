@@ -49,7 +49,6 @@ class websocket_updates
   websocket::stream<beast::tcp_stream> websock_stream_;
   beast::flat_buffer read_buffer_;
   bool logged_in_ = false;
-  net::deadline_timer timer_;
   std::set<int> task_ids_;
   std::vector<ws_subscription_result> result_{};
   std::vector<std::unique_ptr<std::string>> queue_{};
@@ -78,12 +77,13 @@ private:
   void on_task_progressed(uint32_t, uint32_t, uint32_t);
   void on_data_written(beast::error_code ec);
   void send_message(std::string_view const message);
-
+  void close_socket();
 public:
   websocket_updates(net::io_context &io, net::ip::tcp::socket &&tcp_socket)
-      : websock_stream_{std::move(tcp_socket)}, timer_{io} {}
+      : websock_stream_{std::move(tcp_socket)}{}
   ~websocket_updates();
   void run(beast::http::request<beast::http::empty_body> &&request);
+  bool is_closed();
 };
 
 } // namespace wudi_server

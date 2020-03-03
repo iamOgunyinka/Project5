@@ -18,9 +18,13 @@ start_new_task(atomic_task_t &scheduled_task) {
       db_connector->get_website(task.website_id);
   std::vector<upload_result_t> numbers =
       db_connector->get_uploads(task.number_ids);
-  if (!website || numbers.empty()) {
-    spdlog::error("No such website or numbers is empty");
+  if (!website) {
+    spdlog::error("No such website: {}", task.website_id );
     return {};
+  }
+  if( numbers.empty() ) {
+      spdlog::error( "No numbers obtained" );
+      return {};
   }
 
   auto &response_queue = utilities::get_response_queue();
@@ -146,8 +150,10 @@ void background_task_executor(
         replace_special_chars(save_tasks.not_ok_filename);
         replace_special_chars(save_tasks.ok_filename);
         replace_special_chars(save_tasks.unknown_filename);
+        db_connector->save_stopped_task(scheduled_task);
+      } else {
+          db_connector->change_task_status( scheduled_task.task_id, 0, utilities::task_status_e::NotStarted );
       }
-      db_connector->save_stopped_task(scheduled_task);
     }
   }
 }

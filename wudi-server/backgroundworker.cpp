@@ -271,7 +271,7 @@ void background_worker_t::run_number_crawler() {
     }
   }
 
-  std::list<std::shared_ptr<void>> sockets{};
+  std::vector<std::shared_ptr<void>> sockets{};
   if (context_.stopped())
     context_.restart();
   if (type_ == website_type::JJGames) {
@@ -282,17 +282,21 @@ void background_worker_t::run_number_crawler() {
     (void)socket_ptr->signal().connect(callback);
     socket_ptr->start_connect();
   } else if (type_ == website_type::AutoHomeRegister) {
-    for (int i = 0; i != utilities::MaxOpenSockets; ++i) {
-      auto socket_ptr = std::make_shared<auto_home_socket_t>(
-          stopped, context_, safe_proxy_, *number_stream_);
-      sockets.push_back(socket_ptr); // keep a type-erased copy
-      (void)socket_ptr->signal().connect(callback);
-      socket_ptr->start_connect();
+    sockets.reserve(utilities::MaxOpenSockets);
+    while (!number_stream_->empty() && !stopped) {
+      for (int i = 0; i != utilities::MaxOpenSockets; ++i) {
+        auto socket_ptr = std::make_shared<auto_home_socket_t>(
+            stopped, context_, safe_proxy_, *number_stream_);
+        sockets.push_back(socket_ptr); // keep a type-erased copy
+        (void)socket_ptr->signal().connect(callback);
+        socket_ptr->start_connect();
+      }
+      context_.run();
+      sockets.clear();
     }
-    context_.run();
   }
   sockets.clear();
-}
+} // namespace wudi_server
 
 void background_worker_t::continue_old_task() {
   using utilities::atomic_task_t;
