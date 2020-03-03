@@ -138,6 +138,15 @@ void background_task_executor(
       worker->run();
       // if we are here, we are done.
     } else {
+      using utilities::replace_special_chars;
+      if (scheduled_task.type_ != atomic_task_t::task_type::fresh) {
+        atomic_task_t::stopped_task &save_tasks =
+            std::get<atomic_task_t::stopped_task>(scheduled_task.task);
+        replace_special_chars(save_tasks.input_filename);
+        replace_special_chars(save_tasks.not_ok_filename);
+        replace_special_chars(save_tasks.ok_filename);
+        replace_special_chars(save_tasks.unknown_filename);
+      }
       db_connector->save_stopped_task(scheduled_task);
     }
   }

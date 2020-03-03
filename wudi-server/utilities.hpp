@@ -349,6 +349,7 @@ using threadsafe_cv_container = threadsafe_container<T, std::deque<T>, true>;
 
 std::string get_random_agent();
 void normalize_paths(std::string &str);
+void replace_special_chars(std::string &str);
 void remove_file(std::string &filename);
 std::string svector_to_string(std::vector<boost::string_view> const &vec);
 std::string decode_url(boost::string_view const &encoded_string);

@@ -17,13 +17,6 @@ auto create_file_directory(std::filesystem::path const &path) -> bool {
   return !ec;
 }
 
-auto replace_special_chars(std::string &str) -> void {
-  for (std::string::size_type i = 0; i != str.size(); ++i) {
-    if (str[i] == '\\')
-      str[i] = '#';
-  }
-}
-
 background_worker_t::~background_worker_t() {
 
   using utilities::task_status_e;

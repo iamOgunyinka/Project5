@@ -122,6 +122,17 @@ void normalize_paths(std::string &str) {
   }
 };
 
+void replace_special_chars(std::string &str) {
+  for (std::string::size_type i = 0; i != str.size(); ++i) {
+#ifdef _WIN32
+    if (str[i] == '\\')
+#else
+    if (str[i] == '/')
+#endif
+      str[i] = '#';
+  }
+}
+
 void remove_file(std::string &filename) {
   std::error_code ec{};
   normalize_paths(filename);
