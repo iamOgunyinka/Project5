@@ -114,6 +114,7 @@ void background_worker_t::on_data_result_obtained(
     task.unknown_filename = task_result_ptr_->unknown_filename.string();
     completed_task.task_id = task_result_ptr_->task_id;
     completed_task.website_id = task_result_ptr_->website_id;
+    using utilities::replace_special_chars;
 
     replace_special_chars(task.ok_filename);
     replace_special_chars(task.not_ok_filename);
@@ -161,6 +162,7 @@ bool background_worker_t::save_status_to_persistence(
   task.not_ok_filename = task_result_ptr_->not_ok_filename.string();
   task.ok_filename = task_result_ptr_->ok_filename.string();
   task.unknown_filename = task_result_ptr_->unknown_filename.string();
+  using utilities::replace_special_chars;
 
   replace_special_chars(task.not_ok_filename);
   replace_special_chars(task.ok_filename);
