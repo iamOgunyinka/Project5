@@ -32,10 +32,11 @@ background_worker_t::~background_worker_t() {
     task_result_ptr_->operation_status = task_status_e::Stopped;
     task_result_ptr_->progress_signal().disconnect_all_slots();
     if (task_result_ptr_->save_state()) {
-      std::string const filename =
-          "./stopped_files/{}.txt"_format(std::time(nullptr));
+      std::filesystem::path const filename =
+          "." / std::filesystem::path("stopped_files") /
+          "{}.txt"_format(std::time(nullptr));
       if (create_file_directory(filename) &&
-          save_status_to_persistence(filename)) {
+          save_status_to_persistence(filename.string())) {
         spdlog::info("saved task -> {}:{} to persistent storage",
                      task_result_ptr_->task_id, task_result_ptr_->website_id);
       } else {

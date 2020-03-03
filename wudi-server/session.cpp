@@ -397,9 +397,9 @@ std::filesystem::path session::copy_file_n(
   if (!std::filesystem::exists(source, ec))
     return {};
   std::size_t counter{1};
-  std::filesystem::path temp_file{temp_dest / "{}.txt"_format(filename)};
+  std::filesystem::path temp_file{temp_dest / "{}"_format(filename)};
   while (std::filesystem::exists(temp_file, ec)) {
-    temp_file = temp_dest / "{}_{}.txt"_format(filename, counter);
+    temp_file = temp_dest / "{}_{}"_format(counter, filename);
     ++counter;
   }
   std::ifstream in_file{source};
@@ -633,7 +633,6 @@ session::stop_running_tasks_impl(std::vector<uint32_t> const &task_id_list,
 
 void session::get_file_handler(string_request const &request,
                                url_query const &optional_query) {
-  spdlog::info("In GetFile handler: {}", request.target());
   if (content_type_ != "application/json") {
     return error_handler(bad_request("invalid content-type", request));
   }
@@ -656,9 +655,8 @@ void session::get_file_handler(string_request const &request,
   }
   file_response_.emplace(std::piecewise_construct, std::make_tuple(),
                          std::make_tuple(alloc_));
-
   file_response_->result(http::status::ok);
-  file_response_->keep_alive(false);
+  file_response_->keep_alive(request.keep_alive());
   file_response_->set(http::field::server, "wudi-server");
   file_response_->set(http::field::content_type,
                       "application/zip, application/octet-stream, "

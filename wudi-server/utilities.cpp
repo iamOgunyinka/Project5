@@ -112,7 +112,13 @@ bool is_valid_number(std::string_view const number, std::string &buffer) {
 void normalize_paths(std::string &str) {
   for (std::string::size_type i = 0; i != str.size(); ++i) {
     if (str[i] == '#')
-      str[i] = '\\';
+      str[i] =
+#ifdef _WIN32
+          '\\'
+#else
+          '/'
+#endif // _WIN32
+          ;
   }
 };
 
