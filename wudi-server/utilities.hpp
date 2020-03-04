@@ -64,7 +64,7 @@ enum constants_e {
   SleepTimeoutSec = 5,
   WorkerThreadCount = 10,
   LenUserAgents = 18,
-  MaxOpenSockets = 5,
+  MaxOpenSockets = 25,
   TimeoutMilliseconds = 3'000,
   FiveMegabytes = 1024 * 1024 * 5
 };
@@ -137,8 +137,6 @@ enum class task_status_e : uint32_t {
 };
 
 class atomic_task_result_t {
-  boost::signals2::signal<void(uint32_t, uint32_t, task_status_e)>
-      progress_signal_;
   bool stopped_ = false;
   bool save_state_ = true;
 
@@ -157,8 +155,6 @@ public:
   std::ofstream not_ok_file;
   std::ofstream unknown_file;
 
-  boost::signals2::signal<void(uint32_t, uint32_t, task_status_e)> &
-  progress_signal();
   bool &stopped();
   bool &save_state();
   void stop();

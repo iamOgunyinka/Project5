@@ -16,7 +16,6 @@ namespace asio = boost::asio;
 namespace beast = boost::beast;
 namespace http = beast::http;
 
-class websocket_updates;
 using url_query = std::map<boost::string_view, boost::string_view>;
 using callback_t = std::function<void(http::request<http::string_body> const &,
                                       url_query const &)>;
@@ -70,7 +69,6 @@ class session {
   boost::string_view content_type_{};
   std::shared_ptr<void> resp_;
   endpoint_t endpoint_apis_;
-  std::vector<std::shared_ptr<websocket_updates>> websockets_;
   std::optional<http::response<http::file_body, http::basic_fields<alloc_t>>>
       file_response_;
   alloc_t alloc_{8192};

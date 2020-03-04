@@ -268,13 +268,23 @@ bool database_connector_t::add_completed_task(atomic_task_t &task) {
   }
 }
 
-std::vector<utilities::task_result_t>
-database_connector_t::get_all_tasks(boost::string_view user_id) {
-  std::string const sql_statement =
-      "SELECT id, total_numbers, status,"
-      "date_scheduled, websites, uploads, progress FROM "
-      "tb_tasks WHERE scheduler_id="
-      "{}"_format(user_id.to_string());
+std::vector<utilities::task_result_t> database_connector_t::get_all_tasks(
+    boost::string_view user_id,
+    std::vector<boost::string_view> const &task_ids) {
+  std::string sql_statement{};
+  if (task_ids.empty()) {
+    sql_statement = "SELECT id, total_numbers, status,"
+                    "date_scheduled, websites, uploads, progress FROM "
+                    "tb_tasks WHERE scheduler_id="
+                    "{}"_format(user_id.to_string());
+  } else {
+    sql_statement =
+        "SELECT id, total_numbers, status,"
+        "date_scheduled, websites, uploads, progress FROM "
+        "tb_tasks WHERE scheduler_id="
+        "{} and id IN ({})"_format(user_id.to_string(),
+                                   utilities::svector_to_string(task_ids));
+  }
   std::vector<utilities::task_result_t> result{};
   try {
     otl_stream db_stream(1'000, sql_statement.c_str(), otl_connector_);

@@ -23,7 +23,6 @@ background_worker_t::~background_worker_t() {
   if (task_result_ptr_->stopped() &&
       task_result_ptr_->operation_status == task_status_e::Ongoing) {
     task_result_ptr_->operation_status = task_status_e::Stopped;
-    task_result_ptr_->progress_signal().disconnect_all_slots();
     if (task_result_ptr_->save_state()) {
       std::filesystem::path const filename =
           "." / std::filesystem::path("stopped_files") /
@@ -87,8 +86,7 @@ void background_worker_t::on_data_result_obtained(
 
   spdlog::info("Processed: {} of {}", processed, total);
   int const progress = (processed * 100) / total;
-  auto &signal = task_result_ptr_->progress_signal();
-  bool const signallable = (processed % 10) == 0;
+  bool const signallable = (processed % utilities::MaxOpenSockets) == 0;
   bool const progress_made = progress > current_progress_;
 
   // every 10 numbers or when real progress is made
@@ -96,8 +94,8 @@ void background_worker_t::on_data_result_obtained(
     if (progress_made) {
       current_progress_ = progress;
     }
-    signal(task_result_ptr_->task_id, processed,
-           task_result_ptr_->operation_status);
+    db_connector->change_task_status(task_result_ptr_->task_id, processed,
+                                     utilities::task_status_e::Ongoing);
   }
 
   if (processed >= total) {
@@ -146,7 +144,6 @@ bool background_worker_t::save_status_to_persistence(
   };
 
   using utilities::atomic_task_t;
-  auto db_connector = database_connector_t::s_get_db_connector();
   atomic_task_t stopped_task{};
   stopped_task.type_ = atomic_task_t::task_type::stopped;
   stopped_task.task.emplace<atomic_task_t::stopped_task>();
@@ -197,7 +194,6 @@ bool background_worker_t::save_status_to_persistence(
 }
 
 bool background_worker_t::open_output_files() {
-
   std::filesystem::path parent_directory{std::filesystem::current_path()};
   auto const abs_path{std::filesystem::absolute(parent_directory) / "over" /
                       website_info_.alias};
@@ -259,6 +255,7 @@ void background_worker_t::run_number_crawler() {
     return;
   }
   task_result_ptr_->operation_status = task_status_e::Ongoing;
+  db_connector = database_connector_t::s_get_db_connector();
   bool &stopped = task_result_ptr_->stopped();
   stopped = false;
   if (type_ == website_type::Unknown) {

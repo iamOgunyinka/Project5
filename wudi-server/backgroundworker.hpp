@@ -49,6 +49,7 @@ private:
   website_result_t website_info_;
   std::vector<upload_result_t> uploads_info_;
   std::shared_ptr<utilities::atomic_task_result_t> task_result_ptr_;
+  std::shared_ptr<database_connector_t> db_connector;
   std::string input_filename{};
   std::ifstream input_file;
   std::optional<utilities::atomic_task_t> atomic_task_;

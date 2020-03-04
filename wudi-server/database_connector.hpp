@@ -76,7 +76,9 @@ public:
                           utilities::task_status_e const);
   bool add_completed_task(utilities::atomic_task_t &task);
 
-  std::vector<utilities::task_result_t> get_all_tasks(boost::string_view);
+  std::vector<utilities::task_result_t>
+  get_all_tasks(boost::string_view,
+                std::vector<boost::string_view> const & = {});
   std::pair<int, int> get_login_role(std::string_view const,
                                      std::string_view const);
   bool add_upload(utilities::upload_request_t const &upload_request);

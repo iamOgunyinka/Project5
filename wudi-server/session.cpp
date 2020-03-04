@@ -62,21 +62,6 @@ void session::on_header_read(beast::error_code ec, std::size_t const) {
         server_error(ec.message(), error_type_e::ServerError, string_request{}),
         true);
   } else {
-    if (websocket::is_upgrade(empty_body_parser_->get())) {
-      if (websockets_.size() > 20) {
-        websockets_.erase(
-            std::remove_if(websockets_.begin(), websockets_.end(),
-                           [](std::shared_ptr<websocket_updates> ptr) {
-                             return ptr->is_closed();
-                           }),
-            websockets_.end());
-      }
-      auto ws = std::make_shared<websocket_updates>(
-          io_context_, tcp_stream_.release_socket());
-      websockets_.push_back(ws);
-      ws->run(empty_body_parser_->release());
-      return;
-    }
     content_type_ = empty_body_parser_->get()[http::field::content_type];
     if (content_type_ == "application/json") {
       client_request_ =
@@ -835,16 +820,21 @@ void session::schedule_task_handler(string_request const &request,
     return error_handler(server_error("not implemented yet",
                                       error_type_e::ServerError, request));
   } else {
-    auto const id_iter = optional_query.find("id");
+    auto const user_id_iter = optional_query.find("user_id");
+    auto const task_ids_iter = optional_query.find( "task_id" );
     try {
-      if (id_iter == optional_query.cend()) {
+      if (user_id_iter == optional_query.cend()) {
         return error_handler(bad_request("uploader id unspecified", request));
       }
-      auto const user_id = id_iter->second;
+      std::vector<boost::string_view> task_ids{};
+      if( task_ids_iter != optional_query.cend() ) {
+          task_ids = utilities::split_string_view( task_ids_iter->second, "|" );
+      }
+      auto const user_id = user_id_iter->second;
       auto db_connector =
           wudi_server::database_connector_t::s_get_db_connector();
       return send_response(
-          json_success(db_connector->get_all_tasks(user_id), request));
+          json_success(db_connector->get_all_tasks(user_id, task_ids), request));
     } catch (std::exception const &e) {
       spdlog::error("Get tasks exception: {}", e.what());
       return error_handler(bad_request("user id missing", request));

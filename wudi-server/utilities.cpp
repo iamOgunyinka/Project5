@@ -282,7 +282,7 @@ std::size_t timet_to_string(std::string &output, std::size_t t,
 #if _MSC_VER && !__INTEL_COMPILER
 #pragma warning(disable : 4996)
 #endif
-  auto tm_t = std::localtime(&current_time);
+  auto const tm_t = std::localtime(&current_time);
 
   if (!tm_t)
     return std::string::npos;
@@ -316,11 +316,6 @@ std::vector<std::string> &number_stream_t::dump() { return temporaries_; }
 
 void number_stream_t::push_back(std::string const &str) {
   temporaries_.push_back(str);
-}
-
-boost::signals2::signal<void(uint32_t, uint32_t, task_status_e)> &
-atomic_task_result_t::progress_signal() {
-  return progress_signal_;
 }
 
 bool &atomic_task_result_t::stopped() { return stopped_; }
