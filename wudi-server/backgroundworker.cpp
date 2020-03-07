@@ -19,14 +19,24 @@ auto create_file_directory(std::filesystem::path const &path) -> bool {
 
 background_worker_t::~background_worker_t() {
 
+  using utilities::get_random_integer;
+  using utilities::get_random_string;
   using utilities::task_status_e;
+  if (!db_connector) {
+    db_connector = database_connector_t::s_get_db_connector();
+  }
+
   if (task_result_ptr_->stopped() &&
       task_result_ptr_->operation_status == task_status_e::Ongoing) {
     task_result_ptr_->operation_status = task_status_e::Stopped;
     if (task_result_ptr_->save_state()) {
-      std::filesystem::path const filename =
+      std::filesystem::path filename =
           "." / std::filesystem::path("stopped_files") /
-          "{}.txt"_format(std::time(nullptr));
+          "{}.txt"_format(get_random_string(get_random_integer()));
+      while (std::filesystem::exists(filename)) {
+        filename = "." / std::filesystem::path("stopped_files") /
+                   "{}.txt"_format(get_random_string(get_random_integer()));
+      }
       if (create_file_directory(filename) &&
           save_status_to_persistence(filename.string())) {
         spdlog::info("saved task -> {}:{} to persistent storage",
@@ -40,10 +50,82 @@ background_worker_t::~background_worker_t() {
                       task_result_ptr_->task_id, task_result_ptr_->website_id);
       }
     }
+  } else if (task_result_ptr_->processed == task_result_ptr_->total_numbers) {
+    number_stream_->close();
+    task_result_ptr_->operation_status = utilities::task_status_e::Completed;
+    atomic_task_t completed_task{};
+    auto &task = completed_task.task.emplace<atomic_task_t::stopped_task>();
+    task.not_ok_filename = task_result_ptr_->not_ok_filename.string();
+    task.ok_filename = task_result_ptr_->ok_filename.string();
+    task.unknown_filename = task_result_ptr_->unknown_filename.string();
+    completed_task.task_id = task_result_ptr_->task_id;
+    completed_task.website_id = task_result_ptr_->website_id;
+    using utilities::replace_special_chars;
+
+    replace_special_chars(task.ok_filename);
+    replace_special_chars(task.not_ok_filename);
+    replace_special_chars(task.unknown_filename);
+
+    if (db_connector->change_task_status(task_result_ptr_->task_id,
+                                         task_result_ptr_->total_numbers,
+                                         task_result_ptr_->operation_status) &&
+        db_connector->add_completed_task(completed_task)) {
+      if (std::filesystem::exists(input_filename)) {
+        if (input_file.is_open()) {
+          input_file.close();
+        }
+        std::filesystem::remove(input_filename);
+      }
+
+      spdlog::info("Saved completed task successfully");
+    } else {
+      std::ofstream out_file{"./erred_saving.txt",
+                             std::ios::out | std::ios::app};
+      if (out_file) {
+        std::string const dump =
+            "{}.txt"_format(get_random_string(get_random_integer()));
+        std::ofstream out_file_stream{dump};
+        if (out_file_stream) {
+          out_file_stream << number_stream_->dump_s();
+          out_file_stream.close();
+        }
+        out_file << "ID: " << task_result_ptr_->task_id
+                 << ", OK: " << task_result_ptr_->ok_filename.string()
+                 << ", NOT_OK: " << task_result_ptr_->not_ok_filename.string()
+                 << ", Unknown: " << task_result_ptr_->unknown_filename.string()
+                 << ", WEB_ID: " << task_result_ptr_->website_id
+                 << ", DUMP: " << dump << "\n\n";
+      }
+      spdlog::error("Unable to save completed tasks");
+    }
+    spdlog::info("Done processing task -> {}:{}", task_result_ptr_->task_id,
+                 task_result_ptr_->website_id);
+  } else {
+    std::ofstream out_file{"./erred_saving.txt", std::ios::out | std::ios::app};
+    if (out_file) {
+      std::string const dump =
+          "{}.txt"_format(get_random_string(get_random_integer()));
+      std::ofstream out_file_stream{dump};
+      if (out_file_stream) {
+        out_file_stream << number_stream_->dump_s();
+        out_file_stream.close();
+      }
+      out_file << "ID: " << task_result_ptr_->task_id
+               << ", OK: " << task_result_ptr_->ok_filename.string()
+               << ", NOT_OK: " << task_result_ptr_->not_ok_filename.string()
+               << ", Unknown: " << task_result_ptr_->unknown_filename.string()
+               << ", WEB_ID: " << task_result_ptr_->website_id
+               << ", DUMP: " << dump << "\n\n";
+    }
+    db_connector->change_task_status(task_result_ptr_->task_id,
+                                     task_result_ptr_->processed,
+                                     utilities::task_status_e::Stopped);
+    spdlog::error("Saving unfinished tasks");
   }
   task_result_ptr_->not_ok_file.close();
   task_result_ptr_->ok_file.close();
   task_result_ptr_->unknown_file.close();
+  sockets_.clear();
   spdlog::info("Closing all files");
 }
 
@@ -84,7 +166,8 @@ void background_worker_t::on_data_result_obtained(
     break;
   }
 
-  spdlog::info("Processed: {} of {}", processed, total);
+  spdlog::info("Task({}) => Processed: {} of {}", task_result_ptr_->task_id,
+               processed, total);
   int const progress = (processed * 100) / total;
   bool const signallable = (processed % utilities::MaxOpenSockets) == 0;
   bool const progress_made = progress > current_progress_;
@@ -95,39 +178,9 @@ void background_worker_t::on_data_result_obtained(
       current_progress_ = progress;
     }
     db_connector->change_task_status(task_result_ptr_->task_id, processed,
-                                     utilities::task_status_e::Ongoing);
-  }
-
-  if (processed >= total) {
-    if (std::filesystem::exists(input_filename)) {
-      if (input_file.is_open())
-        input_file.close();
-      std::filesystem::remove(input_filename);
-    }
-    task_result_ptr_->operation_status = utilities::task_status_e::Completed;
-    atomic_task_t completed_task{};
-    auto &task = completed_task.task.emplace<atomic_task_t::stopped_task>();
-    task.not_ok_filename = task_result_ptr_->not_ok_filename.string();
-    task.ok_filename = task_result_ptr_->ok_filename.string();
-    task.unknown_filename = task_result_ptr_->unknown_filename.string();
-    completed_task.task_id = task_result_ptr_->task_id;
-    completed_task.website_id = task_result_ptr_->website_id;
-    using utilities::replace_special_chars;
-
-    replace_special_chars(task.ok_filename);
-    replace_special_chars(task.not_ok_filename);
-    replace_special_chars(task.unknown_filename);
-
-    auto db_connector = database_connector_t::s_get_db_connector();
-    if (db_connector->change_task_status(task_result_ptr_->task_id, total,
-                                         task_result_ptr_->operation_status) &&
-        db_connector->add_completed_task(completed_task)) {
-      spdlog::info("Saved completed task successfully");
-    } else {
-      spdlog::error("Unable to save completed tasks");
-    }
-    spdlog::info("Done processing task -> {}:{}", task_result_ptr_->task_id,
-                 task_result_ptr_->website_id);
+                                     processed == total
+                                         ? utilities::task_status_e::Completed
+                                         : utilities::task_status_e::Ongoing);
   }
 }
 
@@ -268,31 +321,27 @@ void background_worker_t::run_number_crawler() {
     }
   }
 
-  std::vector<std::shared_ptr<void>> sockets{};
   if (context_.stopped())
     context_.restart();
+  sockets_.clear();
   if (type_ == website_type::JJGames) {
     // we only need one socket of this type
     auto socket_ptr = std::make_shared<jj_games_single_interface>(
         stopped, safe_proxy_, *number_stream_);
-    sockets.push_back(socket_ptr); // keep a type-erased copy
+    sockets_.push_back(socket_ptr); // keep a type-erased copy
     (void)socket_ptr->signal().connect(callback);
     socket_ptr->start_connect();
   } else if (type_ == website_type::AutoHomeRegister) {
-    sockets.reserve(utilities::MaxOpenSockets);
-    while (!number_stream_->empty() && !stopped) {
-      for (int i = 0; i != utilities::MaxOpenSockets; ++i) {
-        auto socket_ptr = std::make_shared<auto_home_socket_t>(
-            stopped, context_, safe_proxy_, *number_stream_);
-        sockets.push_back(socket_ptr); // keep a type-erased copy
-        (void)socket_ptr->signal().connect(callback);
-        socket_ptr->start_connect();
-      }
-      context_.run();
-      sockets.clear();
+    sockets_.reserve(utilities::MaxOpenSockets);
+    for (int i = 0; i != utilities::MaxOpenSockets; ++i) {
+      auto socket_ptr = std::make_shared<auto_home_socket_t>(
+          stopped, context_, safe_proxy_, *number_stream_);
+      sockets_.push_back(socket_ptr); // keep a type-erased copy
+      (void)socket_ptr->signal().connect(callback);
+      socket_ptr->start_connect();
     }
   }
-  sockets.clear();
+  context_.run();
 } // namespace wudi_server
 
 void background_worker_t::continue_old_task() {

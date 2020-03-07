@@ -265,6 +265,31 @@ std::string get_random_agent() {
   return request_handler::user_agents[uid(gen)];
 }
 
+std::size_t get_random_integer() {
+  static std::random_device rd{};
+  static std::mt19937 gen{rd()};
+  static std::uniform_int_distribution<> uid(0, 100);
+  return uid(gen);
+}
+
+char get_random_char() {
+  static std::random_device rd{};
+  static std::mt19937 gen{rd()};
+  static std::uniform_int_distribution<> uid(0, 52);
+  static char const *all_alphas =
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_";
+  return all_alphas[uid(gen)];
+}
+
+std::string get_random_string(std::size_t const length) {
+  std::string result{};
+  result.reserve(length);
+  for (std::size_t i = 0; i != length; ++i) {
+    result.push_back(get_random_char());
+  }
+  return result;
+}
+
 threadsafe_cv_container<atomic_task_t> &get_scheduled_tasks() {
   static threadsafe_cv_container<atomic_task_t> tasks{};
   return tasks;
@@ -295,6 +320,8 @@ number_stream_t::number_stream_t(std::ifstream &file_stream)
     : input_stream{file_stream} {}
 
 std::string number_stream_t::get() noexcept(false) {
+  if (closed_)
+    throw empty_container_exception_t{};
   std::string number{};
   std::lock_guard<std::mutex> lock_g{mutex_};
   while (std::getline(input_stream, number)) {
@@ -306,7 +333,13 @@ std::string number_stream_t::get() noexcept(false) {
   throw empty_container_exception_t{};
 }
 
-bool number_stream_t::empty() { return !(input_stream && !input_stream.eof()); }
+void number_stream_t::close() {
+  input_stream.close();
+  closed_ = true;
+}
+bool number_stream_t::empty() {
+  return closed_ || !input_stream || input_stream.eof();
+}
 
 decltype(std::declval<std::ifstream>().rdbuf()) number_stream_t::dump_s() {
   return input_stream.rdbuf();

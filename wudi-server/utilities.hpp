@@ -62,7 +62,7 @@ enum class search_result_type_e {
 enum constants_e {
   MaxRetries = 2,
   SleepTimeoutSec = 5,
-  WorkerThreadCount = 10,
+  WorkerThreadCount = 5,
   LenUserAgents = 18,
   MaxOpenSockets = 25,
   TimeoutMilliseconds = 3'000,
@@ -197,6 +197,7 @@ public:
   number_stream_t(std::ifstream &file_stream);
   std::string get() noexcept(false);
   bool empty();
+  void close();
   decltype(std::declval<std::ifstream>().rdbuf()) dump_s();
   std::vector<std::string> &dump();
   void push_back(std::string const &);
@@ -205,6 +206,7 @@ private:
   std::ifstream &input_stream;
   std::vector<std::string> temporaries_;
   std::mutex mutex_;
+  bool closed_ = false;
 };
 
 template <typename T, typename Container = std::deque<T>, bool use_cv = false>
@@ -362,6 +364,10 @@ threadsafe_cv_container<atomic_task_t> &get_scheduled_tasks();
 std::map<uint32_t, std::shared_ptr<atomic_task_result_t>> &get_response_queue();
 std::size_t timet_to_string(std::string &, std::size_t,
                             char const * = "%Y-%m-%d %H:%M:%S");
+char get_random_char();
+std::string get_random_string(std::size_t);
+std::size_t get_random_integer();
+
 std::vector<boost::string_view> split_string_view(boost::string_view const &str,
                                                   char const *delimeter);
 bool operator<(atomic_task_result_t const &task_1,

@@ -53,6 +53,7 @@ private:
   std::string input_filename{};
   std::ifstream input_file;
   std::optional<utilities::atomic_task_t> atomic_task_;
+  std::vector<std::shared_ptr<void>> sockets_{};
 };
 } // namespace wudi_server
 

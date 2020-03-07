@@ -1,6 +1,5 @@
 #include "session.hpp"
 #include "database_connector.hpp"
-#include "websocket_updates.hpp"
 #include <boost/algorithm/string.hpp>
 #include <fstream>
 #include <gzip/decompress.hpp>
@@ -326,7 +325,7 @@ void session::handle_requests(string_request const &request) {
   }
 }
 
-session::session(net::io_context &io, asio::ip::tcp::socket &&socket)
+session::session(asio::io_context &io, asio::ip::tcp::socket &&socket)
     : io_context_{io}, tcp_stream_{std::move(socket)} {
   add_endpoint_interfaces();
 }

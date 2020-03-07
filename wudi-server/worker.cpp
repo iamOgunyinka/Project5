@@ -124,7 +124,7 @@ void background_task_executor(
   auto &scheduled_tasks = utilities::get_scheduled_tasks();
   while (!stopped) {
     auto scheduled_task = std::move(scheduled_tasks.get());
-    std::shared_ptr<background_worker_t> worker{};
+    std::unique_ptr<background_worker_t> worker{};
     if (scheduled_task.type_ == atomic_task_t::task_type::fresh) {
       worker = start_new_task(scheduled_task);
     } else {
