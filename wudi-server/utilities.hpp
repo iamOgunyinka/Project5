@@ -64,7 +64,7 @@ enum constants_e {
   SleepTimeoutSec = 5,
   WorkerThreadCount = 5,
   LenUserAgents = 18,
-  MaxOpenSockets = 25,
+  MaxOpenSockets = 20,
   TimeoutMilliseconds = 3'000,
   FiveMegabytes = 1024 * 1024 * 5
 };
@@ -197,6 +197,7 @@ public:
   number_stream_t(std::ifstream &file_stream);
   std::string get() noexcept(false);
   bool empty();
+  bool is_open();
   void close();
   decltype(std::declval<std::ifstream>().rdbuf()) dump_s();
   std::vector<std::string> &dump();
@@ -367,7 +368,7 @@ std::size_t timet_to_string(std::string &, std::size_t,
 char get_random_char();
 std::string get_random_string(std::size_t);
 std::size_t get_random_integer();
-
+bool create_file_directory(std::filesystem::path const &path);
 std::vector<boost::string_view> split_string_view(boost::string_view const &str,
                                                   char const *delimeter);
 bool operator<(atomic_task_result_t const &task_1,

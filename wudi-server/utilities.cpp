@@ -81,6 +81,17 @@ std::string decode_url(boost::string_view const &encoded_string) {
   return src;
 }
 
+bool create_file_directory( std::filesystem::path const& path )
+{
+    std::error_code ec{};
+    auto f = std::filesystem::absolute( path.parent_path(), ec );
+    if( ec )
+        return false;
+    ec = {};
+    std::filesystem::create_directories( f, ec );
+    return !ec;
+}
+
 bool is_valid_number(std::string_view const number, std::string &buffer) {
   if (number.size() < 11 || number.size() > 14)
     return false;
@@ -337,6 +348,9 @@ void number_stream_t::close() {
   input_stream.close();
   closed_ = true;
 }
+
+bool number_stream_t::is_open() { return input_stream.is_open(); }
+
 bool number_stream_t::empty() {
   return closed_ || !input_stream || input_stream.eof();
 }

@@ -78,6 +78,9 @@ void safe_proxy::get_more_proxies() {
     has_error = true;
   }
   is_free = true;
+  for (auto &ep : endpoints_) {
+    ep->property = ProxyProperty::ProxyActive;
+  }
   if (has_error)
     spdlog::error("Error occurred while getting more proxies");
 }

@@ -27,23 +27,23 @@ public:
       std::shared_ptr<utilities::atomic_task_result_t> task_result,
       net::io_context &);
   ~background_worker_t();
-  void run();
+  utilities::task_status_e run();
+  website_type type() const { return type_; }
+  auto &number_stream() { return number_stream_; }
   auto task_result() { return task_result_ptr_; }
+  std::string filename() { return input_filename; }
 
 private:
-  bool save_status_to_persistence(std::string const &filename);
   bool open_output_files();
   void on_data_result_obtained(utilities::search_result_type_e,
                                std::string_view);
-  void run_new_task();
-  void run_number_crawler();
-  void continue_old_task();
+  utilities::task_status_e run_new_task();
+  utilities::task_status_e run_number_crawler();
+  utilities::task_status_e continue_old_task();
 
 private:
   net::io_context &context_;
   safe_proxy safe_proxy_;
-  int current_progress_{};
-  int temp_progress_{};
   website_type type_;
   std::shared_ptr<utilities::number_stream_t> number_stream_;
   website_result_t website_info_;
