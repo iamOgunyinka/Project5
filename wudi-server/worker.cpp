@@ -151,11 +151,13 @@ void background_task_executor(
         break;
       }
       auto task_result_ptr = worker->task_result();
-      task_result_ptr->not_ok_file.close();
-      task_result_ptr->ok_file.close();
-      task_result_ptr->unknown_file.close();
-      worker->number_stream()->close();
-      task_result_ptr.reset();
+      if (task_result_ptr) {
+        task_result_ptr->not_ok_file.close();
+        task_result_ptr->ok_file.close();
+        task_result_ptr->unknown_file.close();
+        worker->number_stream()->close();
+        task_result_ptr.reset();
+      }
       // if we are here, we are done.
     } else {
       using utilities::replace_special_chars;
@@ -204,7 +206,8 @@ void run_completion_op(std::shared_ptr<database_connector_t> &db_connector,
       if (bg_worker.number_stream()->is_open()) {
         bg_worker.number_stream()->close();
       }
-      std::filesystem::remove(bg_worker.filename());
+      std::error_code ec{};
+      std::filesystem::remove(bg_worker.filename(), ec);
     }
     spdlog::info("Saved completed task successfully");
   } else {
