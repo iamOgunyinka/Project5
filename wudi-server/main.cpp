@@ -9,7 +9,7 @@
 
 int main(int argc, char *argv[]) {
   wudi_server::curl_wrapper_t curl_global{};
-  CLI::App cli_parser{"Wu-di: an asynchronous web server for Farasha trading"};
+  CLI::App cli_parser{"Wu-di: an asynchronous web server for Kiaowa Trading LLC"};
   wudi_server::command_line_interface args{};
   auto const thread_count = std::thread::hardware_concurrency();
   args.thread_count = thread_count;

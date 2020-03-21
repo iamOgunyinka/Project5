@@ -9,12 +9,15 @@
 #include <vector>
 
 namespace wudi_server {
+class background_worker_t;
 using utilities::upload_result_t;
 using utilities::website_result_t;
 namespace asio = boost::asio;
 namespace http = boost::beast::http;
 
 enum class website_type { Unknown, AutoHomeRegister, JJGames };
+using CompletionHandler = std::function<void(
+    utilities::task_status_e)>;
 
 class background_worker_t {
 public:
@@ -27,7 +30,8 @@ public:
       std::shared_ptr<utilities::atomic_task_result_t> task_result,
       net::io_context &);
   ~background_worker_t();
-  utilities::task_status_e run();
+
+  void run(CompletionHandler && completion_handler);
   website_type type() const { return type_; }
   auto &number_stream() { return number_stream_; }
   auto task_result() { return task_result_ptr_; }
@@ -54,6 +58,7 @@ private:
   std::ifstream input_file;
   std::optional<utilities::atomic_task_t> atomic_task_;
   std::vector<std::shared_ptr<void>> sockets_{};
+  CompletionHandler tasks_completed_callback_{};
 };
 } // namespace wudi_server
 

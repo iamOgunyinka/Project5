@@ -81,15 +81,14 @@ std::string decode_url(boost::string_view const &encoded_string) {
   return src;
 }
 
-bool create_file_directory( std::filesystem::path const& path )
-{
-    std::error_code ec{};
-    auto f = std::filesystem::absolute( path.parent_path(), ec );
-    if( ec )
-        return false;
-    ec = {};
-    std::filesystem::create_directories( f, ec );
-    return !ec;
+bool create_file_directory(std::filesystem::path const &path) {
+  std::error_code ec{};
+  auto f = std::filesystem::absolute(path.parent_path(), ec);
+  if (ec)
+    return false;
+  ec = {};
+  std::filesystem::create_directories(f, ec);
+  return !ec;
 }
 
 bool is_valid_number(std::string_view const number, std::string &buffer) {
@@ -328,16 +327,16 @@ std::size_t timet_to_string(std::string &output, std::size_t t,
 }
 
 number_stream_t::number_stream_t(std::ifstream &file_stream)
-    : input_stream{file_stream} {}
+    : input_stream{file_stream}, mutex_{} {}
 
 std::string number_stream_t::get() noexcept(false) {
   if (closed_)
     throw empty_container_exception_t{};
-  std::string number{};
+  std::string number, temp{};
   std::lock_guard<std::mutex> lock_g{mutex_};
-  while (std::getline(input_stream, number)) {
-    boost::trim(number);
-    if (number.empty() || !is_valid_number(number, number))
+  while (std::getline(input_stream, temp)) {
+    boost::trim(temp);
+    if (temp.empty() || !is_valid_number(temp, number))
       continue;
     return number;
   }

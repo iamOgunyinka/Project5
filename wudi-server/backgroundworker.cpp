@@ -47,6 +47,10 @@ void background_worker_t::on_data_result_obtained(
     task_result_ptr_->unknown_file << number << "\n";
     task_result_ptr_->unknown_file.flush();
     break;
+  case search_result_type_e::RequestStop:
+    --processed; // `processed` will *always* be greater than 0
+    task_result_ptr_->stop();
+    break;
   }
 
   bool const signallable = (processed % utilities::MaxOpenSockets) == 0;
@@ -140,21 +144,25 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
   if (context_.stopped())
     context_.restart();
   sockets_.clear();
-  if (type_ == website_type::JJGames) {
-    // we only need one socket of this type
-    auto socket_ptr = std::make_shared<jj_games_single_interface>(
-        stopped, safe_proxy_, *number_stream_);
-    sockets_.push_back(socket_ptr); // keep a type-erased copy
-    (void)socket_ptr->signal().connect(callback);
-    socket_ptr->start_connect();
-  } else if (type_ == website_type::AutoHomeRegister) {
-    sockets_.reserve(utilities::MaxOpenSockets);
-    for (int i = 0; i != utilities::MaxOpenSockets; ++i) {
-      auto socket_ptr = std::make_shared<auto_home_socket_t>(
-          stopped, context_, safe_proxy_, *number_stream_);
+  {
+    utilities::CustomTCH ref_c{std::move(tasks_completed_callback_)};
+    tasks_completed_callback_ = nullptr;
+    if (type_ == website_type::JJGames) {
+      // we only need one socket of this type
+      auto socket_ptr = std::make_shared<jj_games_single_interface>(
+          stopped, safe_proxy_, *number_stream_);
       sockets_.push_back(socket_ptr); // keep a type-erased copy
       (void)socket_ptr->signal().connect(callback);
       socket_ptr->start_connect();
+    } else if (type_ == website_type::AutoHomeRegister) {
+      sockets_.reserve(utilities::MaxOpenSockets);
+      for (int i = 0; i != utilities::MaxOpenSockets; ++i) {
+        auto socket_ptr = std::make_shared<auto_home_socket_t>(
+            stopped, context_, safe_proxy_, ref_c, *number_stream_);
+        sockets_.push_back(socket_ptr); // keep a type-erased copy
+        (void)socket_ptr->signal().connect(callback);
+        socket_ptr->start_connect();
+      }
     }
   }
   context_.run();
@@ -244,10 +252,16 @@ utilities::task_status_e background_worker_t::run_new_task() {
   return run_number_crawler();
 }
 
-utilities::task_status_e background_worker_t::run() {
-  if (website_info_.id != 0)
-    return run_new_task();
-
-  return continue_old_task();
+void background_worker_t::run(CompletionHandler &&handler) {
+  tasks_completed_callback_ = std::move(handler);
+  utilities::task_status_e status{};
+  if (website_info_.id != 0) {
+    status = run_new_task();
+  } else {
+    status = continue_old_task();
+  }
+  if (tasks_completed_callback_) {
+    tasks_completed_callback_(status);
+  }
 }
 } // namespace wudi_server

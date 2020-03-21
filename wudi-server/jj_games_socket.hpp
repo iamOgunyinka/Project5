@@ -45,7 +45,7 @@ struct single_connect_info_t {
   std::vector<char> header_buffer{};
   std::vector<char> body_buffer{};
   custom_curl_list_t<char const *> headers{};
-  
+
   single_connect_info_t() = default;
   ~single_connect_info_t() {
     if (easy_interface) {

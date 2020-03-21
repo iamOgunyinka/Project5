@@ -256,9 +256,36 @@ bool database_connector_t::add_completed_task(atomic_task_t &task) {
       "\"{}\", \"{}\", \"{}\")"_format(
           task.task_id, task.website_id, completed_task.ok_filename,
           completed_task.not_ok_filename, completed_task.unknown_filename);
+  std::string const task_sql_statement =
+      "UPDATE tb_tasks SET ok_file='{}', stopped_filename='{}',"
+      "not_ok_file='{}', unknown_file='{}' WHERE id={}"_format(
+          completed_task.ok_filename, completed_task.input_filename,
+          completed_task.not_ok_filename, completed_task.unknown_filename,
+          task.task_id);
   try {
     std::lock_guard<std::mutex> llock{db_mutex_};
     otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
+                            otl_exception::enabled);
+    otl_cursor::direct_exec(otl_connector_, task_sql_statement.c_str(),
+                            otl_exception::enabled);
+    return true;
+  } catch (otl_exception const &e) {
+    log_sql_error(e);
+    return false;
+  }
+}
+
+bool database_connector_t::add_erred_task(atomic_task_t &task) {
+  auto &completed_task = std::get<atomic_task_t::stopped_task>(task.task);
+  std::string const task_sql_statement =
+      "UPDATE tb_tasks SET ok_file='{}', stopped_filename='{}',"
+      "not_ok_file='{}', unknown_file='{}' WHERE id={}"_format(
+          completed_task.ok_filename, completed_task.input_filename,
+          completed_task.not_ok_filename, completed_task.unknown_filename,
+          task.task_id);
+  try {
+    std::lock_guard<std::mutex> llock{db_mutex_};
+    otl_cursor::direct_exec(otl_connector_, task_sql_statement.c_str(),
                             otl_exception::enabled);
     return true;
   } catch (otl_exception const &e) {
@@ -308,8 +335,15 @@ bool database_connector_t::save_stopped_task(
           stopped_task.task_id, stopped_task.website_id, task.input_filename,
           stopped_task.total, stopped_task.processed, task.website_address,
           task.ok_filename, task.not_ok_filename, task.unknown_filename);
+  std::string const task_sql_stement =
+      "UPDATE tb_tasks SET stopped_filename='{}', "
+      "ok_file='{}', unknown_file='{}', not_ok_file='{}' WHERE id={}"_format(
+          task.input_filename, task.ok_filename, task.unknown_filename,
+          task.not_ok_filename, stopped_task.task_id);
   try {
     std::lock_guard<std::mutex> lock_g{db_mutex_};
+    otl_cursor::direct_exec(otl_connector_, task_sql_stement.c_str(),
+                            otl_exception::enabled);
     otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
                             otl_exception::enabled);
     return true;
@@ -334,6 +368,44 @@ bool database_connector_t::get_stopped_tasks(
     stopped_task.task.emplace<atomic_task_t::stopped_task>();
     while (db_stream >> stopped_task) {
       stopped_tasks.push_back(stopped_task);
+    }
+    return true;
+  } catch (otl_exception const &e) {
+    log_sql_error(e);
+    return false;
+  }
+}
+
+bool database_connector_t::get_stopped_tasks_from_tasks(
+    std::vector<uint32_t> const &tasks,
+    std::vector<atomic_task_t> &stopped_tasks) {
+  std::string const sql_statement =
+      "SELECT id, websites, progress, total_numbers, stopped_filename, "
+      "ok_file, not_ok_file, unknown_file FROM tb_tasks WHERE id IN "
+      "({})"_format(utilities::intlist_to_string(tasks));
+  try {
+    otl_stream db_stream(1'000, sql_statement.c_str(), otl_connector_);
+    atomic_task_t stopped_task{};
+    stopped_task.type_ = atomic_task_t::task_type::stopped;
+    auto &emplaced_task =
+        stopped_task.task.emplace<atomic_task_t::stopped_task>();
+
+    std::string websites{};
+    while (db_stream >> stopped_task.task_id >> websites >>
+           stopped_task.processed >> stopped_task.total >>
+           emplaced_task.input_filename >> emplaced_task.ok_filename >>
+           emplaced_task.not_ok_filename >> emplaced_task.unknown_filename) {
+      stopped_task.website_id = std::stoi(websites);
+      stopped_tasks.push_back(stopped_task);
+    }
+    {
+      for (auto &task_info : stopped_tasks) {
+        auto website_info = get_website(task_info.website_id);
+        if (website_info.has_value()) {
+          std::get<atomic_task_t::stopped_task>(task_info.task)
+              .website_address = website_info->address;
+        }
+      }
     }
     return true;
   } catch (otl_exception const &e) {

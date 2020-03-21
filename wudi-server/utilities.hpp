@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <atomic>
 #include <boost/algorithm/string.hpp>
 #include <boost/signals2.hpp>
 #include <boost/utility/string_view.hpp>
@@ -53,21 +54,79 @@ using namespace fmt::v6::literals;
 struct database_connector_t;
 
 namespace utilities {
+enum class task_status_e { NotStarted, Ongoing, Stopped, Erred, Completed };
+
 enum class search_result_type_e {
   Registered = 0xA,
   NotRegistered = 0xB,
-  Unknown = 0XF
+  Unknown = 0XE,
+  RequestStop = 0xF
 };
 
 enum constants_e {
   MaxRetries = 2,
   SleepTimeoutSec = 5,
-  WorkerThreadCount = 5,
+  WorkerThreadCount = 10,
   LenUserAgents = 18,
-  MaxOpenSockets = 20,
+  MaxOpenSockets = 5,
   TimeoutMilliseconds = 3'000,
   FiveMegabytes = 1024 * 1024 * 5
 };
+
+template <typename T> class custom_ref_counter {
+  mutable int *counter_{nullptr};
+  T callback_{};
+  task_status_e status_ = task_status_e::Erred;
+
+  void reset() {
+    if (!counter_)
+      return;
+    --(*counter_);
+    if (*counter_ == 0) {
+      delete counter_;
+      callback_(status_);
+    }
+    counter_ = nullptr;
+  }
+
+public:
+  custom_ref_counter(T &&callback)
+      : counter_{new int{1}}, callback_{std::move(callback)} {}
+  custom_ref_counter(custom_ref_counter const &cpy_ctor)
+      : counter_{cpy_ctor.counter_}, callback_{cpy_ctor.callback_},
+        status_{cpy_ctor.status_} {
+    ++(*cpy_ctor.counter_);
+  }
+  custom_ref_counter(custom_ref_counter &&) = delete;
+  custom_ref_counter &operator=(custom_ref_counter &&) = delete;
+  custom_ref_counter &operator=(custom_ref_counter const &cpy) {
+    if (this == &cpy)
+      return *this;
+    if (counter_) {
+      if (*counter_ == 1) {
+        delete counter_;
+        counter_ = nullptr;
+      } else {
+        --(*counter_);
+      }
+    }
+    counter_ = cpy.counter_;
+    status_ = cpy.status_;
+    callback_ = cpy.callback_;
+    ++(*counter_);
+    return *this;
+  }
+  void done(task_status_e u) {
+    status_ = u;
+    spdlog::error("Done called: {}", static_cast<int>(u));
+    reset();
+  }
+  T &get_callback() { return callback_; }
+  ~custom_ref_counter() { reset(); }
+};
+
+using TaskCompletionHandler = std::function<void(task_status_e)>;
+using CustomTCH = custom_ref_counter<TaskCompletionHandler>;
 
 struct scheduled_task_t {
   uint32_t task_id{};
@@ -126,14 +185,6 @@ struct upload_result_t {
   std::string upload_date;
   std::string filename;
   std::string name_on_disk;
-};
-
-enum class task_status_e : uint32_t {
-  NotStarted,
-  Ongoing,
-  Stopped,
-  Erred,
-  Completed
 };
 
 class atomic_task_result_t {

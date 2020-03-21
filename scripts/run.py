@@ -32,6 +32,10 @@ class Task(db.Model):
 	websites = db.Column(db.Text, nullable=False)
 	uploads = db.Column(db.Text, nullable=False)
 	progress = db.Column(db.Integer, nullable=False, default=0, unique=False)
+	ok_file = db.Column(db.String(128), nullable=True)
+	not_ok_file = db.Column(db.String(128), nullable=True)
+	unknown_file = db.Column(db.String(128), nullable=True)
+	stopped_filename = db.Column(db.String(128), nullable=True)
 
 class StoppedTask(db.Model):
 	__tablename__ = 'tb_stopped_tasks'

@@ -7,6 +7,48 @@ namespace wudi_server {
 using utilities::atomic_task_result_t;
 using utilities::atomic_task_t;
 
+void on_task_ran(utilities::task_status_e status,
+                 utilities::atomic_task_t &scheduled_task,
+                 std::shared_ptr<database_connector_t> &db_connector,
+                 background_worker_t *worker_ptr) {
+  switch (status) {
+  case utilities::task_status_e::Stopped:
+    run_stopped_op(db_connector, *worker_ptr);
+    break;
+  case utilities::task_status_e::Completed:
+    run_completion_op(db_connector, *worker_ptr);
+    break;
+  case utilities::task_status_e::Erred:
+    run_error_occurred_op(db_connector, *worker_ptr);
+    break;
+  }
+  auto task_result_ptr = worker_ptr->task_result();
+  try {
+    if (task_result_ptr) {
+      task_result_ptr->not_ok_file.close();
+      task_result_ptr->ok_file.close();
+      task_result_ptr->unknown_file.close();
+      worker_ptr->number_stream()->close();
+      task_result_ptr.reset();
+    }
+  } catch (std::exception const &e) {
+    spdlog::error("Exception while running worker: {}", e.what());
+    using utilities::replace_special_chars;
+    if (scheduled_task.type_ != atomic_task_t::task_type::fresh) {
+      atomic_task_t::stopped_task &save_tasks =
+          std::get<atomic_task_t::stopped_task>(scheduled_task.task);
+      replace_special_chars(save_tasks.input_filename);
+      replace_special_chars(save_tasks.not_ok_filename);
+      replace_special_chars(save_tasks.ok_filename);
+      replace_special_chars(save_tasks.unknown_filename);
+      db_connector->save_stopped_task(scheduled_task);
+    }
+    db_connector->change_task_status(scheduled_task.task_id,
+                                     scheduled_task.processed,
+                                     utilities::task_status_e::Erred);
+  }
+}
+
 std::unique_ptr<background_worker_t>
 start_new_task(atomic_task_t &scheduled_task) {
   using utilities::intlist_to_string;
@@ -43,7 +85,6 @@ continue_recent_task(atomic_task_t &scheduled_task) {
   using utilities::normalize_paths;
   using utilities::task_status_e;
 
-  auto db_connector = wudi_server::database_connector_t::s_get_db_connector();
   atomic_task_t::stopped_task &task =
       std::get<atomic_task_t::stopped_task>(scheduled_task.task);
 
@@ -139,25 +180,12 @@ void background_task_executor(
       db_connector->change_task_status(scheduled_task.task_id,
                                        worker->task_result()->processed,
                                        utilities::task_status_e::Ongoing);
-      switch (worker->run()) {
-      case utilities::task_status_e::Stopped:
-        run_stopped_op(db_connector, *worker);
-        break;
-      case utilities::task_status_e::Completed:
-        run_completion_op(db_connector, *worker);
-        break;
-      case utilities::task_status_e::Erred:
-        run_error_occurred_op(db_connector, *worker);
-        break;
-      }
-      auto task_result_ptr = worker->task_result();
-      if (task_result_ptr) {
-        task_result_ptr->not_ok_file.close();
-        task_result_ptr->ok_file.close();
-        task_result_ptr->unknown_file.close();
-        worker->number_stream()->close();
-        task_result_ptr.reset();
-      }
+      auto task_ran = [&scheduled_task, &db_connector,
+                       worker_ptr =
+                           worker.get()](utilities::task_status_e status) {
+        on_task_ran(status, scheduled_task, db_connector, worker_ptr);
+      };
+      worker->run(task_ran);
       // if we are here, we are done.
     } else {
       using utilities::replace_special_chars;
@@ -236,6 +264,20 @@ void run_completion_op(std::shared_ptr<database_connector_t> &db_connector,
 void run_error_occurred_op(std::shared_ptr<database_connector_t> &db_connector,
                            background_worker_t &bg_worker) {
   auto task_result_ptr = bg_worker.task_result();
+  task_result_ptr->operation_status = utilities::task_status_e::Erred;
+  atomic_task_t erred_task{};
+  auto &task = erred_task.task.emplace<atomic_task_t::stopped_task>();
+  task.not_ok_filename = task_result_ptr->not_ok_filename.string();
+  task.ok_filename = task_result_ptr->ok_filename.string();
+  task.unknown_filename = task_result_ptr->unknown_filename.string();
+  erred_task.task_id = task_result_ptr->task_id;
+  erred_task.website_id = task_result_ptr->website_id;
+  using utilities::replace_special_chars;
+
+  replace_special_chars(task.ok_filename);
+  replace_special_chars(task.not_ok_filename);
+  replace_special_chars(task.unknown_filename);
+  db_connector->add_erred_task(erred_task);
   db_connector->change_task_status(task_result_ptr->task_id,
                                    task_result_ptr->processed,
                                    utilities::task_status_e::Erred);

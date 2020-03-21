@@ -1,18 +1,17 @@
-#ifndef BOOST_BEAST_EXAMPLE_FIELDS_ALLOC_HPP
-#define BOOST_BEAST_EXAMPLE_FIELDS_ALLOC_HPP
+#pragma once
 
 #include <boost/throw_exception.hpp>
 #include <cstdlib>
 #include <memory>
 #include <stdexcept>
 
+namespace wudi_server {
 namespace detail {
-
 struct static_pool {
   std::size_t size_;
   std::size_t refs_ = 1;
   std::size_t count_ = 0;
-  char *p_;
+  char *p_{nullptr};
 
   char *end() { return reinterpret_cast<char *>(this + 1) + size_; }
 
@@ -53,9 +52,7 @@ public:
     p_ = reinterpret_cast<char *>(this + 1);
   }
 };
-
 } // namespace detail
-
 /** A non-thread-safe allocator optimized for @ref basic_fields.
 
     This allocator obtains memory from a pre-allocated memory block
@@ -128,5 +125,4 @@ public:
     return !(lhs == rhs);
   }
 };
-
-#endif
+} // namespace wudi_server

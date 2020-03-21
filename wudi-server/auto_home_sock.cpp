@@ -20,8 +20,9 @@ std::string const auto_home_socket_t::password_base64_hash{
 auto_home_socket_t::auto_home_socket_t(bool &stopped,
                                        net::io_context &io_context,
                                        safe_proxy &proxy_provider,
+                                       CustomTCH crc,
                                        utilities::number_stream_t &numbers)
-    : web_base(stopped, io_context, proxy_provider, numbers) {}
+    : web_base(stopped, io_context, proxy_provider, crc, numbers) {}
 
 auto_home_socket_t::~auto_home_socket_t() {}
 

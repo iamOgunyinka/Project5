@@ -29,13 +29,13 @@ struct rule_t {
 
 class endpoint_t {
   std::map<std::string, rule_t> endpoints;
-  using iterator = std::map<std::string, rule_t>::iterator;
+  using rule_iterator = std::map<std::string, rule_t>::iterator;
 
 public:
   void add_endpoint(std::string const &, std::initializer_list<http::verb>,
                     callback_t &&);
-  std::optional<endpoint_t::iterator> get_rules(std::string const &target);
-  std::optional<iterator> get_rules(boost::string_view const &target);
+  std::optional<endpoint_t::rule_iterator> get_rules(std::string const &target);
+  std::optional<rule_iterator> get_rules(boost::string_view const &target);
 };
 
 enum class error_type_e {

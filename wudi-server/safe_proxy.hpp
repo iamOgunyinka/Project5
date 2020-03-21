@@ -2,6 +2,7 @@
 
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
+#include <ctime>
 #include <memory>
 #include <optional>
 
@@ -14,6 +15,13 @@ using tcp = boost::asio::ip::tcp;
 net::io_context &get_network_context();
 
 enum class ProxyProperty { ProxyUnresponsive, ProxyBlocked, ProxyActive };
+struct extraction_data {
+  std::time_t expire_time{};
+  int product_remain{};
+  int connect_remain{};
+  int extract_remain{};
+  bool is_available{false};
+};
 
 struct custom_endpoint {
   tcp::endpoint endpoint{};
@@ -31,23 +39,22 @@ void swap(custom_endpoint &a, custom_endpoint &b);
 
 class safe_proxy {
 private:
-  beast::tcp_stream http_tcp_stream_;
-  http::request<http::empty_body> http_request_;
   net::io_context &context_;
-
+  extraction_data current_extracted_data_;
   static std::string const proxy_generator_address;
   static std::string const https_proxy_filename;
   static std::string const http_proxy_filename;
   std::mutex mutex_{};
   std::size_t count_{};
   std::vector<endpoint_ptr> endpoints_;
-  std::atomic_bool is_free = true;
   std::atomic_bool has_error = false;
 
 private:
   void load_proxy_file();
   void get_more_proxies();
   void save_proxies_to_file();
+  extraction_data
+  get_remain_count(net::ip::basic_resolver_results<net::ip::tcp> &);
 
 public:
   safe_proxy(net::io_context &context);

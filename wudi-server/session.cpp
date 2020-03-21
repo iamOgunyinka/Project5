@@ -29,7 +29,7 @@ void endpoint_t::add_endpoint(std::string const &route,
   endpoints.emplace(route, rule_t{std::move(verbs), std::move(callback)});
 }
 
-std::optional<endpoint_t::iterator>
+std::optional<endpoint_t::rule_iterator>
 endpoint_t::get_rules(std::string const &target) {
   auto iter = endpoints.find(target);
   if (iter == endpoints.end())
@@ -37,7 +37,7 @@ endpoint_t::get_rules(std::string const &target) {
   return iter;
 }
 
-std::optional<endpoint_t::iterator>
+std::optional<endpoint_t::rule_iterator>
 endpoint_t::get_rules(boost::string_view const &target) {
   return get_rules(std::string(target.data(), target.size()));
 }
@@ -738,9 +738,20 @@ void session::restart_tasks_handler(string_request const &request,
     }
     auto db_connector = wudi_server::database_connector_t::s_get_db_connector();
     std::vector<utilities::atomic_task_t> stopped_tasks{};
+    auto &task_queue = utilities::get_scheduled_tasks();
     if (db_connector->get_stopped_tasks(task_list, stopped_tasks) &&
         db_connector->remove_stopped_tasks(stopped_tasks)) {
-      auto &task_queue = utilities::get_scheduled_tasks();
+      spdlog::info("Stopped tasks: {}", stopped_tasks.size());
+      for (auto &stopped_task : stopped_tasks) {
+        task_queue.push_back(std::move(stopped_task));
+      }
+      return send_response(json_success(stopped_tasks, request));
+    } else {
+      if (!db_connector->get_stopped_tasks_from_tasks(task_list,
+                                                      stopped_tasks)) {
+        return error_handler(server_error("not able to restart tasks",
+                                          error_type_e::ServerError, request));
+      }
       spdlog::info("Stopped tasks: {}", stopped_tasks.size());
       for (auto &stopped_task : stopped_tasks) {
         task_queue.push_back(std::move(stopped_task));
@@ -820,20 +831,20 @@ void session::schedule_task_handler(string_request const &request,
                                       error_type_e::ServerError, request));
   } else {
     auto const user_id_iter = optional_query.find("user_id");
-    auto const task_ids_iter = optional_query.find( "task_id" );
+    auto const task_ids_iter = optional_query.find("task_id");
     try {
       if (user_id_iter == optional_query.cend()) {
         return error_handler(bad_request("uploader id unspecified", request));
       }
       std::vector<boost::string_view> task_ids{};
-      if( task_ids_iter != optional_query.cend() ) {
-          task_ids = utilities::split_string_view( task_ids_iter->second, "|" );
+      if (task_ids_iter != optional_query.cend()) {
+        task_ids = utilities::split_string_view(task_ids_iter->second, "|");
       }
       auto const user_id = user_id_iter->second;
       auto db_connector =
           wudi_server::database_connector_t::s_get_db_connector();
-      return send_response(
-          json_success(db_connector->get_all_tasks(user_id, task_ids), request));
+      return send_response(json_success(
+          db_connector->get_all_tasks(user_id, task_ids), request));
     } catch (std::exception const &e) {
       spdlog::error("Get tasks exception: {}", e.what());
       return error_handler(bad_request("user id missing", request));

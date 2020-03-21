@@ -75,7 +75,10 @@ public:
   bool change_task_status(uint32_t const task_id, uint32_t const processed,
                           utilities::task_status_e const);
   bool add_completed_task(utilities::atomic_task_t &task);
-
+  bool add_erred_task(utilities::atomic_task_t &);
+  // only as a fail safe
+  bool get_stopped_tasks_from_tasks(std::vector<uint32_t> const &tasks,
+                                    std::vector<utilities::atomic_task_t> &);
   std::vector<utilities::task_result_t>
   get_all_tasks(boost::string_view,
                 std::vector<boost::string_view> const & = {});
