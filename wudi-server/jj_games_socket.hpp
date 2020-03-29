@@ -62,7 +62,7 @@ std::size_t data_writer(char *buffer, std::size_t, std::size_t nmemb,
                         void *user_data);
 std::size_t header_writer(char *buffer, std::size_t, std::size_t nmemb,
                           void *user_data);
-std::string get_proxy_string(std::optional<wudi_server::endpoint_ptr> const &);
+std::string get_proxy_string(std::optional<tcp::endpoint> const &);
 
 class jj_games_single_interface {
 public:
@@ -70,7 +70,7 @@ public:
       utilities::search_result_type_e, std::string_view)>;
 
 public:
-  jj_games_single_interface(bool &stopped, safe_proxy &proxy_provider,
+  jj_games_single_interface(bool &stopped, proxy_provider_t &proxy_provider,
                             utilities::number_stream_t &numbers);
   void start_connect();
   auto &signal() { return signal_; }
@@ -88,8 +88,8 @@ private:
   utilities::number_stream_t &numbers_;
   bool &stopped_;
   std::unique_ptr<single_connect_info_t> connection_;
-  safe_proxy &proxy_provider_;
-  wudi_server::endpoint_ptr current_proxy{};
+  proxy_provider_t &proxy_provider_;
+  std::size_t proxy_index_{};
   std::string phone_number{};
   my_signal signal_;
 };

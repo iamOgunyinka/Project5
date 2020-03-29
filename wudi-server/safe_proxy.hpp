@@ -6,6 +6,8 @@
 #include <memory>
 #include <optional>
 
+enum safe_count { max_ip_use = 150, max_endpoints_allowed = 5'000 };
+
 namespace wudi_server {
 namespace beast = boost::beast;
 namespace net = boost::asio;
@@ -15,6 +17,7 @@ using tcp = boost::asio::ip::tcp;
 net::io_context &get_network_context();
 
 enum class ProxyProperty { ProxyUnresponsive, ProxyBlocked, ProxyActive };
+
 struct extraction_data {
   std::time_t expire_time{};
   int product_remain{};
@@ -23,43 +26,43 @@ struct extraction_data {
   bool is_available{false};
 };
 
-struct custom_endpoint {
-  tcp::endpoint endpoint{};
-  ProxyProperty property{};
-
-  custom_endpoint(tcp::endpoint &&ep, ProxyProperty prop)
-      : endpoint(std::move(ep)), property{prop} {}
-  operator net::ip::tcp::endpoint() const { return endpoint; }
-  void swap(custom_endpoint &);
-};
-
-using EndpointList = std::vector<custom_endpoint>;
-using endpoint_ptr = std::shared_ptr<custom_endpoint>;
-void swap(custom_endpoint &a, custom_endpoint &b);
-
-class safe_proxy {
+class global_proxy_provider {
 private:
   net::io_context &context_;
   extraction_data current_extracted_data_;
   static std::string const proxy_generator_address;
-  static std::string const https_proxy_filename;
   static std::string const http_proxy_filename;
   std::mutex mutex_{};
-  std::size_t count_{};
-  std::vector<endpoint_ptr> endpoints_;
-  std::atomic_bool has_error = false;
+  std::vector<tcp::endpoint> endpoints_;
 
 private:
   void load_proxy_file();
-  void get_more_proxies();
   void save_proxies_to_file();
-  extraction_data
-  get_remain_count(net::ip::basic_resolver_results<net::ip::tcp> &);
+  global_proxy_provider(net::io_context &context);
 
 public:
-  safe_proxy(net::io_context &context);
-  void clear();
-  void push_back(custom_endpoint ep);
-  std::optional<endpoint_ptr> next_endpoint();
+  std::size_t get_more_proxies(std::size_t const current_size);
+  tcp::endpoint &endpoint_at(std::size_t);
+  std::size_t count() { return endpoints_.size(); }
+  static global_proxy_provider &get_global_proxy_provider();
+  static extraction_data
+  remain_count(net::io_context &,
+               net::ip::basic_resolver_results<net::ip::tcp> &);
+};
+
+class proxy_provider_t {
+  struct endpoint_info {
+    ProxyProperty property{ProxyProperty::ProxyActive};
+    std::size_t use_count{};
+  };
+  std::vector<endpoint_info> information_list_{};
+  global_proxy_provider &proxy_provider_;
+  bool exhausted_daily_dose{false};
+
+public:
+  proxy_provider_t(global_proxy_provider &gsp);
+  std::size_t next_endpoint();
+  tcp::endpoint &endpoint(std::size_t);
+  void assign_property(std::size_t, ProxyProperty);
 };
 } // namespace wudi_server

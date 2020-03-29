@@ -1,3 +1,4 @@
+#include "json.hpp"
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 #include <iostream>
@@ -5,10 +6,12 @@
 
 namespace net = boost::asio;
 namespace beast = boost::beast;
+namespace http = beast::http;
 using tcp = net::ip::tcp;
 
 using string_request = beast::http::request<beast::http::string_body>;
 using string_response = beast::http::response<beast::http::string_body>;
+using nlohmann::json;
 
 class server : public std::enable_shared_from_this<server> {
   net::io_context &io_context_;
@@ -63,16 +66,19 @@ void server::run() {
 }
 
 class session : public std::enable_shared_from_this<session> {
+  net::io_context &context_;
   beast::tcp_stream tcp_stream_;
   beast::flat_buffer read_buffer_;
-  beast::http::request_parser<beast::http::empty_body> empty_body_parser_;
+  http::request_parser<http::empty_body> empty_body_parser_;
   std::shared_ptr<void> resp_;
 
 public:
-  session(tcp::socket &&socket) : tcp_stream_{std::move(socket)} {}
+  session(net::io_context &io, tcp::socket &&socket)
+      : context_{io}, tcp_stream_{std::move(socket)} {}
   void run();
   void on_data_read(beast::error_code, std::size_t);
   void send_response(string_response &&res);
+  std::string get_shangai_time();
   void on_data_written(beast::error_code ec, std::size_t);
   string_response make_response(std::string const &);
 };
@@ -117,6 +123,40 @@ void session::send_response(string_response &&response) {
       beast::bind_front_handler(&session::on_data_written, shared_from_this()));
 }
 
+std::string session::get_shangai_time() {
+  net::ip::tcp::resolver resolver{context_};
+  beast::tcp_stream http_tcp_stream(net::make_strand(context_));
+  beast::http::request<beast::http::empty_body> http_request_;
+
+  try {
+    auto resolves = resolver.resolve("worldtimeapi.org", "http");
+    beast::tcp_stream http_tcp_stream(net::make_strand(context_));
+    http_tcp_stream.connect(resolves);
+    beast::http::request<http::empty_body> http_request{};
+    http_request.method(http::verb::get);
+    http_request.target(R"(/api/timezone/Asia/Shanghai)");
+    http_request.version(11);
+    http_request.set(http::field::host, "worldtimeapi.org:80");
+    http_request.set(http::field::user_agent,
+                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:74.0) "
+                     "Gecko/20100101 Firefox/74.0");
+    http::write(http_tcp_stream, http_request);
+    beast::flat_buffer buffer{};
+    http::response<http::string_body> server_response{};
+    http::read(http_tcp_stream, buffer, server_response);
+    beast::error_code ec{};
+    if (server_response.result_int() != 200)
+      return {};
+    http_tcp_stream.cancel();
+    auto &response_body = server_response.body();
+    auto r = json::parse(response_body).get<json::object_t>();
+    return r["datetime"].get<json::string_t>();
+  } catch (std::exception const &e) {
+    std::cerr << e.what() << "\n";
+    return {};
+  }
+}
+
 void session::on_data_read(beast::error_code const ec, std::size_t const) {
   if (ec == beast::http::error::end_of_stream) {
     beast::error_code ec{};
@@ -128,6 +168,9 @@ void session::on_data_read(beast::error_code const ec, std::size_t const) {
     std::cerr << ec.message() << std::endl;
     return;
   }
+  http::request<http::empty_body> r = empty_body_parser_.get();
+  if (r.target() == "/time")
+    return send_response(make_response(get_shangai_time()));
   std::string remote_ep =
       tcp_stream_.socket().remote_endpoint().address().to_string();
   return send_response(make_response(remote_ep));
@@ -138,7 +181,7 @@ void server::on_connection_accepted(beast::error_code const ec,
   if (ec) {
     std::cerr << "On connection accepted: " << ec.message() << std::endl;
   } else {
-    std::make_shared<session>(std::move(socket))->run();
+    std::make_shared<session>(io_context_, std::move(socket))->run();
   }
   run();
 }

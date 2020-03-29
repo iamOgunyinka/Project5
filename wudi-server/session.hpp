@@ -80,7 +80,7 @@ class session {
 private:
   std::vector<uint32_t>
   stop_running_tasks_impl(std::vector<uint32_t> const &tasks,
-                          bool save_state = true);
+                          bool saving_state = true);
   void delete_stopped_tasks_impl(std::vector<uint32_t> const &tasks);
   void delete_other_tasks_impl(boost::string_view const,
                                std::vector<uint32_t> const &tasks);

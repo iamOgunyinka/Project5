@@ -474,30 +474,29 @@ void session::download_handler(string_request const &request,
     }
     ec = {};
     std::vector<std::filesystem::path> paths{};
-    for (auto &task : tasks) {
-      auto &stopped_task = std::get<atomic_task_t::stopped_task>(task.task);
+    for (auto &stopped_task : tasks) {
       if (std::find(website_ids.cbegin(), website_ids.cend(),
-                    task.website_id) == website_ids.cend()) {
+                    stopped_task.website_id) == website_ids.cend()) {
         continue;
       }
       utilities::normalize_paths(stopped_task.not_ok_filename);
       utilities::normalize_paths(stopped_task.ok_filename);
       utilities::normalize_paths(stopped_task.unknown_filename);
       if (needs_ok) { // provides numbers that are OK.
-        std::string const filename =
-            "task_{}_website_{}_ok.txt"_format(task.task_id, task.website_id);
+        std::string const filename = "task_{}_website_{}_ok.txt"_format(
+            stopped_task.task_id, stopped_task.website_id);
         paths.emplace_back(copy_file_n(stopped_task.ok_filename, temp_path,
                                        filename, user_from, user_to));
       }
       if (needs_not_ok) {
         std::string const filename = "task_{}_website_{}_not_ok.txt"_format(
-            task.task_id, task.website_id);
+            stopped_task.task_id, stopped_task.website_id);
         paths.emplace_back(copy_file_n(stopped_task.not_ok_filename, temp_path,
                                        filename, user_from, user_to));
       }
       if (needs_unknown) {
         std::string const filename = "task_{}_website_{}_unknown.txt"_format(
-            task.task_id, task.website_id);
+            stopped_task.task_id, stopped_task.website_id);
         paths.emplace_back(copy_file_n(stopped_task.unknown_filename, temp_path,
                                        filename, user_from, user_to));
       }
@@ -581,15 +580,13 @@ void session::delete_stopped_tasks_impl(
   auto db_connector = database_connector_t::s_get_db_connector();
   std::vector<atomic_task_t> tasks{};
   db_connector->get_stopped_tasks(user_stopped_tasks, tasks);
-  for (auto &task : tasks) {
-    auto &stopped_task = std::get<atomic_task_t::stopped_task>(task.task);
+  for (auto &stopped_task : tasks) {
     remove_file(stopped_task.input_filename);
     remove_file(stopped_task.not_ok_filename);
     remove_file(stopped_task.ok_filename);
     remove_file(stopped_task.unknown_filename);
   }
-  db_connector->remove_stopped_tasks(user_stopped_tasks);
-  return;
+  return db_connector->delete_stopped_tasks(user_stopped_tasks);
 }
 
 void session::delete_other_tasks_impl(boost::string_view const user_id,
@@ -604,7 +601,7 @@ void session::delete_other_tasks_impl(boost::string_view const user_id,
 
 std::vector<uint32_t>
 session::stop_running_tasks_impl(std::vector<uint32_t> const &task_id_list,
-                                 bool save_state) {
+                                 bool const saving_state) {
   using utilities::task_status_e;
 
   auto &running_tasks = utilities::get_response_queue();
@@ -612,13 +609,12 @@ session::stop_running_tasks_impl(std::vector<uint32_t> const &task_id_list,
   stopped_tasks.reserve(task_id_list.size());
   for (std::size_t index = 0; index != task_id_list.size(); ++index) {
     auto const &task_id = task_id_list[index];
-    spdlog::info("Trying to stop: {}", task_id);
     if (auto iter = running_tasks.equal_range(task_id);
         iter.first != running_tasks.cend()) {
       stopped_tasks.push_back(task_id);
       for (auto beg = iter.first; beg != iter.second; ++beg) {
         if (beg->second->operation_status == task_status_e::Ongoing) {
-          beg->second->save_state() = save_state;
+          beg->second->saving_state() = saving_state;
           beg->second->stop();
         }
       }
@@ -698,20 +694,18 @@ void session::stop_tasks_handler(string_request const &request,
         });
     auto db_connector = database_connector_t::s_get_db_connector();
     for (auto const &task : interesting_tasks) {
-      atomic_task_t stopped_task{};
-      stopped_task.type_ = atomic_task_t::task_type::stopped;
-      stopped_task.task_id = task.task_id;
-      stopped_task.website_id = task.website_id;
-      stopped_task.processed = 0;
-      stopped_task.total = task.total;
-      auto &st_task = stopped_task.task.emplace<atomic_task_t::stopped_task>();
-      st_task.not_ok_filename = st_task.ok_filename = st_task.unknown_filename =
-          st_task.website_address = "{free}";
+      atomic_task_t unstarted_task{};
+      unstarted_task.type_ = atomic_task_t::task_type::fresh;
+      unstarted_task.task_id = task.task_id;
+      unstarted_task.website_id = task.website_id;
+      unstarted_task.processed = 0;
+      unstarted_task.total = task.total;
+      unstarted_task.not_ok_filename = unstarted_task.ok_filename =
+          unstarted_task.unknown_filename = "{free}";
 
-      auto const &fresh_task = std::get<atomic_task_t::fresh_task>(task.task);
-      st_task.input_filename =
-          utilities::intlist_to_string(fresh_task.number_ids);
-      db_connector->save_stopped_task(stopped_task);
+      unstarted_task.input_filename =
+          utilities::intlist_to_string(unstarted_task.number_ids);
+      db_connector->save_unstarted_task(unstarted_task);
     }
     return send_response(json_success(stop_running_tasks_impl(tasks), request));
   } catch (std::exception const &e) {
@@ -739,20 +733,7 @@ void session::restart_tasks_handler(string_request const &request,
     auto db_connector = wudi_server::database_connector_t::s_get_db_connector();
     std::vector<utilities::atomic_task_t> stopped_tasks{};
     auto &task_queue = utilities::get_scheduled_tasks();
-    if (db_connector->get_stopped_tasks(task_list, stopped_tasks) &&
-        db_connector->remove_stopped_tasks(stopped_tasks)) {
-      spdlog::info("Stopped tasks: {}", stopped_tasks.size());
-      for (auto &stopped_task : stopped_tasks) {
-        task_queue.push_back(std::move(stopped_task));
-      }
-      return send_response(json_success(stopped_tasks, request));
-    } else {
-      if (!db_connector->get_stopped_tasks_from_tasks(task_list,
-                                                      stopped_tasks)) {
-        return error_handler(server_error("not able to restart tasks",
-                                          error_type_e::ServerError, request));
-      }
-      spdlog::info("Stopped tasks: {}", stopped_tasks.size());
+    if (db_connector->get_stopped_tasks(task_list, stopped_tasks)) {
       for (auto &stopped_task : stopped_tasks) {
         task_queue.push_back(std::move(stopped_task));
       }
@@ -809,13 +790,10 @@ void session::schedule_task_handler(string_request const &request,
         atom_task.type_ = atomic_task_t::task_type::fresh;
         atom_task.task_id = task.task_id;
         atom_task.total = task.total_numbers;
-        auto &new_atomic_task =
-            atom_task.task.emplace<atomic_task_t::fresh_task>();
-        new_atomic_task.website_id = website_id;
-        new_atomic_task.number_ids = task.number_ids;
+        atom_task.website_id = task.website_id;
+        atom_task.number_ids = task.number_ids;
         task_ids.push_back(task.task_id);
         tasks.push_back(std::move(atom_task));
-        spdlog::info("Added new task => {}", task_ids.back());
       }
 
       json::object_t obj;

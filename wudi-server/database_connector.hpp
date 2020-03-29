@@ -24,7 +24,6 @@ using utilities::task_result_t;
 otl_stream &operator>>(otl_stream &, task_result_t &item);
 otl_stream &operator>>(otl_stream &, utilities::upload_result_t &);
 otl_stream &operator>>(otl_stream &, utilities::website_result_t &);
-otl_stream &operator>>(otl_stream &, utilities::atomic_task_t &);
 
 void log_sql_error(otl_exception const &exception);
 
@@ -55,14 +54,12 @@ public:
   bool connect();
 
 public:
-  bool save_stopped_task(utilities::atomic_task_t const &);
+  bool save_unstarted_task(utilities::atomic_task_t const &);
+
   bool get_completed_tasks(std::vector<uint32_t> const &,
                            std::vector<utilities::atomic_task_t> &);
   bool get_stopped_tasks(std::vector<uint32_t> const &tasks,
                          std::vector<utilities::atomic_task_t> &);
-  bool remove_stopped_tasks(std::vector<utilities::atomic_task_t> const &tasks);
-  bool remove_stopped_tasks(std::vector<uint32_t> const &tasks);
-  bool remove_completed_tasks(std::vector<uint32_t> const &tasks);
   bool remove_filtered_tasks(boost::string_view const,
                              std::vector<uint32_t> const &);
   bool remove_uploads(std::vector<boost::string_view> const &ids = {});
@@ -72,19 +69,19 @@ public:
   bool add_website(std::string_view const address,
                    std::string_view const alias);
   bool add_task(utilities::scheduled_task_t &task);
+  bool save_stopped_task(utilities::atomic_task_t const &);
   bool change_task_status(uint32_t const task_id, uint32_t const processed,
                           utilities::task_status_e const);
-  bool add_completed_task(utilities::atomic_task_t &task);
+  bool update_task_progress(utilities::internal_task_result_t const &);
   bool add_erred_task(utilities::atomic_task_t &);
-  // only as a fail safe
-  bool get_stopped_tasks_from_tasks(std::vector<uint32_t> const &tasks,
-                                    std::vector<utilities::atomic_task_t> &);
+  void delete_stopped_tasks(std::vector<uint32_t> const &task_ids);
   std::vector<utilities::task_result_t>
   get_all_tasks(boost::string_view,
                 std::vector<boost::string_view> const & = {});
   std::pair<int, int> get_login_role(std::string_view const,
                                      std::string_view const);
   bool add_upload(utilities::upload_request_t const &upload_request);
+  bool set_input_file(std::string_view filename, uint32_t const task_id);
 
   template <typename T>
   std::vector<utilities::upload_result_t>

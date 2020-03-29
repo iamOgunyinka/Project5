@@ -29,35 +29,16 @@ class Task(db.Model):
 	total_numbers = db.Column(db.Integer, nullable=False, unique=False)
 	scheduler_id = db.Column(db.Integer, db.ForeignKey('tb_users.id'), nullable=False)
 	date_scheduled = db.Column(db.String(32), nullable=False, unique=True)
-	websites = db.Column(db.Text, nullable=False)
+	website_id = db.Column(db.Integer, nullable=False)
 	uploads = db.Column(db.Text, nullable=False)
-	progress = db.Column(db.Integer, nullable=False, default=0, unique=False)
+	processed = db.Column(db.Integer, nullable=False, default=0, unique=False)
+	ok_count = db.Column(db.Integer, nullable=False, default=0, unique=False)
+	not_ok_count = db.Column(db.Integer, nullable=False, default=0, unique=False)
+	unknown_count = db.Column(db.Integer, nullable=False, default=0, unique=False)
+	input_filename = db.Column(db.String(128), nullable=True)
 	ok_file = db.Column(db.String(128), nullable=True)
 	not_ok_file = db.Column(db.String(128), nullable=True)
 	unknown_file = db.Column(db.String(128), nullable=True)
-	stopped_filename = db.Column(db.String(128), nullable=True)
-
-class StoppedTask(db.Model):
-	__tablename__ = 'tb_stopped_tasks'
-	id = db.Column(db.Integer, primary_key=True, unique=True,index=True)
-	task_id = db.Column(db.Integer, nullable=False,unique=False)
-	website_id = db.Column(db.Integer, nullable=False, unique=False)
-	filename = db.Column(db.String(128), nullable=False,unique=False)
-	total_numbers = db.Column(db.Integer, nullable=False,unique=False)
-	processed = db.Column(db.Integer, nullable=False, unique=False)
-	website_address = db.Column(db.String(128), nullable=False, unique=False)
-	ok_filename = db.Column(db.String(128), nullable=False, unique=True)
-	not_ok_filename = db.Column(db.String(128), nullable=False, unique=True)
-	unknown_filename = db.Column(db.String(128), nullable=False, unique=True)
-
-class CompletedTask(db.Model):
-	__tablename__ = 'tb_completed_tasks'
-	id = db.Column(db.Integer, primary_key=True, unique=True,index=True)
-	task_id = db.Column(db.Integer, nullable=False,unique=False)
-	website_id = db.Column(db.Integer, nullable=False, unique=False)
-	ok_filename = db.Column(db.String(128), nullable=False, unique=True)
-	not_ok_filename = db.Column(db.String(128), nullable=False, unique=True)
-	unknown_filename = db.Column(db.String(128), nullable=False, unique=True)
 
 class Upload(db.Model):
 	__tablename__ = 'tb_uploads'

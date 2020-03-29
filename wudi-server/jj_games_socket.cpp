@@ -1,5 +1,6 @@
 #include "jj_games_socket.hpp"
 #include "utilities.hpp"
+#include <boost/lexical_cast.hpp>
 #include <gzip/decompress.hpp>
 #include <nlohmann/json.hpp>
 
@@ -25,13 +26,10 @@ parse_headers(std::string_view const &str) {
   return header_map;
 }
 
-std::string
-get_proxy_string(std::optional<wudi_server::endpoint_ptr> const &ep) {
-  if (!ep.value())
+std::string get_proxy_string(std::optional<tcp::endpoint> const &ep) {
+  if (!ep)
     return {};
-  auto proxy_address = (*ep)->endpoint.address().to_string();
-  auto proxy_port = std::to_string((*ep)->endpoint.port());
-  return proxy_address + ":" + proxy_port;
+  return boost::lexical_cast<std::string>(*ep);
 }
 
 std::string get_current_time() {
@@ -52,7 +50,8 @@ void jj_games_single_interface::create_jj_games_interface() {
   connect_info->headers.append("Accept-Encoding: gzip, deflate, br");
   auto curl_handle = connect_info->easy_interface;
 
-  std::string const proxy_address = "http://" + get_proxy_string(current_proxy);
+  std::string const proxy_address =
+      "http://" + get_proxy_string(proxy_provider_.endpoint(proxy_index_));
   std::string const user_agent = utilities::get_random_agent();
   curl_easy_setopt(curl_handle, CURLOPT_HTTPGET, 1L);
   curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
@@ -96,7 +95,7 @@ std::size_t header_writer(char *buffer, std::size_t, std::size_t nmemb,
 }
 
 jj_games_single_interface::jj_games_single_interface(
-    bool &stopped, safe_proxy &proxy_provider,
+    bool &stopped, proxy_provider_t &proxy_provider,
     utilities::number_stream_t &numbers)
     : proxy_provider_{proxy_provider}, numbers_{numbers}, stopped_{stopped} {}
 
@@ -114,7 +113,7 @@ void jj_games_single_interface::initialize_async_sockets() {
 }
 
 void jj_games_single_interface::perform_action() {
-  if (!current_proxy || stopped_) {
+  if (proxy_index_ == std::numeric_limits<std::size_t>::max() || stopped_) {
     if (stopped_)
       numbers_.push_back(phone_number);
     throw std::runtime_error("could not get proxy");
@@ -136,16 +135,16 @@ void jj_games_single_interface::send_next() {
 }
 
 void jj_games_single_interface::current_proxy_assign_prop(ProxyProperty p) {
-  current_proxy->property = p;
+  proxy_provider_.assign_property(proxy_index_, p);
 }
 
 void jj_games_single_interface::choose_next_proxy() {
-  if (auto proxy = proxy_provider_.next_endpoint(); proxy.has_value()) {
-    current_proxy = proxy.value();
-  } else {
+  if (proxy_index_ = proxy_provider_.next_endpoint();
+      proxy_index_ == std::numeric_limits<std::size_t>::max()) {
     spdlog::error("error getting next endpoint");
-    current_proxy = nullptr;
-    signal_(utilities::search_result_type_e::Unknown, phone_number);
+    numbers_.push_back(phone_number);
+    phone_number.clear();
+    signal_(utilities::search_result_type_e::RequestStop, phone_number);
   }
 }
 

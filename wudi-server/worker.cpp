@@ -4,8 +4,15 @@
 #include "utilities.hpp"
 
 namespace wudi_server {
-using utilities::atomic_task_result_t;
 using utilities::atomic_task_t;
+using utilities::internal_task_result_t;
+
+utilities::threadsafe_container<work_data, std::vector<work_data>> &
+get_stopped_tasks() {
+  static utilities::threadsafe_container<work_data, std::vector<work_data>>
+      stopped_tasks{};
+  return stopped_tasks;
+}
 
 void on_task_ran(utilities::task_status_e status,
                  utilities::atomic_task_t &scheduled_task,
@@ -13,39 +20,15 @@ void on_task_ran(utilities::task_status_e status,
                  background_worker_t *worker_ptr) {
   switch (status) {
   case utilities::task_status_e::Stopped:
-    run_stopped_op(db_connector, *worker_ptr);
-    break;
+    return run_stopped_op(db_connector, *worker_ptr);
   case utilities::task_status_e::Completed:
-    run_completion_op(db_connector, *worker_ptr);
-    break;
+    return run_completion_op(db_connector, *worker_ptr);
   case utilities::task_status_e::Erred:
-    run_error_occurred_op(db_connector, *worker_ptr);
-    break;
-  }
-  auto task_result_ptr = worker_ptr->task_result();
-  try {
-    if (task_result_ptr) {
-      task_result_ptr->not_ok_file.close();
-      task_result_ptr->ok_file.close();
-      task_result_ptr->unknown_file.close();
-      worker_ptr->number_stream()->close();
-      task_result_ptr.reset();
-    }
-  } catch (std::exception const &e) {
-    spdlog::error("Exception while running worker: {}", e.what());
-    using utilities::replace_special_chars;
-    if (scheduled_task.type_ != atomic_task_t::task_type::fresh) {
-      atomic_task_t::stopped_task &save_tasks =
-          std::get<atomic_task_t::stopped_task>(scheduled_task.task);
-      replace_special_chars(save_tasks.input_filename);
-      replace_special_chars(save_tasks.not_ok_filename);
-      replace_special_chars(save_tasks.ok_filename);
-      replace_special_chars(save_tasks.unknown_filename);
-      db_connector->save_stopped_task(scheduled_task);
-    }
-    db_connector->change_task_status(scheduled_task.task_id,
-                                     scheduled_task.processed,
-                                     utilities::task_status_e::Erred);
+    return run_error_occurred_op(db_connector, *worker_ptr);
+  case utilities::task_status_e::AutoStopped:
+    run_stopped_op(db_connector, *worker_ptr);
+    return get_stopped_tasks().push_back(
+        work_data{scheduled_task.task_id, std::time(nullptr)});
   }
 }
 
@@ -55,13 +38,12 @@ start_new_task(atomic_task_t &scheduled_task) {
   using utilities::task_status_e;
 
   auto db_connector = wudi_server::database_connector_t::s_get_db_connector();
-  auto &task = std::get<atomic_task_t::fresh_task>(scheduled_task.task);
   std::optional<website_result_t> website =
-      db_connector->get_website(task.website_id);
+      db_connector->get_website(scheduled_task.website_id);
   std::vector<upload_result_t> numbers =
-      db_connector->get_uploads(task.number_ids);
+      db_connector->get_uploads(scheduled_task.number_ids);
   if (!website) {
-    spdlog::error("No such website: {}", task.website_id);
+    spdlog::error("No such website: {}", scheduled_task.website_id);
     return {};
   }
   if (numbers.empty()) {
@@ -71,13 +53,12 @@ start_new_task(atomic_task_t &scheduled_task) {
 
   auto &response_queue = utilities::get_response_queue();
 
-  auto task_result = std::make_shared<atomic_task_result_t>();
+  auto task_result = std::make_shared<internal_task_result_t>();
   task_result->task_id = scheduled_task.task_id;
-  task_result->website_id = task.website_id;
+  task_result->website_id = scheduled_task.website_id;
   response_queue.emplace(scheduled_task.task_id, task_result);
   return std::make_unique<background_worker_t>(std::move(*website),
-                                               std::move(numbers), task_result,
-                                               get_network_context());
+                                               std::move(numbers), task_result);
 }
 
 std::unique_ptr<background_worker_t>
@@ -85,40 +66,46 @@ continue_recent_task(atomic_task_t &scheduled_task) {
   using utilities::normalize_paths;
   using utilities::task_status_e;
 
-  atomic_task_t::stopped_task &task =
-      std::get<atomic_task_t::stopped_task>(scheduled_task.task);
+  normalize_paths(scheduled_task.input_filename);
+  normalize_paths(scheduled_task.ok_filename);
+  normalize_paths(scheduled_task.not_ok_filename);
+  normalize_paths(scheduled_task.unknown_filename);
 
-  normalize_paths(task.input_filename);
-  normalize_paths(task.ok_filename);
-  normalize_paths(task.not_ok_filename);
-  normalize_paths(task.unknown_filename);
+  auto db_connector = wudi_server::database_connector_t::s_get_db_connector();
+  std::optional<website_result_t> website =
+      db_connector->get_website(scheduled_task.website_id);
 
-  if (task.website_address.empty()) {
+  if (!website) {
     spdlog::error("website address is empty");
     return {};
   }
-  if (!std::filesystem::exists(task.input_filename)) {
+
+  if (!std::filesystem::exists(scheduled_task.input_filename)) {
     spdlog::error("file does not exist anymore");
     return {};
   }
-  std::shared_ptr<atomic_task_result_t> task_result{};
+  std::shared_ptr<internal_task_result_t> task_result{};
   auto &response_queue = utilities::get_response_queue();
   auto iter = response_queue.find(scheduled_task.task_id);
   if (iter == response_queue.cend()) {
-    task_result = std::make_shared<atomic_task_result_t>();
+    task_result = std::make_shared<internal_task_result_t>();
     task_result->task_id = scheduled_task.task_id;
     task_result->website_id = scheduled_task.website_id;
     task_result->processed = scheduled_task.processed;
     task_result->total_numbers = scheduled_task.total;
-    task_result->not_ok_filename = task.not_ok_filename;
-    task_result->ok_filename = task.ok_filename;
-    task_result->unknown_filename = task.unknown_filename;
+    task_result->ok_count = scheduled_task.ok_count;
+    task_result->not_ok_count = scheduled_task.not_ok_count;
+    task_result->unknown_count = scheduled_task.unknown_count;
+    task_result->not_ok_filename = scheduled_task.not_ok_filename;
+    task_result->ok_filename = scheduled_task.ok_filename;
+    task_result->unknown_filename = scheduled_task.unknown_filename;
+    scheduled_task.website_address = website->address;
     response_queue.emplace(scheduled_task.task_id, task_result);
   } else {
     task_result = iter->second;
   }
-  return std::make_unique<background_worker_t>(
-      std::move(scheduled_task), task_result, get_network_context());
+  return std::make_unique<background_worker_t>(std::move(scheduled_task),
+                                               task_result);
 }
 
 std::unique_ptr<background_worker_t>
@@ -133,29 +120,27 @@ resume_unstarted_task(utilities::atomic_task_t &scheduled_task) {
   };
 
   auto db_connector = wudi_server::database_connector_t::s_get_db_connector();
-  auto &task = std::get<atomic_task_t::stopped_task>(scheduled_task.task);
   std::optional<website_result_t> website =
       db_connector->get_website(scheduled_task.website_id);
-  std::vector<upload_result_t> numbers =
-      db_connector->get_uploads(string_to_intlist(task.input_filename));
+  std::vector<upload_result_t> numbers = db_connector->get_uploads(
+      string_to_intlist(scheduled_task.input_filename));
   if (!website || numbers.empty()) {
     spdlog::error("No such website or numbers is empty");
     return {};
   }
-  task.input_filename.clear();
-  task.not_ok_filename.clear();
-  task.ok_filename.clear();
-  task.unknown_filename.clear();
-  task.website_address.clear();
+  scheduled_task.input_filename.clear();
+  scheduled_task.not_ok_filename.clear();
+  scheduled_task.ok_filename.clear();
+  scheduled_task.unknown_filename.clear();
+  scheduled_task.website_address.clear();
   auto &response_queue = utilities::get_response_queue();
 
-  auto task_result = std::make_shared<atomic_task_result_t>();
+  auto task_result = std::make_shared<internal_task_result_t>();
   task_result->task_id = scheduled_task.task_id;
   task_result->website_id = scheduled_task.website_id;
   response_queue.emplace(scheduled_task.task_id, task_result);
   return std::make_unique<background_worker_t>(std::move(*website),
-                                               std::move(numbers), task_result,
-                                               get_network_context());
+                                               std::move(numbers), task_result);
 }
 
 void background_task_executor(
@@ -163,14 +148,27 @@ void background_task_executor(
     std::shared_ptr<database_connector_t> &db_connector) {
 
   auto &scheduled_tasks = utilities::get_scheduled_tasks();
+  auto on_error = [db_connector](atomic_task_t &scheduled_task) {
+    using utilities::replace_special_chars;
+    if (scheduled_task.type_ != atomic_task_t::task_type::fresh) {
+      replace_special_chars(scheduled_task.input_filename);
+      replace_special_chars(scheduled_task.not_ok_filename);
+      replace_special_chars(scheduled_task.ok_filename);
+      replace_special_chars(scheduled_task.unknown_filename);
+      db_connector->save_stopped_task(scheduled_task);
+    }
+    db_connector->change_task_status(scheduled_task.task_id,
+                                     scheduled_task.processed,
+                                     utilities::task_status_e::Erred);
+  };
+
   while (!stopped) {
     auto scheduled_task = std::move(scheduled_tasks.get());
     std::unique_ptr<background_worker_t> worker{};
     if (scheduled_task.type_ == atomic_task_t::task_type::fresh) {
       worker = start_new_task(scheduled_task);
     } else {
-      auto &task = std::get<atomic_task_t::stopped_task>(scheduled_task.task);
-      if (task.website_address == "{free}") {
+      if (scheduled_task.ok_filename == "{free}") {
         worker = resume_unstarted_task(scheduled_task);
       } else {
         worker = continue_recent_task(scheduled_task);
@@ -180,27 +178,27 @@ void background_task_executor(
       db_connector->change_task_status(scheduled_task.task_id,
                                        worker->task_result()->processed,
                                        utilities::task_status_e::Ongoing);
-      auto task_ran = [&scheduled_task, &db_connector,
-                       worker_ptr =
-                           worker.get()](utilities::task_status_e status) {
+      auto handle = [&scheduled_task, &db_connector, worker_ptr = worker.get()](
+                        utilities::task_status_e status) {
         on_task_ran(status, scheduled_task, db_connector, worker_ptr);
       };
-      worker->run(task_ran);
-      // if we are here, we are done.
-    } else {
-      using utilities::replace_special_chars;
-      if (scheduled_task.type_ != atomic_task_t::task_type::fresh) {
-        atomic_task_t::stopped_task &save_tasks =
-            std::get<atomic_task_t::stopped_task>(scheduled_task.task);
-        replace_special_chars(save_tasks.input_filename);
-        replace_special_chars(save_tasks.not_ok_filename);
-        replace_special_chars(save_tasks.ok_filename);
-        replace_special_chars(save_tasks.unknown_filename);
-        db_connector->save_stopped_task(scheduled_task);
+      handle(worker->run());
+      auto task_result_ptr = worker->task_result();
+
+      try {
+        if (task_result_ptr) {
+          task_result_ptr->not_ok_file.close();
+          task_result_ptr->ok_file.close();
+          task_result_ptr->unknown_file.close();
+          worker->number_stream()->close();
+        }
+        // if we are here, we are done.
+      } catch (std::exception const &e) {
+        spdlog::error("Exception while running worker: {}", e.what());
+        on_error(scheduled_task);
       }
-      db_connector->change_task_status(scheduled_task.task_id,
-                                       scheduled_task.processed,
-                                       utilities::task_status_e::Erred);
+    } else {
+      on_error(scheduled_task);
     }
   }
 }
@@ -213,23 +211,10 @@ void run_completion_op(std::shared_ptr<database_connector_t> &db_connector,
 
   auto task_result_ptr = bg_worker.task_result();
   task_result_ptr->operation_status = utilities::task_status_e::Completed;
-  atomic_task_t completed_task{};
-  auto &task = completed_task.task.emplace<atomic_task_t::stopped_task>();
-  task.not_ok_filename = task_result_ptr->not_ok_filename.string();
-  task.ok_filename = task_result_ptr->ok_filename.string();
-  task.unknown_filename = task_result_ptr->unknown_filename.string();
-  completed_task.task_id = task_result_ptr->task_id;
-  completed_task.website_id = task_result_ptr->website_id;
-  using utilities::replace_special_chars;
-
-  replace_special_chars(task.ok_filename);
-  replace_special_chars(task.not_ok_filename);
-  replace_special_chars(task.unknown_filename);
-
-  if (db_connector->change_task_status(task_result_ptr->task_id,
-                                       task_result_ptr->total_numbers,
-                                       task_result_ptr->operation_status) &&
-      db_connector->add_completed_task(completed_task)) {
+  bool const status_changed = db_connector->change_task_status(
+      task_result_ptr->task_id, task_result_ptr->total_numbers,
+      task_result_ptr->operation_status);
+  if (status_changed) {
     if (std::filesystem::exists(bg_worker.filename())) {
       if (bg_worker.number_stream()->is_open()) {
         bg_worker.number_stream()->close();
@@ -263,36 +248,33 @@ void run_completion_op(std::shared_ptr<database_connector_t> &db_connector,
 
 void run_error_occurred_op(std::shared_ptr<database_connector_t> &db_connector,
                            background_worker_t &bg_worker) {
+  using utilities::replace_special_chars;
+  using utilities::task_status_e;
+
   auto task_result_ptr = bg_worker.task_result();
-  task_result_ptr->operation_status = utilities::task_status_e::Erred;
+  task_result_ptr->operation_status = task_status_e::Erred;
   atomic_task_t erred_task{};
-  auto &task = erred_task.task.emplace<atomic_task_t::stopped_task>();
-  task.not_ok_filename = task_result_ptr->not_ok_filename.string();
-  task.ok_filename = task_result_ptr->ok_filename.string();
-  task.unknown_filename = task_result_ptr->unknown_filename.string();
+  erred_task.not_ok_filename = task_result_ptr->not_ok_filename.string();
+  erred_task.ok_filename = task_result_ptr->ok_filename.string();
+  erred_task.unknown_filename = task_result_ptr->unknown_filename.string();
   erred_task.task_id = task_result_ptr->task_id;
   erred_task.website_id = task_result_ptr->website_id;
-  using utilities::replace_special_chars;
+  erred_task.processed = task_result_ptr->processed;
 
-  replace_special_chars(task.ok_filename);
-  replace_special_chars(task.not_ok_filename);
-  replace_special_chars(task.unknown_filename);
+  replace_special_chars(erred_task.ok_filename);
+  replace_special_chars(erred_task.not_ok_filename);
+  replace_special_chars(erred_task.unknown_filename);
   db_connector->add_erred_task(erred_task);
-  db_connector->change_task_status(task_result_ptr->task_id,
-                                   task_result_ptr->processed,
-                                   utilities::task_status_e::Erred);
 }
 
 void run_stopped_op(std::shared_ptr<database_connector_t> &db_connector,
                     background_worker_t &bg_worker) {
-
   using utilities::get_random_integer;
   using utilities::get_random_string;
   using utilities::task_status_e;
 
   auto task_result_ptr = bg_worker.task_result();
-  bg_worker.task_result()->operation_status = task_status_e::Stopped;
-  if (task_result_ptr->save_state()) {
+  if (task_result_ptr->saving_state()) {
     std::filesystem::path filename =
         "." / std::filesystem::path("stopped_files") /
         "{}.txt"_format(get_random_string(get_random_integer()));
@@ -301,8 +283,8 @@ void run_stopped_op(std::shared_ptr<database_connector_t> &db_connector,
                  "{}.txt"_format(get_random_string(get_random_integer()));
     }
     if (utilities::create_file_directory(filename) &&
-        save_status_to_persistence(filename.string(), bg_worker,
-                                   db_connector)) {
+        save_status_to_persistent_storage(filename.string(), bg_worker,
+                                          db_connector)) {
       spdlog::info("saved task -> {}:{} to persistent storage",
                    task_result_ptr->task_id, task_result_ptr->website_id);
     } else {
@@ -316,48 +298,34 @@ void run_stopped_op(std::shared_ptr<database_connector_t> &db_connector,
   }
 }
 
-bool save_status_to_persistence(
+bool save_status_to_persistent_storage(
     std::string const &filename, background_worker_t &bg_worker,
     std::shared_ptr<database_connector_t> db_connector) {
-  auto website_address = [](website_type const type) {
-    switch (type) { // we can easily add more websites in the future
-    case website_type::AutoHomeRegister:
-      return "autohome";
-    case website_type::JJGames:
-      return "jjgames";
-    }
-    return "";
-  };
-
   using utilities::atomic_task_t;
   auto task_result_ptr = bg_worker.task_result();
   atomic_task_t stopped_task{};
   stopped_task.type_ = atomic_task_t::task_type::stopped;
-  stopped_task.task.emplace<atomic_task_t::stopped_task>();
   stopped_task.processed = task_result_ptr->processed;
   stopped_task.total = task_result_ptr->total_numbers;
   stopped_task.task_id = task_result_ptr->task_id;
   stopped_task.website_id = task_result_ptr->website_id;
-
-  auto &task =
-      std::get<utilities::atomic_task_t::stopped_task>(stopped_task.task);
-  task.input_filename = filename;
-
-  task.not_ok_filename = task_result_ptr->not_ok_filename.string();
-  task.ok_filename = task_result_ptr->ok_filename.string();
-  task.unknown_filename = task_result_ptr->unknown_filename.string();
+  stopped_task.not_ok_count = task_result_ptr->not_ok_count;
+  stopped_task.ok_count = task_result_ptr->ok_count;
+  stopped_task.unknown_count = task_result_ptr->unknown_count;
+  stopped_task.input_filename = filename;
+  stopped_task.not_ok_filename = task_result_ptr->not_ok_filename.string();
+  stopped_task.ok_filename = task_result_ptr->ok_filename.string();
+  stopped_task.unknown_filename = task_result_ptr->unknown_filename.string();
   using utilities::replace_special_chars;
 
-  replace_special_chars(task.not_ok_filename);
-  replace_special_chars(task.ok_filename);
-  replace_special_chars(task.unknown_filename);
-  replace_special_chars(task.input_filename);
-
-  task.website_address = website_address(bg_worker.type());
+  replace_special_chars(stopped_task.not_ok_filename);
+  replace_special_chars(stopped_task.ok_filename);
+  replace_special_chars(stopped_task.unknown_filename);
+  replace_special_chars(stopped_task.input_filename);
 
   std::ofstream out_file(filename);
   if (!out_file) {
-    spdlog::error("Unable to save file to hard disk");
+    spdlog::error("Unable to save file to persistent storage");
     return false;
   }
   auto &number_stream = bg_worker.number_stream();
@@ -380,4 +348,51 @@ bool save_status_to_persistence(
                                           task_result_ptr->processed,
                                           task_result_ptr->operation_status);
 }
+
+std::string get_shangai_time(net::io_context &context) {
+  net::ip::tcp::resolver resolver{context};
+  beast::tcp_stream http_tcp_stream(net::make_strand(context));
+  beast::http::request<beast::http::empty_body> http_request_;
+
+  try {
+    auto resolves = resolver.resolve("worldtimeapi.org", "http");
+    beast::tcp_stream http_tcp_stream(net::make_strand(context));
+    http_tcp_stream.connect(resolves);
+    beast::http::request<http::empty_body> http_request{};
+    http_request.method(http::verb::get);
+    http_request.target(R"(/api/timezone/Asia/Shanghai)");
+    http_request.version(11);
+    http_request.set(http::field::host, "worldtimeapi.org:80");
+    http_request.set(http::field::user_agent,
+                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:74.0) "
+                     "Gecko/20100101 Firefox/74.0");
+    http::write(http_tcp_stream, http_request);
+    beast::flat_buffer buffer{};
+    http::response<http::string_body> server_response{};
+    http::read(http_tcp_stream, buffer, server_response);
+    beast::error_code ec{};
+    if (server_response.result_int() != 200) {
+      spdlog::error("Server returned code: {}", server_response.result_int());
+      return {};
+    }
+    http_tcp_stream.cancel();
+    auto &response_body = server_response.body();
+    auto r = json::parse(response_body).get<json::object_t>();
+    return r["datetime"].get<json::string_t>();
+  } catch (std::exception const &e) {
+    spdlog::error("[get_shangai_time] {}", e.what());
+    return {};
+  }
+}
+/*
+void auto_task_restarter(net::io_context &context) {
+  auto &stopped_tasks = get_stopped_tasks();
+  while (true) {
+    if (stopped_tasks.empty()) {
+      std::this_thread::sleep_for(std::chrono::minutes(60));
+      continue;
+    }
+  }
+}
+*/
 } // namespace wudi_server

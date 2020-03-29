@@ -9,7 +9,8 @@
 
 int main(int argc, char *argv[]) {
   wudi_server::curl_wrapper_t curl_global{};
-  CLI::App cli_parser{"Wu-di: an asynchronous web server for Kiaowa Trading LLC"};
+  CLI::App cli_parser{
+      "Wu-di: an asynchronous web server for Kiaowa Trading LLC"};
   wudi_server::command_line_interface args{};
   auto const thread_count = std::thread::hardware_concurrency();
   args.thread_count = thread_count;
@@ -26,7 +27,8 @@ int main(int argc, char *argv[]) {
                         "Launch type(production, development)", true);
   CLI11_PARSE(cli_parser, argc, argv);
 
-  auto database_connector{wudi_server::database_connector_t::s_get_db_connector()};
+  auto database_connector{
+      wudi_server::database_connector_t::s_get_db_connector()};
   auto db_config = wudi_server::parse_database_file(
       args.database_config_filename, args.launch_type);
   if (!db_config) {
@@ -36,6 +38,7 @@ int main(int argc, char *argv[]) {
 
   std::atomic_bool stop = false;
   std::mutex task_mutex{};
+  wudi_server::asio::io_context context{static_cast<int>(thread_count)};
   {
     using wudi_server::background_task_executor;
     using namespace wudi_server::utilities;
@@ -45,6 +48,11 @@ int main(int argc, char *argv[]) {
                     std::ref(task_mutex), std::ref(database_connector)};
       t.detach();
     }
+    /*
+    std::thread task_restarter(wudi_server::auto_task_restarter,
+                               std::ref(context));
+    task_restarter.detach();
+    */
   }
   database_connector->username(db_config.username)
       .password(db_config.password)
@@ -53,7 +61,6 @@ int main(int argc, char *argv[]) {
     stop = true;
     return EXIT_FAILURE;
   }
-  wudi_server::asio::io_context context{static_cast<int>(thread_count)};
   auto server_instance = std::make_shared<wudi_server::server>(context, args);
   server_instance->run();
 

@@ -2,6 +2,7 @@
 #include "auto_home_sock.hpp"
 #include "database_connector.hpp"
 #include "jj_games_socket.hpp"
+#include "pp_sports.hpp"
 #include <filesystem>
 #include <list>
 
@@ -9,24 +10,21 @@ namespace wudi_server {
 
 background_worker_t::~background_worker_t() {
   sockets_.clear();
+  io_context_.reset();
   spdlog::info("Closing all files");
 }
 
 background_worker_t::background_worker_t(
     website_result_t &&website, std::vector<upload_result_t> &&uploads,
-    std::shared_ptr<utilities::atomic_task_result_t> task_result,
-    net::io_context &context)
+    std::shared_ptr<utilities::internal_task_result_t> task_result)
     : website_info_{std::move(website)}, uploads_info_{std::move(uploads)},
-      context_{context}, safe_proxy_{context},
       task_result_ptr_{task_result}, type_{website_type::Unknown} {}
 
 background_worker_t::background_worker_t(
     utilities::atomic_task_t old_task,
-    std::shared_ptr<utilities::atomic_task_result_t> task_result,
-    net::io_context &context)
-    : website_info_{}, uploads_info_{}, context_{context}, safe_proxy_{context},
-      task_result_ptr_{task_result}, type_{website_type::Unknown},
-      atomic_task_{std::move(old_task)} {}
+    std::shared_ptr<utilities::internal_task_result_t> task_result)
+    : website_info_{}, uploads_info_{}, task_result_ptr_{task_result},
+      type_{website_type::Unknown}, atomic_task_{std::move(old_task)} {}
 
 void background_worker_t::on_data_result_obtained(
     utilities::search_result_type_e type, std::string_view number) {
@@ -36,21 +34,25 @@ void background_worker_t::on_data_result_obtained(
   ++processed;
   switch (type) {
   case search_result_type_e::NotRegistered:
+    ++task_result_ptr_->ok_count;
     task_result_ptr_->ok_file << number << "\n";
     task_result_ptr_->ok_file.flush();
     break;
   case search_result_type_e::Registered:
+    ++task_result_ptr_->not_ok_count;
     task_result_ptr_->not_ok_file << number << "\n";
     task_result_ptr_->not_ok_file.flush();
     break;
   case search_result_type_e::Unknown:
+    ++task_result_ptr_->unknown_count;
     task_result_ptr_->unknown_file << number << "\n";
     task_result_ptr_->unknown_file.flush();
     break;
   case search_result_type_e::RequestStop:
     --processed; // `processed` will *always* be greater than 0
     task_result_ptr_->stop();
-    break;
+    task_result_ptr_->operation_status = task_status_e::AutoStopped;
+    return;
   }
 
   bool const signallable = (processed % utilities::MaxOpenSockets) == 0;
@@ -58,8 +60,7 @@ void background_worker_t::on_data_result_obtained(
   if (signallable) {
     spdlog::info("Task({}) => Processed {} of {}", task_result_ptr_->task_id,
                  processed, total);
-    db_connector->change_task_status(task_result_ptr_->task_id, processed,
-                                     utilities::task_status_e::Ongoing);
+    db_connector->update_task_progress(*task_result_ptr_);
   }
 }
 
@@ -113,8 +114,6 @@ bool background_worker_t::open_output_files() {
 }
 
 utilities::task_status_e background_worker_t::run_number_crawler() {
-  auto callback = std::bind(&background_worker_t::on_data_result_obtained, this,
-                            std::placeholders::_1, std::placeholders::_2);
   using utilities::task_status_e;
   if (!open_output_files()) {
     spdlog::error("OpenOutputFiles failed");
@@ -125,8 +124,9 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
     }
     return task_status_e::Erred;
   }
-  task_result_ptr_->operation_status = task_status_e::Ongoing;
+
   db_connector = database_connector_t::s_get_db_connector();
+  task_result_ptr_->operation_status = task_status_e::Ongoing;
   bool &stopped = task_result_ptr_->stopped();
   stopped = false;
   if (type_ == website_type::Unknown) {
@@ -136,49 +136,80 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
     } else if (website_info_.alias.find("autohome") != std::string::npos ||
                website_info_.address.find("autohome") != std::string::npos) {
       type_ = website_type::AutoHomeRegister;
+    } else if (website_info_.alias.find("ppsports") != std::string::npos ||
+               website_info_.address.find("ppsports") != std::string::npos) {
+      type_ = website_type::PPSports;
+    } else if (website_info_.alias.find("watch") != std::string::npos ||
+               website_info_.address.find("watch") != std::string::npos) {
+      type_ = website_type::WatchHome;
     } else {
       return task_status_e::Erred;
     }
   }
 
-  if (context_.stopped())
-    context_.restart();
-  sockets_.clear();
+  // we delayed construction of safe_proxy/io_context until now
+  io_context_.emplace();
+  proxy_provider_.emplace(global_proxy_provider::get_global_proxy_provider());
+  auto callback = std::bind(&background_worker_t::on_data_result_obtained, this,
+                            std::placeholders::_1, std::placeholders::_2);
+  if (!db_connector->set_input_file(input_filename,
+                                    task_result_ptr_->task_id)) {
+    return task_status_e::Erred;
+  }
+
   {
-    utilities::CustomTCH ref_c{std::move(tasks_completed_callback_)};
-    tasks_completed_callback_ = nullptr;
     if (type_ == website_type::JJGames) {
       // we only need one socket of this type
       auto socket_ptr = std::make_shared<jj_games_single_interface>(
-          stopped, safe_proxy_, *number_stream_);
+          stopped, *proxy_provider_, *number_stream_);
       sockets_.push_back(socket_ptr); // keep a type-erased copy
       (void)socket_ptr->signal().connect(callback);
       socket_ptr->start_connect();
-    } else if (type_ == website_type::AutoHomeRegister) {
+    } else {
       sockets_.reserve(utilities::MaxOpenSockets);
       for (int i = 0; i != utilities::MaxOpenSockets; ++i) {
-        auto socket_ptr = std::make_shared<auto_home_socket_t>(
-            stopped, context_, safe_proxy_, ref_c, *number_stream_);
-        sockets_.push_back(socket_ptr); // keep a type-erased copy
-        (void)socket_ptr->signal().connect(callback);
-        socket_ptr->start_connect();
+        if (type_ == website_type::AutoHomeRegister) {
+          auto socket_ptr = std::make_shared<auto_home_socket_t>(
+              stopped, *io_context_, *proxy_provider_, *number_stream_);
+          sockets_.push_back(socket_ptr); // keep a type-erased copy
+          (void)socket_ptr->signal().connect(callback);
+          socket_ptr->start_connect();
+        } else if (type_ == website_type::PPSports) {
+          auto socket_ptr = std::make_shared<pp_sports_t>(
+              stopped, *io_context_, *proxy_provider_, *number_stream_);
+          sockets_.push_back(socket_ptr); // keep a type-erased copy
+          (void)socket_ptr->signal().connect(callback);
+          socket_ptr->start_connect();
+        }
       }
+      io_context_->run();
     }
   }
-  context_.run();
-  return stopped ? task_status_e::Stopped : task_status_e::Completed;
-}
+
+  // this will hardly ever happen, if it does, put it in a stop state
+  if (task_result_ptr_->operation_status == task_status_e::Ongoing &&
+      !number_stream_->empty()) {
+    task_result_ptr_->stop();
+    task_result_ptr_->operation_status = task_status_e::Stopped;
+  }
+  return task_result_ptr_->operation_status;
+} // namespace wudi_server
 
 utilities::task_status_e background_worker_t::continue_old_task() {
   using utilities::atomic_task_t;
   using utilities::task_status_e;
 
-  auto &task = std::get<atomic_task_t::stopped_task>(atomic_task_->task);
+  auto &task = atomic_task_.value();
   if (task.website_address.find("autohome") != std::string::npos) {
     type_ = website_type::AutoHomeRegister;
   } else if (task.website_address.find("jjgames") != std::string::npos) {
     type_ = website_type::JJGames;
+  } else if (task.website_address.find("ppsports") != std::string::npos) {
+    type_ = website_type::PPSports;
+  } else if (task.website_address.find("watch") != std::string::npos) {
+    type_ = website_type::WatchHome;
   }
+
   input_filename = task.input_filename;
   if (task_result_ptr_->total_numbers == 0) {
     if (atomic_task_->total == 0) {
@@ -211,13 +242,14 @@ utilities::task_status_e background_worker_t::continue_old_task() {
 utilities::task_status_e background_worker_t::run_new_task() {
   using utilities::task_status_e;
   {
-    input_filename = "./{}.txt"_format(std::time(nullptr));
+    input_filename = "./{}.txt"_format(
+        utilities::get_random_string(utilities::get_random_integer()));
     std::ofstream out_file{input_filename};
     if (!out_file) {
       spdlog::error("Could not open out_file");
       input_filename.clear();
       task_result_ptr_->operation_status = task_status_e::Erred;
-      return task_status_e::Erred;
+      return task_result_ptr_->operation_status;
     }
     for (std::size_t index = 0; index != uploads_info_.size(); ++index) {
       spdlog::info("name on disk: {}", uploads_info_[index].name_on_disk);
@@ -252,16 +284,10 @@ utilities::task_status_e background_worker_t::run_new_task() {
   return run_number_crawler();
 }
 
-void background_worker_t::run(CompletionHandler &&handler) {
-  tasks_completed_callback_ = std::move(handler);
-  utilities::task_status_e status{};
+utilities::task_status_e background_worker_t::run() {
   if (website_info_.id != 0) {
-    status = run_new_task();
-  } else {
-    status = continue_old_task();
+    return run_new_task();
   }
-  if (tasks_completed_callback_) {
-    tasks_completed_callback_(status);
-  }
+  return continue_old_task();
 }
 } // namespace wudi_server

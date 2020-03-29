@@ -11,8 +11,8 @@ using namespace fmt::v6::literals;
 
 namespace utilities {
 
-bool operator<(atomic_task_result_t const &task_1,
-               atomic_task_result_t const &task_2) {
+bool operator<(internal_task_result_t const &task_1,
+               internal_task_result_t const &task_2) {
   return std::tie(task_1.task_id, task_1.website_id) <
          std::tie(task_2.task_id, task_2.website_id);
 }
@@ -32,10 +32,13 @@ void to_json(json &j, website_result_t const &result) {
 void to_json(json &j, task_result_t const &item) {
   j = json{{"id", item.id},
            {"status", item.task_status},
-           {"progress", item.progress},
-           {"web", item.website_ids},
+           {"processed", item.processed},
+           {"web", item.website_id},
            {"numbers", item.data_ids},
            {"total", item.total_numbers},
+           {"ok", item.ok},
+           {"not_ok", item.not_ok},
+           {"unknown", item.unknown},
            {"date", item.scheduled_date}};
 }
 
@@ -121,14 +124,13 @@ bool is_valid_number(std::string_view const number, std::string &buffer) {
 
 void normalize_paths(std::string &str) {
   for (std::string::size_type i = 0; i != str.size(); ++i) {
-    if (str[i] == '#')
-      str[i] =
+    if (str[i] == '#') {
 #ifdef _WIN32
-          '\\'
+      str[i] = '\\';
 #else
-          '/'
+      str[i] = '/';
 #endif // _WIN32
-          ;
+    }
   }
 };
 
@@ -305,9 +307,10 @@ threadsafe_cv_container<atomic_task_t> &get_scheduled_tasks() {
   return tasks;
 }
 
-std::map<uint32_t, std::shared_ptr<atomic_task_result_t>> &
+std::map<uint32_t, std::shared_ptr<internal_task_result_t>> &
 get_response_queue() {
-  static std::map<uint32_t, std::shared_ptr<atomic_task_result_t>> task_result;
+  static std::map<uint32_t, std::shared_ptr<internal_task_result_t>>
+      task_result;
   return task_result;
 }
 
@@ -334,6 +337,11 @@ std::string number_stream_t::get() noexcept(false) {
     throw empty_container_exception_t{};
   std::string number, temp{};
   std::lock_guard<std::mutex> lock_g{mutex_};
+  if (!temporaries_.empty()) {
+    std::string temp = temporaries_.front();
+    temporaries_.erase(temporaries_.begin());
+    return temp;
+  }
   while (std::getline(input_stream, temp)) {
     boost::trim(temp);
     if (temp.empty() || !is_valid_number(temp, number))
@@ -364,10 +372,13 @@ void number_stream_t::push_back(std::string const &str) {
   temporaries_.push_back(str);
 }
 
-bool &atomic_task_result_t::stopped() { return stopped_; }
-bool &atomic_task_result_t::save_state() { return save_state_; }
+bool &internal_task_result_t::stopped() { return stopped_; }
+bool &internal_task_result_t::saving_state() { return save_state_; }
 
-void atomic_task_result_t::stop() { stopped_ = true; }
+void internal_task_result_t::stop() {
+  stopped_ = true;
+  operation_status = task_status_e::Stopped;
+}
 
 } // namespace utilities
 } // namespace wudi_server

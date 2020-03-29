@@ -14,27 +14,26 @@ namespace http = beast::http;
 using utilities::proxy_address_t;
 using utilities::search_result_type_e;
 using tcp = boost::asio::ip::tcp;
-using utilities::CustomTCH;
 using utilities::search_result_type_e;
+using utilities::task_status_e;
 
 template <typename DerivedClass> class web_base {
 protected:
   net::io_context &io_;
   beast::tcp_stream tcp_stream_;
   utilities::number_stream_t &numbers_;
-  safe_proxy &proxy_provider_;
+  proxy_provider_t &proxy_provider_;
   bool &stopped_;
 
   beast::flat_buffer buffer_{};
-  http::request<http::string_body> post_request_{};
+  http::request<http::string_body> request_{};
   http::response<http::string_body> response_{};
   std::string current_number_{};
   boost::signals2::signal<void(search_result_type_e, std::string_view)> signal_;
   std::size_t connect_count_{};
+  std::vector<tcp::endpoint> temp_list_;
   std::size_t send_count_{};
-  EndpointList temp_list_;
-  endpoint_ptr current_endpoint_;
-  CustomTCH tch_;
+  std::size_t ep_index_{};
   void close_socket();
 
 protected:
@@ -56,7 +55,7 @@ protected:
   void on_data_received(beast::error_code, std::size_t const);
 
 public:
-  web_base(bool &stopped, net::io_context &, safe_proxy &, CustomTCH tch,
+  web_base(bool &stopped, net::io_context &, proxy_provider_t &,
            utilities::number_stream_t &);
   void start_connect();
   ~web_base();
@@ -92,7 +91,7 @@ void web_base<DerivedClass>::resend_http_request() {
 template <typename DerivedClass> void web_base<DerivedClass>::send_http_data() {
   tcp_stream_.expires_after(
       std::chrono::milliseconds(utilities::TimeoutMilliseconds));
-  http::async_write(tcp_stream_, post_request_,
+  http::async_write(tcp_stream_, request_,
                     beast::bind_front_handler(&web_base::on_data_sent, this));
 }
 
@@ -117,7 +116,7 @@ template <typename DerivedClass> void web_base<DerivedClass>::receive_data() {
 
 template <typename DerivedClass> void web_base<DerivedClass>::start_connect() {
   choose_next_proxy();
-  if (current_endpoint_)
+  if (ep_index_ != std::numeric_limits<std::size_t>::max())
     send_next();
 }
 
@@ -127,7 +126,6 @@ template <typename DerivedClass> void web_base<DerivedClass>::send_next() {
       numbers_.push_back(current_number_);
     }
     current_number_.clear();
-    tch_.done(utilities::task_status_e::Stopped);
     return;
   }
   try {
@@ -135,7 +133,6 @@ template <typename DerivedClass> void web_base<DerivedClass>::send_next() {
     prepare_request_data();
     connect();
   } catch (utilities::empty_container_exception_t &) {
-    tch_.done(utilities::task_status_e::Completed);
   }
 }
 
@@ -149,7 +146,7 @@ template <typename DerivedClass> void web_base<DerivedClass>::reconnect() {
 }
 
 template <typename DerivedClass> void web_base<DerivedClass>::connect() {
-  if (temp_list_.empty() || stopped_) {
+  if (ep_index_ == std::numeric_limits<std::size_t>::max() || stopped_) {
     if (stopped_ && !current_number_.empty())
       numbers_.push_back(current_number_);
     current_number_.clear();
@@ -157,6 +154,7 @@ template <typename DerivedClass> void web_base<DerivedClass>::connect() {
   }
   tcp_stream_.expires_after(
       std::chrono::milliseconds(utilities::TimeoutMilliseconds));
+  temp_list_ = {proxy_provider_.endpoint(ep_index_)};
   tcp_stream_.async_connect(
       temp_list_, beast::bind_front_handler(&web_base::on_connected, this));
 }
@@ -174,22 +172,18 @@ template <typename DerivedClass>
 void web_base<DerivedClass>::choose_next_proxy() {
   send_count_ = 0;
   connect_count_ = 0;
-  temp_list_.clear();
-  if (auto proxy = proxy_provider_.next_endpoint(); proxy.has_value()) {
-    current_endpoint_ = proxy.value();
-    temp_list_.push_back(*current_endpoint_);
-  } else {
+  if (ep_index_ = proxy_provider_.next_endpoint();
+      ep_index_ == std::numeric_limits<std::size_t>::max()) {
     spdlog::error("error getting next endpoint");
-    current_endpoint_ = nullptr;
+    numbers_.push_back(current_number_);
+    current_number_.clear();
     signal_(search_result_type_e::RequestStop, current_number_);
   }
 }
 
 template <typename DerivedClass>
 void web_base<DerivedClass>::current_proxy_assign_prop(ProxyProperty property) {
-  if (current_endpoint_) {
-    current_endpoint_->property = property;
-  }
+  proxy_provider_.assign_property(ep_index_, property);
 }
 
 template <typename DerivedClass>
@@ -206,10 +200,10 @@ web_base<DerivedClass>::on_data_received(beast::error_code ec,
 
 template <typename DerivedClass>
 web_base<DerivedClass>::web_base(bool &stopped, net::io_context &io_context,
-                                 safe_proxy &proxy_provider, CustomTCH tch,
+                                 proxy_provider_t &proxy_provider,
                                  utilities::number_stream_t &numbers)
     : io_{io_context}, tcp_stream_{net::make_strand(io_)}, numbers_{numbers},
-      proxy_provider_{proxy_provider}, stopped_{stopped}, tch_{tch} {}
+      proxy_provider_{proxy_provider}, stopped_{stopped} {}
 
 template <typename DerivedClass>
 void web_base<DerivedClass>::set_authentication_header() {
