@@ -58,7 +58,7 @@ public:
   web_base(bool &stopped, net::io_context &, proxy_provider_t &,
            utilities::number_stream_t &);
   void start_connect();
-  ~web_base();
+  virtual ~web_base();
   auto &signal() { return signal_; }
 };
 
@@ -131,7 +131,8 @@ template <typename DerivedClass> void web_base<DerivedClass>::send_next() {
   try {
     current_number_ = numbers_.get();
     prepare_request_data();
-    connect();
+    // connect();
+    send_http_data();
   } catch (utilities::empty_container_exception_t &) {
   }
 }

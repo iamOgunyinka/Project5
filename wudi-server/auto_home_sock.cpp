@@ -32,17 +32,17 @@ void auto_home_socket_t::prepare_request_data(bool use_authentication_header) {
   request_.target(address_);
   if (use_authentication_header) {
     request_.set(beast::http::field::proxy_authorization,
-                      "Basic " + password_base64_hash);
+                 "Basic " + password_base64_hash);
   }
   request_.set(beast::http::field::connection, "keep-alive");
   request_.set(beast::http::field::host,
-                    utilities::uri{address_}.host() + ":443");
+               utilities::uri{address_}.host() + ":443");
   request_.set(beast::http::field::cache_control, "no-cache");
-  request_.set(beast::http::field::user_agent,
-                    utilities::get_random_agent());
+  request_.set(beast::http::field::user_agent, utilities::get_random_agent());
   request_.set(beast::http::field::accept, "*/*");
+  request_.keep_alive(true);
   request_.set(beast::http::field::content_type,
-                    "application/x-www-form-urlencoded; charset=UTF-8");
+               "application/x-www-form-urlencoded; charset=UTF-8");
   request_.body() =
       "isOverSea=0&phone={}&validcodetype=1"_format(current_number_);
   request_.prepare_payload();

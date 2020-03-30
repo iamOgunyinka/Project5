@@ -54,9 +54,11 @@ class proxy_provider_t {
   struct endpoint_info {
     ProxyProperty property{ProxyProperty::ProxyActive};
     std::size_t use_count{};
+    std::size_t index_{};
   };
   std::vector<endpoint_info> information_list_{};
   global_proxy_provider &proxy_provider_;
+  std::mutex mutex_;
   bool exhausted_daily_dose{false};
 
 public:

@@ -122,6 +122,7 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
         input_file.close();
       std::filesystem::remove(input_filename);
     }
+    spdlog::error("unable to open output files");
     return task_status_e::Erred;
   }
 
@@ -152,8 +153,11 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
   proxy_provider_.emplace(global_proxy_provider::get_global_proxy_provider());
   auto callback = std::bind(&background_worker_t::on_data_result_obtained, this,
                             std::placeholders::_1, std::placeholders::_2);
-  if (!db_connector->set_input_file(input_filename,
-                                    task_result_ptr_->task_id)) {
+  if (!db_connector->set_input_files(
+          input_filename, task_result_ptr_->ok_filename.string(),
+          task_result_ptr_->not_ok_filename.string(),
+          task_result_ptr_->unknown_filename.string(),
+          task_result_ptr_->task_id)) {
     return task_status_e::Erred;
   }
 
@@ -186,11 +190,14 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
     }
   }
 
-  // this will hardly ever happen, if it does, put it in a stop state
-  if (task_result_ptr_->operation_status == task_status_e::Ongoing &&
-      !number_stream_->empty()) {
-    task_result_ptr_->stop();
-    task_result_ptr_->operation_status = task_status_e::Stopped;
+  if (task_result_ptr_->operation_status == task_status_e::Ongoing) {
+    if (number_stream_->empty()) {
+      task_result_ptr_->operation_status = task_status_e::Completed;
+    } else {
+      // this will hardly ever happen, if it does, put it in a stop state
+      task_result_ptr_->stop();
+      task_result_ptr_->operation_status = task_status_e::Stopped;
+    }
   }
   return task_result_ptr_->operation_status;
 } // namespace wudi_server
@@ -225,14 +232,17 @@ utilities::task_status_e background_worker_t::continue_old_task() {
       task_result_ptr_->total_numbers = atomic_task_->total;
     }
   }
-  if (task_result_ptr_->total_numbers == 0)
+  if (task_result_ptr_->total_numbers == 0) {
+    spdlog::error("Total numbers = 0");
     return task_status_e::Erred;
+  }
   input_file.open(input_filename, std::ios::in);
   if (!input_file) {
     if (std::filesystem::exists(input_filename)) {
       std::filesystem::remove(input_filename);
     }
     task_result_ptr_->operation_status = task_status_e::Erred;
+    spdlog::error("Could not open input file: {}", input_filename);
     return task_status_e::Erred;
   }
   number_stream_ = std::make_unique<utilities::number_stream_t>(input_file);

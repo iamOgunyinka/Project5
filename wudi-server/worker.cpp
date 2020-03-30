@@ -198,6 +198,7 @@ void background_task_executor(
         on_error(scheduled_task);
       }
     } else {
+      spdlog::error("worker failed");
       on_error(scheduled_task);
     }
   }
@@ -210,7 +211,6 @@ void run_completion_op(std::shared_ptr<database_connector_t> &db_connector,
   using utilities::get_random_string;
 
   auto task_result_ptr = bg_worker.task_result();
-  task_result_ptr->operation_status = utilities::task_status_e::Completed;
   bool const status_changed = db_connector->change_task_status(
       task_result_ptr->task_id, task_result_ptr->total_numbers,
       task_result_ptr->operation_status);
@@ -257,6 +257,7 @@ void run_error_occurred_op(std::shared_ptr<database_connector_t> &db_connector,
   erred_task.not_ok_filename = task_result_ptr->not_ok_filename.string();
   erred_task.ok_filename = task_result_ptr->ok_filename.string();
   erred_task.unknown_filename = task_result_ptr->unknown_filename.string();
+  erred_task.input_filename = bg_worker.filename();
   erred_task.task_id = task_result_ptr->task_id;
   erred_task.website_id = task_result_ptr->website_id;
   erred_task.processed = task_result_ptr->processed;
@@ -264,6 +265,7 @@ void run_error_occurred_op(std::shared_ptr<database_connector_t> &db_connector,
   replace_special_chars(erred_task.ok_filename);
   replace_special_chars(erred_task.not_ok_filename);
   replace_special_chars(erred_task.unknown_filename);
+  replace_special_chars(erred_task.input_filename);
   db_connector->add_erred_task(erred_task);
 }
 

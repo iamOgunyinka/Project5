@@ -36,9 +36,7 @@ void to_json(json &j, task_result_t const &item) {
            {"web", item.website_id},
            {"numbers", item.data_ids},
            {"total", item.total_numbers},
-           {"ok", item.ok},
            {"not_ok", item.not_ok},
-           {"unknown", item.unknown},
            {"date", item.scheduled_date}};
 }
 
@@ -280,7 +278,7 @@ std::string get_random_agent() {
 std::size_t get_random_integer() {
   static std::random_device rd{};
   static std::mt19937 gen{rd()};
-  static std::uniform_int_distribution<> uid(0, 100);
+  static std::uniform_int_distribution<> uid(1, 100);
   return uid(gen);
 }
 

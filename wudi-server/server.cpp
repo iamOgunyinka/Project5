@@ -1,6 +1,5 @@
 #include "server.hpp"
 #include "session.hpp"
-#include <boost/lexical_cast.hpp>
 #include <spdlog/spdlog.h>
 
 namespace wudi_server {
@@ -52,8 +51,6 @@ void server::on_connection_accepted(beast::error_code const &ec,
         sessions_.erase(beg, sessions_.end());
       }
     }
-    spdlog::info("connected to: {}",
-                 boost::lexical_cast<std::string>(socket.remote_endpoint()));
     sessions_.push_back(
         std::make_shared<session>(io_context_, std::move(socket)));
     sessions_.back()->run();

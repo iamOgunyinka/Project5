@@ -71,7 +71,8 @@ set(SRC_FILES
     ./session.cpp
     ./utilities.cpp
     ./jj_games_socket.cpp
-    ./websocket_updates.cpp
+    ./pp_sports.cpp
+    ./watch_home.cpp
 )
 source_group("Sources" FILES ${SRC_FILES})
 
@@ -87,7 +88,9 @@ set(HEADERS_FILES
     jj_games_socket.hpp
     database_connector.hpp
     worker.hpp
-    websocket_updates.hpp
+    fields_alloc.hpp
+    pp_sports.hpp
+    watch_home.hpp
 )
 source_group("Headers" FILES ${HEADERS_FILES})
 

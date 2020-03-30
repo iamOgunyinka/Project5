@@ -117,8 +117,9 @@ global_proxy_provider::get_more_proxies(std::size_t const current_count) {
   std::lock_guard<std::mutex> lock_g{mutex_};
 
   if (current_count < endpoints_.size())
-    return endpoints_.size() - current_count;
+    return endpoints_.size();
 
+  bool resized = false;
   utilities::uri uri_{proxy_generator_address};
   net::ip::tcp::resolver resolver{context_};
   beast::tcp_stream http_tcp_stream(net::make_strand(context_));
@@ -159,9 +160,8 @@ global_proxy_provider::get_more_proxies(std::size_t const current_count) {
       }
       spdlog::info("Grabbed {} proxies", ips.size());
       if (endpoints_.size() >= max_endpoints_allowed) {
-        endpoints_.erase(endpoints_.begin(),
-                         endpoints_.begin() +
-                             (max_endpoints_allowed - endpoints_.size()));
+        // remove the first 100
+        endpoints_.erase(endpoints_.begin(), endpoints_.begin() + 100);
       }
       for (auto &line : ips) {
         if (line.empty())
@@ -186,8 +186,7 @@ global_proxy_provider::get_more_proxies(std::size_t const current_count) {
     return std::numeric_limits<std::size_t>::max();
   }
   save_proxies_to_file();
-  // index to the start of the newly acquired endpoints
-  return endpoints_.size() - 100;
+  return 0;
 }
 
 void global_proxy_provider::save_proxies_to_file() {
@@ -261,14 +260,17 @@ tcp::endpoint &global_proxy_provider::endpoint_at(std::size_t index) {
 }
 
 std::size_t proxy_provider_t::next_endpoint() {
-  for (std::size_t index = 0; index != information_list_.size(); ++index) {
+  std::lock_guard<std::mutex> lock_g{mutex_};
+
+  for (std::size_t index = 0; index < information_list_.size(); ++index) {
     auto &ep = information_list_[index];
     if (ep.property == ProxyProperty::ProxyActive &&
         ep.use_count < max_ip_use) {
       ++ep.use_count;
-      return index;
+      return ep.index_;
     }
   }
+
   if (!exhausted_daily_dose) {
     std::size_t const new_index =
         proxy_provider_.get_more_proxies(information_list_.size());
@@ -277,47 +279,64 @@ std::size_t proxy_provider_t::next_endpoint() {
       information_list_.erase(
           std::remove_if(information_list_.begin(), information_list_.end(),
                          [](endpoint_info const &info) {
-                           return info.property == ProxyProperty::ProxyBlocked;
+                           return info.property ==
+                                      ProxyProperty::ProxyBlocked ||
+                                  info.use_count >= max_ip_use;
                          }),
           information_list_.end());
-      for (auto &info : information_list_) {
+      if (information_list_.empty())
+        return std::numeric_limits<std::size_t>::max();
+      for (std::size_t index = 0; index != information_list_.size(); ++index) {
+        auto &info = information_list_[index];
         info.property = ProxyProperty::ProxyActive;
         info.use_count = 0;
       }
-      // new_index == std::numeric_limits<std::size_t>::max();
-      if (information_list_.empty())
-        return new_index;
-      return 0;
+      return information_list_.front().index_;
     }
-    return new_index;
+    std::size_t const index = information_list_.size();
+    information_list_.resize(proxy_provider_.count());
+    // rebuild the index
+    for (std::size_t i = 0; i != information_list_.size(); ++i) {
+      information_list_[i].index_ = i;
+    }
+    return index == information_list_.size() ? index - 100 : index;
   }
   information_list_.erase(
       std::remove_if(information_list_.begin(), information_list_.end(),
                      [](endpoint_info const &info) {
-                       return info.property == ProxyProperty::ProxyBlocked &&
+                       return info.property == ProxyProperty::ProxyBlocked ||
                               info.use_count >= max_ip_use;
                      }),
       information_list_.end());
+  if (information_list_.empty())
+    return std::numeric_limits<std::size_t>::max();
+  
   for (auto &info : information_list_) {
     info.property = ProxyProperty::ProxyActive;
     info.use_count = 0;
   }
-  if (information_list_.empty())
-    return std::numeric_limits<std::size_t>::max();
-  return 0;
+  return information_list_.front().index_;
 }
 
 tcp::endpoint &proxy_provider_t::endpoint(std::size_t const index) {
+  std::lock_guard<std::mutex> lock_g{mutex_};
   return proxy_provider_.endpoint_at(index);
 }
 
 void proxy_provider_t::assign_property(std::size_t const index,
                                        ProxyProperty prop) {
+  std::lock_guard<std::mutex> lock_g{mutex_};
+
   information_list_[index].property = prop;
 }
 
 proxy_provider_t::proxy_provider_t(global_proxy_provider &gsp)
-    : proxy_provider_{gsp}, information_list_(gsp.count(), endpoint_info{}) {}
+    : proxy_provider_{gsp}, information_list_{}, mutex_{} {
+  information_list_.reserve(gsp.count());
+  for (std::size_t i = 0; i != gsp.count(); ++i) {
+    information_list_.push_back({ProxyProperty::ProxyActive, 0, i});
+  }
+}
 
 net::io_context &get_network_context() {
   static boost::asio::io_context context{};
