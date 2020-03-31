@@ -147,13 +147,14 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
                website_info_.address.find("watch") != std::string::npos) {
       type_ = website_type::WatchHome;
     } else {
+      spdlog::error("Type not found");
       return task_status_e::Erred;
     }
   }
 
   // we delayed construction of safe_proxy/io_context until now
   io_context_.emplace();
-  proxy_provider_.emplace(global_proxy_provider::get_global_proxy_provider());
+  proxy_provider_.emplace(*io_context_);
   auto callback = std::bind(&background_worker_t::on_data_result_obtained, this,
                             std::placeholders::_1, std::placeholders::_2);
   if (!db_connector->set_input_files(
@@ -161,6 +162,7 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
           task_result_ptr_->not_ok_filename.string(),
           task_result_ptr_->unknown_filename.string(),
           task_result_ptr_->task_id)) {
+    spdlog::error("Could not set input files");
     return task_status_e::Erred;
   }
 
@@ -210,6 +212,7 @@ utilities::task_status_e background_worker_t::continue_old_task() {
   using utilities::task_status_e;
 
   auto &task = atomic_task_.value();
+  spdlog::info("Web address: {}", task.website_address);
   if (task.website_address.find("autohome") != std::string::npos) {
     type_ = website_type::AutoHomeRegister;
   } else if (task.website_address.find("jjgames") != std::string::npos) {

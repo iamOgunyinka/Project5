@@ -5,23 +5,21 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
-#include <limits>
 #include <set>
 #include <spdlog/spdlog.h>
 #include <sstream>
 
 namespace wudi_server {
-std::string const global_proxy_provider::proxy_generator_address{
+std::string const safe_proxy::proxy_generator_address{
     "http://api.wandoudl.com/api/ip"};
-std::string const global_proxy_provider::http_proxy_filename{
-    "./http_proxy_servers.txt"};
+std::string const safe_proxy::http_proxy_filename{"./http_proxy_servers.txt"};
+std::string const safe_proxy::https_proxy_filename{"./https_proxy_servers.txt"};
 
-global_proxy_provider::global_proxy_provider(net::io_context &context)
-    : context_{context} {
-  prepare_proxies();
+safe_proxy::safe_proxy(net::io_context &context) : context_{context} {
+  load_proxy_file();
 }
 
-extraction_data global_proxy_provider::remain_count(
+extraction_data safe_proxy::get_remain_count(
     net::io_context &context,
     net::ip::basic_resolver_results<net::ip::tcp> &resolves) {
 
@@ -111,26 +109,21 @@ extraction_data global_proxy_provider::remain_count(
     return {};
   }
 }
-
-std::size_t
-global_proxy_provider::get_more_proxies(std::size_t const current_count) {
-  std::lock_guard<std::mutex> lock_g{mutex_};
-
-  if (current_count < endpoints_.size())
-    return endpoints_.size();
-
-  bool resized = false;
+void safe_proxy::get_more_proxies() {
   utilities::uri uri_{proxy_generator_address};
-  net::ip::tcp::resolver resolver{context_};
+
   beast::tcp_stream http_tcp_stream(net::make_strand(context_));
   http::request<http::empty_body> http_request_;
+  net::ip::tcp::resolver resolver{context_};
 
+  std::lock_guard<std::mutex> lock_g{mutex_};
   try {
     auto resolves = resolver.resolve(uri_.host(), "http");
-    current_extracted_data_ = remain_count(context_, resolves);
+    current_extracted_data_ = get_remain_count(context_, resolves);
     http_tcp_stream.connect(resolves);
     if (!current_extracted_data_.is_available) {
-      return std::numeric_limits<std::size_t>::max();
+      has_error = true;
+      return;
     }
     if (current_extracted_data_.extract_remain > 0) {
       http_request_ = {};
@@ -147,20 +140,20 @@ global_proxy_provider::get_more_proxies(std::size_t const current_count) {
       beast::error_code ec{};
       http_tcp_stream.socket().shutdown(tcp::socket::shutdown_both, ec);
       if (server_response.result_int() != 200 || ec) {
-        spdlog::error("Error obtaining proxy servers from server");
-        return std::numeric_limits<std::size_t>::max();
+        has_error = true;
+        return spdlog::error("Error obtaining proxy servers from server");
       }
       auto &response_body = server_response.body();
       std::vector<std::string> ips;
       boost::split(ips, response_body,
                    [](char const ch) { return ch == '\n'; });
       if (ips.empty()) {
-        spdlog::error("IPs empty");
-        return std::numeric_limits<std::size_t>::max();
+        has_error = true;
+        return spdlog::error("IPs empty");
       }
       spdlog::info("Grabbed {} proxies", ips.size());
-      if (endpoints_.size() >= max_endpoints_allowed) {
-        // remove the first 100
+      int const max_allowed = 500;
+      if (endpoints_.size() >= max_allowed) {
         endpoints_.erase(endpoints_.begin(), endpoints_.begin() + 100);
       }
       for (auto &line : ips) {
@@ -175,116 +168,131 @@ global_proxy_provider::get_more_proxies(std::size_t const current_count) {
           auto endpoint = net::ip::tcp::endpoint(
               net::ip::make_address(ip_port[0].to_string()),
               std::stoi(ip_port[1].to_string()));
-          endpoints_.emplace_back(std::move(endpoint));
+          endpoints_.emplace_back(std::make_shared<custom_endpoint>(
+              std::move(endpoint), ProxyProperty::ProxyActive));
         } catch (std::exception const &except) {
           spdlog::error("[get_more_proxies] {}", except.what());
         }
       }
+      has_error = ips.empty();
     }
   } catch (std::exception const &e) {
     spdlog::error("safe_proxy exception: {}", e.what());
-    return std::numeric_limits<std::size_t>::max();
+    has_error = true;
   }
-  return 0;
-}
-
-void global_proxy_provider::prepare_proxies() {
-  endpoints_.clear();
-  endpoints_.reserve(100);
-  get_more_proxies(0);
-}
-
-global_proxy_provider &global_proxy_provider::get_global_proxy_provider() {
-  static global_proxy_provider proxy_provider(get_network_context());
-  return proxy_provider;
-}
-
-tcp::endpoint &global_proxy_provider::endpoint_at(std::size_t index) {
-  std::lock_guard<std::mutex> lock_g{mutex_};
-  return endpoints_[index];
-}
-
-std::size_t proxy_provider_t::next_endpoint() {
-  std::lock_guard<std::mutex> lock_g{mutex_};
-
-  for (std::size_t index = 0; index < information_list_.size(); ++index) {
-    auto &ep = information_list_[index];
-    if (ep.property == ProxyProperty::ProxyActive &&
-        ep.use_count < max_ip_use) {
-      ++ep.use_count;
-      return ep.index_;
-    }
-  }
-
-  if (!exhausted_daily_dose) {
-    std::size_t const new_index =
-        proxy_provider_.get_more_proxies(information_list_.size());
-    if (new_index == std::numeric_limits<std::size_t>::max()) {
-      exhausted_daily_dose = true;
-      information_list_.erase(
-          std::remove_if(information_list_.begin(), information_list_.end(),
-                         [](endpoint_info const &info) {
-                           return info.property ==
-                                      ProxyProperty::ProxyBlocked ||
-                                  info.use_count >= max_ip_use;
-                         }),
-          information_list_.end());
-      if (information_list_.empty())
-        return std::numeric_limits<std::size_t>::max();
-      for (std::size_t index = 0; index != information_list_.size(); ++index) {
-        auto &info = information_list_[index];
-        info.property = ProxyProperty::ProxyActive;
-        info.use_count = 0;
+  if (current_extracted_data_.connect_remain > 0) {
+    for (auto &ep : endpoints_) {
+      if (ep->property != ProxyProperty::ProxyBlocked) {
+        ep->property = ProxyProperty::ProxyActive;
       }
-      return information_list_.front().index_;
     }
-    std::size_t const index = information_list_.size();
-    information_list_.resize(proxy_provider_.count());
-    // rebuild the index
-    for (std::size_t i = 0; i != information_list_.size(); ++i) {
-      information_list_[i].index_ = i;
+    save_proxies_to_file();
+  } else {
+    endpoints_.clear();
+  }
+  if (has_error)
+    spdlog::error("Error occurred while getting more proxies");
+}
+
+void safe_proxy::save_proxies_to_file() {
+  std::unique_ptr<std::ofstream> out_file_ptr{nullptr};
+  if (std::filesystem::exists(http_proxy_filename)) {
+    out_file_ptr = std::make_unique<std::ofstream>(
+        http_proxy_filename, std::ios::app | std::ios::out);
+  } else {
+    out_file_ptr = std::make_unique<std::ofstream>(http_proxy_filename);
+  }
+  if (!out_file_ptr)
+    return;
+  try {
+    out_file_ptr->seekp(std::ios::beg);
+  } catch (std::exception const &) {
+  }
+  for (auto const &proxy : this->endpoints_) {
+    (*out_file_ptr) << boost::lexical_cast<std::string>(proxy->endpoint)
+                    << "\n";
+  }
+  out_file_ptr->close();
+}
+
+void safe_proxy::load_proxy_file() {
+  std::filesystem::path const http_filename_path{http_proxy_filename};
+  if (!std::filesystem::exists(http_filename_path)) {
+    get_more_proxies();
+    if (!endpoints_.empty()) {
+      save_proxies_to_file();
     }
-    return index == information_list_.size() ? index - 100 : index;
+    return;
   }
-  information_list_.erase(
-      std::remove_if(information_list_.begin(), information_list_.end(),
-                     [](endpoint_info const &info) {
-                       return info.property == ProxyProperty::ProxyBlocked ||
-                              info.use_count >= max_ip_use;
-                     }),
-      information_list_.end());
-  if (information_list_.empty())
-    return std::numeric_limits<std::size_t>::max();
-
-  for (auto &info : information_list_) {
-    info.property = ProxyProperty::ProxyActive;
-    info.use_count = 0;
+  std::ifstream proxy_file{http_filename_path};
+  if (!proxy_file) {
+    get_more_proxies();
+    return save_proxies_to_file();
   }
-  return information_list_.front().index_;
+  std::string line{};
+  std::vector<std::string> ip_port{};
+  int count = 0;
+  while (std::getline(proxy_file, line) && count < 1000) {
+    ip_port.clear();
+    boost::trim(line);
+    if (line.empty())
+      continue;
+    boost::split(ip_port, line, [](auto ch) { return ch == ':'; });
+    if (ip_port.size() < 2)
+      continue;
+    beast::error_code ec{};
+    try {
+      auto endpoint = net::ip::tcp::endpoint(net::ip::make_address(ip_port[0]),
+                                             std::stoi(ip_port[1]));
+      endpoints_.emplace_back(std::make_shared<custom_endpoint>(
+          std::move(endpoint), ProxyProperty::ProxyActive));
+      ++count;
+    } catch (std::exception const &e) {
+      spdlog::error("Error while converting( {} ), {}", line, e.what());
+    }
+  }
 }
 
-tcp::endpoint &proxy_provider_t::endpoint(std::size_t const index) {
-  std::lock_guard<std::mutex> lock_g{mutex_};
-  return proxy_provider_.endpoint_at(index);
-}
-
-void proxy_provider_t::assign_property(std::size_t const index,
-                                       ProxyProperty prop) {
-  std::lock_guard<std::mutex> lock_g{mutex_};
-
-  information_list_[index].property = prop;
-}
-
-proxy_provider_t::proxy_provider_t(global_proxy_provider &gsp)
-    : proxy_provider_{gsp}, information_list_{}, mutex_{} {
-  information_list_.reserve(gsp.count());
-  for (std::size_t i = 0; i != gsp.count(); ++i) {
-    information_list_.push_back({ProxyProperty::ProxyActive, 0, i});
+std::optional<endpoint_ptr> safe_proxy::next_endpoint() {
+  {
+    std::lock_guard<std::mutex> lock_g{mutex_};
+    if (has_error || endpoints_.empty())
+      return std::nullopt;
+    if (count_ >= endpoints_.size()) {
+      count_ = 0;
+      while (count_ < endpoints_.size()) {
+        if (endpoints_[count_]->property == ProxyProperty::ProxyActive) {
+          return endpoints_[count_++];
+        }
+        count_++;
+      }
+    } else {
+      return endpoints_[count_++];
+    }
   }
+  get_more_proxies();
+  return next_endpoint();
 }
 
 net::io_context &get_network_context() {
   static boost::asio::io_context context{};
   return context;
 }
+
+void safe_proxy::clear() {
+  std::lock_guard<std::mutex> lock_g{mutex_};
+  endpoints_.clear();
+}
+
+void safe_proxy::push_back(custom_endpoint ep) {
+  std::lock_guard<std::mutex> lock_g{mutex_};
+  endpoints_.emplace_back(std::make_shared<custom_endpoint>(std::move(ep)));
+}
+
+void custom_endpoint::swap(custom_endpoint &other) {
+  std::swap(other.endpoint, this->endpoint);
+  std::swap(other.property, this->property);
+}
+
+void swap(custom_endpoint &a, custom_endpoint &b) { a.swap(b); }
 } // namespace wudi_server

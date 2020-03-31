@@ -73,7 +73,6 @@ enum class search_result_type_e {
 enum constants_e {
   MaxRetries = 2,
   SleepTimeoutSec = 5,
-  WorkerThreadCount = 10,
   LenUserAgents = 18,
   TimeoutMilliseconds = 3'000,
   FiveMegabytes = 1024 * 1024 * 5
@@ -240,6 +239,14 @@ public:
     --total_;
     return value;
   }
+
+  void clear() {
+    std::lock_guard<std::mutex> lock{mutex_};
+    container_.clear();
+  }
+
+  Container container() const { return container_; }
+
   template <typename U> void push_back(U &&data) {
     std::lock_guard<std::mutex> lock_{mutex_};
     container_.push_back(std::forward<U>(data));
@@ -352,6 +359,7 @@ void get_file_content(std::string const &filename, filter<T> filter,
 template <typename T>
 using threadsafe_cv_container = threadsafe_container<T, std::deque<T>, true>;
 
+std::vector<atomic_task_t> restart_tasks(std::vector<uint32_t> const &task_ids);
 std::string get_random_agent();
 void normalize_paths(std::string &str);
 void replace_special_chars(std::string &str);

@@ -355,12 +355,13 @@ bool database_connector_t::set_input_files(std::string input_filename,
                                              task_id);
   std::lock_guard<std::mutex> lock_g{db_mutex_};
   try {
-    otl_cursor::direct_exec(otl_connector_, sql_statement.c_str());
+    otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
+                            otl_exception::enabled);
+    return true;
   } catch (otl_exception const &e) {
     log_sql_error(e);
-    return false;
   }
-  return true;
+  return false;
 }
 
 void database_connector_t::delete_stopped_tasks(

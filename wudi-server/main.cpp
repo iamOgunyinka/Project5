@@ -7,6 +7,8 @@
 #include <spdlog/spdlog.h>
 #include <thread>
 
+enum constant_e { WorkerThreadCount = 10 };
+
 int main(int argc, char *argv[]) {
   wudi_server::curl_wrapper_t curl_global{};
   CLI::App cli_parser{
@@ -40,6 +42,7 @@ int main(int argc, char *argv[]) {
   std::mutex task_mutex{};
   wudi_server::asio::io_context context{static_cast<int>(thread_count)};
   {
+    using wudi_server::auto_task_restarter;
     using wudi_server::background_task_executor;
     using namespace wudi_server::utilities;
 
@@ -48,11 +51,9 @@ int main(int argc, char *argv[]) {
                     std::ref(task_mutex), std::ref(database_connector)};
       t.detach();
     }
-    /*
-    std::thread task_restarter(wudi_server::auto_task_restarter,
-                               std::ref(context));
+
+    std::thread task_restarter(auto_task_restarter, std::ref(context));
     task_restarter.detach();
-    */
   }
   database_connector->username(db_config.username)
       .password(db_config.password)

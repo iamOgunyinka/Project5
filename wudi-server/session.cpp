@@ -730,13 +730,9 @@ void session::restart_tasks_handler(string_request const &request,
     for (auto const &user_task_id : user_task_list) {
       task_list.push_back(user_task_id.get<json::number_integer_t>());
     }
-    auto db_connector = wudi_server::database_connector_t::s_get_db_connector();
-    std::vector<utilities::atomic_task_t> stopped_tasks{};
-    auto &task_queue = utilities::get_scheduled_tasks();
-    if (db_connector->get_stopped_tasks(task_list, stopped_tasks)) {
-      for (auto &stopped_task : stopped_tasks) {
-        task_queue.push_back(std::move(stopped_task));
-      }
+    using utilities::restart_tasks;
+
+    if (auto stopped_tasks = restart_tasks(task_list); !stopped_tasks.empty()) {
       return send_response(json_success(stopped_tasks, request));
     }
     return error_handler(server_error("not able to restart tasks",
@@ -963,6 +959,23 @@ session::split_optional_queries(boost::string_view const &optional_query) {
   }
   return result;
 }
+
+namespace utilities {
+std::vector<utilities::atomic_task_t>
+restart_tasks(std::vector<uint32_t> const &task_ids) {
+  auto db_connector = wudi_server::database_connector_t::s_get_db_connector();
+  std::vector<utilities::atomic_task_t> stopped_tasks{};
+  auto &task_queue = utilities::get_scheduled_tasks();
+  if (db_connector->get_stopped_tasks(task_ids, stopped_tasks)) {
+    for (auto &stopped_task : stopped_tasks) {
+      task_queue.push_back(std::move(stopped_task));
+    }
+    return stopped_tasks;
+  }
+  return {};
+}
+
+} // namespace utilities
 } // namespace wudi_server
 
 std::vector<uint32_t> operator+(std::vector<uint32_t> const &a,

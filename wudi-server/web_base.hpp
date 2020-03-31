@@ -33,7 +33,7 @@ protected:
   std::size_t connect_count_{};
   std::vector<tcp::endpoint> temp_list_;
   std::size_t send_count_{};
-  std::size_t ep_index_{};
+  endpoint_ptr current_proxy_{nullptr};
   void close_socket();
 
 protected:
@@ -116,7 +116,7 @@ template <typename DerivedClass> void web_base<DerivedClass>::receive_data() {
 
 template <typename DerivedClass> void web_base<DerivedClass>::start_connect() {
   choose_next_proxy();
-  if (ep_index_ != std::numeric_limits<std::size_t>::max())
+  if (current_proxy_)
     send_next();
 }
 
@@ -147,7 +147,7 @@ template <typename DerivedClass> void web_base<DerivedClass>::reconnect() {
 }
 
 template <typename DerivedClass> void web_base<DerivedClass>::connect() {
-  if (ep_index_ == std::numeric_limits<std::size_t>::max() || stopped_) {
+  if (!current_proxy_ || stopped_) {
     if (stopped_ && !current_number_.empty())
       numbers_.push_back(current_number_);
     current_number_.clear();
@@ -155,7 +155,7 @@ template <typename DerivedClass> void web_base<DerivedClass>::connect() {
   }
   tcp_stream_.expires_after(
       std::chrono::milliseconds(utilities::TimeoutMilliseconds));
-  temp_list_ = {proxy_provider_.endpoint(ep_index_)};
+  temp_list_ = {*current_proxy_};
   tcp_stream_.async_connect(
       temp_list_, beast::bind_front_handler(&web_base::on_connected, this));
 }
@@ -173,18 +173,21 @@ template <typename DerivedClass>
 void web_base<DerivedClass>::choose_next_proxy() {
   send_count_ = 0;
   connect_count_ = 0;
-  if (ep_index_ = proxy_provider_.next_endpoint();
-      ep_index_ == std::numeric_limits<std::size_t>::max()) {
+  auto proxy = proxy_provider_.next_endpoint();
+  if (!proxy.has_value()) {
     spdlog::error("error getting next endpoint");
     numbers_.push_back(current_number_);
     current_number_.clear();
-    signal_(search_result_type_e::RequestStop, current_number_);
+    current_proxy_ = nullptr;
+    return signal_(search_result_type_e::RequestStop, current_number_);
   }
+  current_proxy_ = proxy.value();
 }
 
 template <typename DerivedClass>
 void web_base<DerivedClass>::current_proxy_assign_prop(ProxyProperty property) {
-  proxy_provider_.assign_property(ep_index_, property);
+  if (current_proxy_)
+    current_proxy_->property = property;
 }
 
 template <typename DerivedClass>

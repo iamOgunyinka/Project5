@@ -14,11 +14,6 @@ enum class task_status_e;
 struct database_connector_t;
 class background_worker_t;
 
-struct work_data {
-  uint32_t task_id{};
-  std::time_t date_stopped{};
-};
-
 void on_task_ran(utilities::task_status_e, utilities::atomic_task_t &,
                  std::shared_ptr<database_connector_t> &,
                  background_worker_t *);

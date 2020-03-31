@@ -7,9 +7,9 @@ namespace wudi_server {
 using utilities::atomic_task_t;
 using utilities::internal_task_result_t;
 
-utilities::threadsafe_container<work_data, std::vector<work_data>> &
+utilities::threadsafe_container<uint32_t, std::vector<uint32_t>> &
 get_stopped_tasks() {
-  static utilities::threadsafe_container<work_data, std::vector<work_data>>
+  static utilities::threadsafe_container<uint32_t, std::vector<uint32_t>>
       stopped_tasks{};
   return stopped_tasks;
 }
@@ -27,8 +27,7 @@ void on_task_ran(utilities::task_status_e status,
     return run_error_occurred_op(db_connector, *worker_ptr);
   case utilities::task_status_e::AutoStopped:
     run_stopped_op(db_connector, *worker_ptr);
-    return get_stopped_tasks().push_back(
-        work_data{scheduled_task.task_id, std::time(nullptr)});
+    return get_stopped_tasks().push_back(scheduled_task.task_id);
   }
 }
 
@@ -56,6 +55,7 @@ start_new_task(atomic_task_t &scheduled_task) {
   auto task_result = std::make_shared<internal_task_result_t>();
   task_result->task_id = scheduled_task.task_id;
   task_result->website_id = scheduled_task.website_id;
+  scheduled_task.website_address = website->address;
   response_queue.emplace(scheduled_task.task_id, task_result);
   return std::make_unique<background_worker_t>(std::move(*website),
                                                std::move(numbers), task_result);
@@ -103,6 +103,7 @@ continue_recent_task(atomic_task_t &scheduled_task) {
     response_queue.emplace(scheduled_task.task_id, task_result);
   } else {
     task_result = iter->second;
+    scheduled_task.website_address = website->address;
   }
   return std::make_unique<background_worker_t>(std::move(scheduled_task),
                                                task_result);
@@ -386,15 +387,34 @@ std::string get_shangai_time(net::io_context &context) {
     return {};
   }
 }
-/*
+
 void auto_task_restarter(net::io_context &context) {
-  auto &stopped_tasks = get_stopped_tasks();
+  auto const an_hour = std::chrono::minutes(60);
+  auto &auto_stopped_tasks = get_stopped_tasks();
+  net::ip::tcp::resolver resolver{context};
+  utilities::uri proxy_url{safe_proxy::proxy_generator_address};
   while (true) {
-    if (stopped_tasks.empty()) {
-      std::this_thread::sleep_for(std::chrono::minutes(60));
+    if (auto_stopped_tasks.empty()) {
+      std::this_thread::sleep_for(an_hour);
       continue;
+    }
+    try {
+      auto resolves = resolver.resolve(proxy_url.host(), "http");
+      auto const proxy_data = safe_proxy::get_remain_count(context, resolves);
+      spdlog::info("Remain count/connect: {}/{}, is_available: {}",
+                   proxy_data.extract_remain, proxy_data.connect_remain,
+                   proxy_data.is_available);
+      if (!proxy_data.is_available || proxy_data.extract_remain <= 0) {
+        std::this_thread::sleep_for(an_hour);
+        continue;
+      }
+      [[maybe_unused]] auto stopped_tasks =
+          utilities::restart_tasks(auto_stopped_tasks.container());
+      auto_stopped_tasks.clear();
+    } catch (std::exception const &e) {
+      spdlog::error("[auto_task_restarter] {}", e.what());
+      std::this_thread::sleep_for(std::chrono::minutes(5));
     }
   }
 }
-*/
 } // namespace wudi_server
