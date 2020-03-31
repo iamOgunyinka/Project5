@@ -36,8 +36,7 @@ private:
   std::vector<tcp::endpoint> endpoints_;
 
 private:
-  void load_proxy_file();
-  void save_proxies_to_file();
+  void prepare_proxies();
   global_proxy_provider(net::io_context &context);
 
 public:

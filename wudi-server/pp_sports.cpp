@@ -84,10 +84,9 @@ void pp_sports_t::on_data_received(beast::error_code ec, std::size_t const) {
                            body.begin() + closing_brace_index + 1);
         try {
           document = json::parse(body);
-        } catch (std::exception const &e) {
-          spdlog::error("Except: {}", e.what());
-          signal_(search_result_type_e::Unknown, current_number_);
-          return send_next();
+        } catch (std::exception const &) {
+          choose_next_proxy();
+          return connect();
         }
       }
     }

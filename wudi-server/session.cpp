@@ -241,7 +241,7 @@ void session::upload_handler(string_request const &request,
       out_file.close();
       std::string time_str{};
       std::size_t const t{std::stoul(time_iter->second.to_string())};
-      if (int const count = utilities::timet_to_string(time_str, t);
+      if (std::size_t const count = utilities::timet_to_string(time_str, t);
           count > 0) {
         time_str.resize(count);
       } else {

@@ -7,6 +7,9 @@
 #include <list>
 
 namespace wudi_server {
+enum constant_e {
+  MaxOpenSockets = 20,
+};
 
 background_worker_t::~background_worker_t() {
   sockets_.clear();
@@ -55,7 +58,7 @@ void background_worker_t::on_data_result_obtained(
     return;
   }
 
-  bool const signallable = (processed % utilities::MaxOpenSockets) == 0;
+  bool const signallable = (processed % MaxOpenSockets) == 0;
 
   if (signallable) {
     spdlog::info("Task({}) => Processed {} of {}", task_result_ptr_->task_id,
@@ -170,8 +173,8 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
       (void)socket_ptr->signal().connect(callback);
       socket_ptr->start_connect();
     } else {
-      sockets_.reserve(utilities::MaxOpenSockets);
-      for (int i = 0; i != utilities::MaxOpenSockets; ++i) {
+      sockets_.reserve(MaxOpenSockets);
+      for (int i = 0; i != MaxOpenSockets; ++i) {
         if (type_ == website_type::AutoHomeRegister) {
           auto socket_ptr = std::make_shared<auto_home_socket_t>(
               stopped, *io_context_, *proxy_provider_, *number_stream_);

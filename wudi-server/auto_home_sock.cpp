@@ -84,8 +84,8 @@ void auto_home_socket_t::on_data_received(beast::error_code ec,
     std::size_t const closing_brace_index = body.find_last_of('}');
 
     if (status_code != 200 || opening_brace_index == std::string::npos) {
-      signal_(search_result_type_e::Unknown, current_number_);
-      return send_next();
+      choose_next_proxy();
+      return connect();
     } else {
       if (closing_brace_index == std::string::npos) {
         signal_(search_result_type_e::Unknown, current_number_);
@@ -96,8 +96,8 @@ void auto_home_socket_t::on_data_received(beast::error_code ec,
         try {
           document = json::parse(body);
         } catch (std::exception const &) {
-          signal_(search_result_type_e::Unknown, current_number_);
-          return send_next();
+          choose_next_proxy();
+          return connect();
         }
       }
     }
@@ -114,13 +114,16 @@ void auto_home_socket_t::on_data_received(beast::error_code ec,
       } else if (msg == "Msg.MobileNotExist" || msg == "MobileNotExist") {
         signal_(search_result_type_e::Registered, current_number_);
       } else {
-        signal_(search_result_type_e::Unknown, current_number_);
+        signal_(search_result_type_e::Registered, current_number_);
       }
     } else {
-      signal_(search_result_type_e::Unknown, current_number_);
+      choose_next_proxy();
+      return connect();
     }
+
   } catch (...) {
-    signal_(search_result_type_e::Unknown, current_number_);
+    choose_next_proxy();
+    return connect();
   }
   current_number_.clear();
   send_next();
