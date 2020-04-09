@@ -5,7 +5,7 @@ using utilities::atomic_task_t;
 using utilities::task_result_t;
 
 otl_stream &operator>>(otl_stream &os, task_result_t &item) {
-  return os >> item.id >> item.total_numbers >> item.task_status >>
+  return os >> item.id >> item.total >> item.task_status >>
          item.scheduled_date >> item.website_id >> item.data_ids >>
          item.processed >> item.not_ok;
 }
@@ -232,12 +232,12 @@ bool database_connector_t::update_task_progress(
 
 bool database_connector_t::save_stopped_task(atomic_task_t const &task) {
   std::string const sql_statement =
-      "UPDATE tb_tasks SET ok_file='{}', not_ok_file='{}', unknown_file='{}', "
-      "input_filename='{}', ok_count={}, not_ok_count={}, unknown_count={} "
-      "WHERE id={}"_format(task.ok_filename, task.not_ok_filename,
-                           task.unknown_filename, task.input_filename,
-                           task.ok_count, task.not_ok_count, task.unknown_count,
-                           task.task_id);
+      "UPDATE tb_tasks SET ok_file='{}', ok2_file='{}', not_ok_file='{}', "
+      "unknown_file='{}', input_filename='{}', ok_count={}, not_ok_count={},"
+      "unknown_count={} WHERE id={}"_format(
+          task.ok_filename, task.ok2_filename, task.not_ok_filename,
+          task.unknown_filename, task.input_filename, task.ok_count,
+          task.not_ok_count, task.unknown_count, task.task_id);
   try {
     {
       std::lock_guard<std::mutex> lock_g{db_mutex_};
@@ -271,11 +271,11 @@ bool database_connector_t::change_task_status(uint32_t task_id,
 bool database_connector_t::add_erred_task(atomic_task_t &task) {
   std::string const task_sql_statement =
       "UPDATE tb_tasks SET ok_file='{}', input_filename='{}',"
-      "not_ok_file='{}', unknown_file='{}', status={}, processed={} "
-      "WHERE id={}"_format(task.ok_filename, task.input_filename,
-                           task.not_ok_filename, task.unknown_filename,
-                           utilities::task_status_e::Erred, task.processed,
-                           task.task_id);
+      "not_ok_file='{}', unknown_file='{}', status={}, processed={}, "
+      "ok2_file='{}' WHERE id={}"_format(
+          task.ok_filename, task.input_filename, task.not_ok_filename,
+          task.unknown_filename, utilities::task_status_e::Erred,
+          task.processed, task.ok2_filename, task.task_id);
   try {
     std::lock_guard<std::mutex> llock{db_mutex_};
     otl_cursor::direct_exec(otl_connector_, task_sql_statement.c_str(),
@@ -322,10 +322,11 @@ bool database_connector_t::save_unstarted_task(
     atomic_task_t const &stopped_task) {
   std::string const task_sql_stement =
       "UPDATE tb_tasks SET status={}, input_filename='{}', ok_file='{}', "
-      "unknown_file='{}', not_ok_file='{}' WHERE id={}"_format(
+      "unknown_file='{}', not_ok_file='{}', ok2_file='{}' WHERE id={}"_format(
           utilities::task_status_e::NotStarted, stopped_task.input_filename,
           stopped_task.ok_filename, stopped_task.unknown_filename,
-          stopped_task.not_ok_filename, stopped_task.task_id);
+          stopped_task.not_ok_filename, stopped_task.ok2_filename,
+          stopped_task.task_id);
   try {
     std::lock_guard<std::mutex> lock_g{db_mutex_};
     otl_cursor::direct_exec(otl_connector_, task_sql_stement.c_str(),
@@ -339,6 +340,7 @@ bool database_connector_t::save_unstarted_task(
 
 bool database_connector_t::set_input_files(std::string input_filename,
                                            std::string ok_filename,
+                                           std::string ok2_filename,
                                            std::string not_ok_filename,
                                            std::string unknown_filename,
                                            uint32_t const task_id) {
@@ -350,9 +352,9 @@ bool database_connector_t::set_input_files(std::string input_filename,
 
   std::string const sql_statement =
       "UPDATE tb_tasks SET input_filename='{}', ok_file='{}', not_ok_file='{}',"
-      "unknown_file='{}' WHERE id={}"_format(input_filename, ok_filename,
-                                             not_ok_filename, unknown_filename,
-                                             task_id);
+      "unknown_file='{}', ok2_file='{}' WHERE id={}"_format(
+          input_filename, ok_filename, not_ok_filename, unknown_filename,
+          ok2_filename, task_id);
   std::lock_guard<std::mutex> lock_g{db_mutex_};
   try {
     otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
@@ -382,7 +384,7 @@ bool database_connector_t::get_stopped_tasks(
     std::vector<atomic_task_t> &stopped_tasks) {
   std::string const sql_statement =
       "SELECT id, website_id, processed, total_numbers, input_filename, "
-      "ok_file, not_ok_file, unknown_file, ok_count, not_ok_count, "
+      "ok_file, not_ok_file, unknown_file, ok2_file, ok_count, not_ok_count, "
       "unknown_count FROM tb_tasks WHERE id IN ({})"_format(
           utilities::intlist_to_string(tasks),
           utilities::task_status_e::Stopped,
@@ -396,8 +398,8 @@ bool database_connector_t::get_stopped_tasks(
            stopped_task.processed >> stopped_task.total >>
            stopped_task.input_filename >> stopped_task.ok_filename >>
            stopped_task.not_ok_filename >> stopped_task.unknown_filename >>
-           stopped_task.ok_count >> stopped_task.not_ok_count >>
-           stopped_task.unknown_count) {
+           stopped_task.ok2_filename >> stopped_task.ok_count >>
+           stopped_task.not_ok_count >> stopped_task.unknown_count) {
       stopped_task.type_ = stopped_task.stopped;
       stopped_tasks.push_back(stopped_task);
     }
@@ -411,8 +413,8 @@ bool database_connector_t::get_stopped_tasks(
 bool database_connector_t::get_completed_tasks(
     std::vector<uint32_t> const &task_ids, std::vector<atomic_task_t> &tasks) {
   std::string const sql_statement =
-      "SELECT id, website_id, ok_file, not_ok_file, unknown_file FROM "
-      "tb_tasks WHERE status={} AND id in ({})"_format(
+      "SELECT id, website_id, ok_file, ok2_file, not_ok_file, unknown_file "
+      "FROM tb_tasks WHERE status={} AND id in ({})"_format(
           static_cast<uint32_t>(utilities::task_status_e::Completed),
           utilities::intlist_to_string(task_ids));
   try {
@@ -421,8 +423,8 @@ bool database_connector_t::get_completed_tasks(
     otl_stream db_stream(1'000, sql_statement.c_str(), otl_connector_);
     atomic_task_t completed_task{};
     while (db_stream >> completed_task.task_id >> completed_task.website_id >>
-           completed_task.ok_filename >> completed_task.not_ok_filename >>
-           completed_task.unknown_filename) {
+           completed_task.ok_filename >> completed_task.ok2_filename >>
+           completed_task.not_ok_filename >> completed_task.unknown_filename) {
       tasks.push_back(completed_task);
     }
     return true;

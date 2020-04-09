@@ -68,6 +68,7 @@ continue_recent_task(atomic_task_t &scheduled_task) {
 
   normalize_paths(scheduled_task.input_filename);
   normalize_paths(scheduled_task.ok_filename);
+  normalize_paths(scheduled_task.ok2_filename);
   normalize_paths(scheduled_task.not_ok_filename);
   normalize_paths(scheduled_task.unknown_filename);
 
@@ -98,6 +99,7 @@ continue_recent_task(atomic_task_t &scheduled_task) {
     task_result->unknown_count = scheduled_task.unknown_count;
     task_result->not_ok_filename = scheduled_task.not_ok_filename;
     task_result->ok_filename = scheduled_task.ok_filename;
+    task_result->ok2_filename = scheduled_task.ok2_filename;
     task_result->unknown_filename = scheduled_task.unknown_filename;
     scheduled_task.website_address = website->address;
     response_queue.emplace(scheduled_task.task_id, task_result);
@@ -132,6 +134,7 @@ resume_unstarted_task(utilities::atomic_task_t &scheduled_task) {
   scheduled_task.input_filename.clear();
   scheduled_task.not_ok_filename.clear();
   scheduled_task.ok_filename.clear();
+  scheduled_task.ok2_filename.clear();
   scheduled_task.unknown_filename.clear();
   scheduled_task.website_address.clear();
   auto &response_queue = utilities::get_response_queue();
@@ -155,6 +158,7 @@ void background_task_executor(
       replace_special_chars(scheduled_task.input_filename);
       replace_special_chars(scheduled_task.not_ok_filename);
       replace_special_chars(scheduled_task.ok_filename);
+      replace_special_chars(scheduled_task.ok2_filename);
       replace_special_chars(scheduled_task.unknown_filename);
       db_connector->save_stopped_task(scheduled_task);
     }
@@ -188,6 +192,7 @@ void background_task_executor(
 
       try {
         if (task_result_ptr) {
+          task_result_ptr->ok2_file.close();
           task_result_ptr->not_ok_file.close();
           task_result_ptr->ok_file.close();
           task_result_ptr->unknown_file.close();
@@ -236,6 +241,7 @@ void run_completion_op(std::shared_ptr<database_connector_t> &db_connector,
       }
       out_file << "ID: " << task_result_ptr->task_id
                << ", OK: " << task_result_ptr->ok_filename.string()
+               << ", OK2: " << task_result_ptr->ok2_filename.string()
                << ", NOT_OK: " << task_result_ptr->not_ok_filename.string()
                << ", Unknown: " << task_result_ptr->unknown_filename.string()
                << ", WEB_ID: " << task_result_ptr->website_id
@@ -257,6 +263,7 @@ void run_error_occurred_op(std::shared_ptr<database_connector_t> &db_connector,
   atomic_task_t erred_task{};
   erred_task.not_ok_filename = task_result_ptr->not_ok_filename.string();
   erred_task.ok_filename = task_result_ptr->ok_filename.string();
+  erred_task.ok2_filename = task_result_ptr->ok2_filename.string();
   erred_task.unknown_filename = task_result_ptr->unknown_filename.string();
   erred_task.input_filename = bg_worker.filename();
   erred_task.task_id = task_result_ptr->task_id;
@@ -264,6 +271,7 @@ void run_error_occurred_op(std::shared_ptr<database_connector_t> &db_connector,
   erred_task.processed = task_result_ptr->processed;
 
   replace_special_chars(erred_task.ok_filename);
+  replace_special_chars(erred_task.ok2_filename);
   replace_special_chars(erred_task.not_ok_filename);
   replace_special_chars(erred_task.unknown_filename);
   replace_special_chars(erred_task.input_filename);
@@ -318,11 +326,13 @@ bool save_status_to_persistent_storage(
   stopped_task.input_filename = filename;
   stopped_task.not_ok_filename = task_result_ptr->not_ok_filename.string();
   stopped_task.ok_filename = task_result_ptr->ok_filename.string();
+  stopped_task.ok2_filename = task_result_ptr->ok2_filename.string();
   stopped_task.unknown_filename = task_result_ptr->unknown_filename.string();
   using utilities::replace_special_chars;
 
   replace_special_chars(stopped_task.not_ok_filename);
   replace_special_chars(stopped_task.ok_filename);
+  replace_special_chars(stopped_task.ok2_filename);
   replace_special_chars(stopped_task.unknown_filename);
   replace_special_chars(stopped_task.input_filename);
 
@@ -385,36 +395,6 @@ std::string get_shangai_time(net::io_context &context) {
   } catch (std::exception const &e) {
     spdlog::error("[get_shangai_time] {}", e.what());
     return {};
-  }
-}
-
-void auto_task_restarter(net::io_context &context) {
-  auto const an_hour = std::chrono::minutes(60);
-  auto &auto_stopped_tasks = get_stopped_tasks();
-  net::ip::tcp::resolver resolver{context};
-  utilities::uri proxy_url{safe_proxy::proxy_generator_address};
-  while (true) {
-    if (auto_stopped_tasks.empty()) {
-      std::this_thread::sleep_for(an_hour);
-      continue;
-    }
-    try {
-      auto resolves = resolver.resolve(proxy_url.host(), "http");
-      auto const proxy_data = safe_proxy::get_remain_count(context, resolves);
-      spdlog::info("Remain count/connect: {}/{}, is_available: {}",
-                   proxy_data.extract_remain, proxy_data.connect_remain,
-                   proxy_data.is_available);
-      if (!proxy_data.is_available || proxy_data.extract_remain <= 0) {
-        std::this_thread::sleep_for(an_hour);
-        continue;
-      }
-      [[maybe_unused]] auto stopped_tasks =
-          utilities::restart_tasks(auto_stopped_tasks.container());
-      auto_stopped_tasks.clear();
-    } catch (std::exception const &e) {
-      spdlog::error("[auto_task_restarter] {}", e.what());
-      std::this_thread::sleep_for(std::chrono::minutes(5));
-    }
   }
 }
 } // namespace wudi_server

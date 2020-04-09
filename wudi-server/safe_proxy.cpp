@@ -10,26 +10,90 @@
 #include <sstream>
 
 namespace wudi_server {
-std::string const safe_proxy::proxy_generator_address{
-    "http://api.wandoudl.com/api/ip"};
-std::string const safe_proxy::http_proxy_filename{"./http_proxy_servers.txt"};
-std::string const safe_proxy::https_proxy_filename{"./https_proxy_servers.txt"};
+std::string const other_proxies_t::proxy_filename{"./other_proxy_servers.txt"};
+std::string const generic_proxy::proxy_filename{"./generic_proxy_servers.txt"};
+std::string const jjgames_proxy::proxy_filename{"./jjgames_proxy_servers.txt"};
 
-safe_proxy::safe_proxy(net::io_context &context) : context_{context} {
-  load_proxy_file();
-}
+proxy_base::proxy_base(net::io_context &context, std::string const &filename)
+    : context_{context}, filename_{filename} {}
 
-extraction_data safe_proxy::get_remain_count(
-    net::io_context &context,
+extraction_data other_proxies_t::get_remain_count(
     net::ip::basic_resolver_results<net::ip::tcp> &resolves) {
-
-  beast::tcp_stream http_tcp_stream(net::make_strand(context));
+  beast::tcp_stream http_tcp_stream(net::make_strand(context_));
   try {
     http_tcp_stream.connect(resolves);
     beast::http::request<http::empty_body> http_request{};
     http_request.method(http::verb::get);
-    http_request.target(
-        R"(/api/product/list?app_key=86adb80a7af9ee8d31bf765dd02e1431)");
+    http_request.target(count_path_);
+    http_request.version(11);
+    http_request.set(http::field::host, "api.tkdaili.com:80");
+    http_request.set(http::field::user_agent, utilities::get_random_agent());
+    http::write(http_tcp_stream, http_request);
+    beast::flat_buffer buffer{};
+    http::response<http::string_body> server_response{};
+    http::read(http_tcp_stream, buffer, server_response);
+    beast::error_code ec{};
+    if (server_response.result_int() != 200)
+      return {};
+    http_tcp_stream.cancel();
+    auto &response_body = server_response.body();
+    char const *start_bold = "<b style='color:blue;'>";
+    char const *end_bold = "</b>";
+    std::string::size_type index_of_bold = response_body.find(start_bold);
+    if (index_of_bold == std::string::npos)
+      return {};
+    std::string::size_type end = response_body.find("</b>", index_of_bold);
+    if (end == std::string::npos)
+      return {};
+    extraction_data data{};
+    std::string::size_type const s = index_of_bold + strlen(start_bold);
+    std::string const extract_remain(response_body.data() + s, end - s);
+    data.extract_remain = std::stoi(extract_remain);
+    data.is_available = data.extract_remain > 0;
+    return data;
+  } catch (std::exception const &e) {
+    spdlog::error("[jjgames_remain_count]: {}", e.what());
+    return {};
+  }
+}
+
+other_proxies_t::other_proxies_t(net::io_context &io_)
+    : proxy_base{io_, proxy_filename} {
+  target_ =
+      R"(/api/getiplist.aspx?vkey=3E4E5F973F4EE6FACA34F5BD1A1B9C43&num=100&port=80&style=5)";
+  host_ = "http://api.tkdaili.com/api/getiplist.aspx";
+  count_path_ =
+      R"(/api/getiplist.aspx?vkey=3E4E5F973F4EE6FACA34F5BD1A1B9C43&num=0)";
+  load_proxy_file();
+}
+
+jjgames_proxy::jjgames_proxy(net::io_context &io)
+    : proxy_base{io, proxy_filename} {
+  target_ =
+      R"(/api/ip?app_key=86adb80a7af9ee8d31bf765dd02e1431&pack=210115&num=20&xy=3&type=1&lb=\n&port=3&mr=1&)";
+  host_ = "http://api.wandoudl.com/api/ip";
+  count_path_ = R"(/api/product/list?app_key=86adb80a7af9ee8d31bf765dd02e1431)";
+  load_proxy_file();
+}
+
+generic_proxy::generic_proxy(net::io_context &context)
+    : proxy_base{context, proxy_filename} {
+  target_ =
+      (R"(/api/ip?app_key=d9c96cbb82ce73721589f1d63125690e&pack=208774&num=100&xy=1&type=1&lb=\n&mr=1)");
+  host_ = ("http://api.wandoudl.com/api/ip");
+  count_path_ = R"(/api/product/list?app_key=d9c96cbb82ce73721589f1d63125690e)";
+  load_proxy_file();
+}
+
+extraction_data proxy_base::get_remain_count(
+    net::ip::basic_resolver_results<net::ip::tcp> &resolves) {
+
+  beast::tcp_stream http_tcp_stream(net::make_strand(context_));
+  try {
+    http_tcp_stream.connect(resolves);
+    beast::http::request<http::empty_body> http_request{};
+    http_request.method(http::verb::get);
+    http_request.target(count_path_);
     http_request.version(11);
     http_request.set(http::field::host, "api.wandoudl.com:80");
     http_request.set(http::field::user_agent, utilities::get_random_agent());
@@ -93,24 +157,18 @@ extraction_data safe_proxy::get_remain_count(
       }
       proxy_extract_info.push_back(data);
     }
-    auto const current_time = std::time(nullptr);
-    proxy_extract_info.erase(
-        std::remove_if(proxy_extract_info.begin(), proxy_extract_info.end(),
-                       [&current_time](extraction_data const &data) {
-                         return !data.is_available ||
-                                data.expire_time < current_time;
-                       }),
-        proxy_extract_info.end());
-    if (proxy_extract_info.empty())
+    if (proxy_extract_info.empty() || !proxy_extract_info.back().is_available) {
       return {};
+    }
     return proxy_extract_info.back();
   } catch (std::exception const &e) {
     spdlog::error("[get_remain_count] {}", e.what());
     return {};
   }
 }
-void safe_proxy::get_more_proxies() {
-  utilities::uri uri_{proxy_generator_address};
+
+void proxy_base::get_more_proxies() {
+  utilities::uri uri_{host_};
 
   beast::tcp_stream http_tcp_stream(net::make_strand(context_));
   http::request<http::empty_body> http_request_;
@@ -119,7 +177,7 @@ void safe_proxy::get_more_proxies() {
   std::lock_guard<std::mutex> lock_g{mutex_};
   try {
     auto resolves = resolver.resolve(uri_.host(), "http");
-    current_extracted_data_ = get_remain_count(context_, resolves);
+    current_extracted_data_ = get_remain_count(resolves);
     http_tcp_stream.connect(resolves);
     if (!current_extracted_data_.is_available) {
       has_error = true;
@@ -128,8 +186,7 @@ void safe_proxy::get_more_proxies() {
     if (current_extracted_data_.extract_remain > 0) {
       http_request_ = {};
       http_request_.method(http::verb::get);
-      http_request_.target(
-          R"(/api/ip?app_key=86adb80a7af9ee8d31bf765dd02e1431&pack=210115&num=100&xy=1&type=1&lb=\n&mr=1)");
+      http_request_.target(target_);
       http_request_.version(11);
       http_request_.set(http::field::host, uri_.host() + ":80");
       http_request_.set(http::field::user_agent, utilities::get_random_agent());
@@ -180,27 +237,27 @@ void safe_proxy::get_more_proxies() {
     spdlog::error("safe_proxy exception: {}", e.what());
     has_error = true;
   }
-  if (current_extracted_data_.connect_remain > 0) {
-    for (auto &ep : endpoints_) {
-      if (ep->property != ProxyProperty::ProxyBlocked) {
-        ep->property = ProxyProperty::ProxyActive;
-      }
-    }
-    save_proxies_to_file();
-  } else {
-    endpoints_.clear();
+  endpoints_.erase(std::remove_if(endpoints_.begin(), endpoints_.end(),
+                                  [](auto const &ep) {
+                                    return ep->property ==
+                                           ProxyProperty::ProxyBlocked;
+                                  }),
+                   endpoints_.end());
+  for (auto &ep : endpoints_) {
+    ep->property = ProxyProperty::ProxyActive;
   }
+  save_proxies_to_file();
   if (has_error)
     spdlog::error("Error occurred while getting more proxies");
-}
+} // namespace wudi_server
 
-void safe_proxy::save_proxies_to_file() {
+void proxy_base::save_proxies_to_file() {
   std::unique_ptr<std::ofstream> out_file_ptr{nullptr};
-  if (std::filesystem::exists(http_proxy_filename)) {
+  if (std::filesystem::exists(filename_)) {
     out_file_ptr = std::make_unique<std::ofstream>(
-        http_proxy_filename, std::ios::app | std::ios::out);
+        filename_, std::ios::app | std::ios::out);
   } else {
-    out_file_ptr = std::make_unique<std::ofstream>(http_proxy_filename);
+    out_file_ptr = std::make_unique<std::ofstream>(filename_);
   }
   if (!out_file_ptr)
     return;
@@ -215,8 +272,8 @@ void safe_proxy::save_proxies_to_file() {
   out_file_ptr->close();
 }
 
-void safe_proxy::load_proxy_file() {
-  std::filesystem::path const http_filename_path{http_proxy_filename};
+void proxy_base::load_proxy_file() {
+  std::filesystem::path const http_filename_path{filename_};
   if (!std::filesystem::exists(http_filename_path)) {
     get_more_proxies();
     if (!endpoints_.empty()) {
@@ -231,8 +288,9 @@ void safe_proxy::load_proxy_file() {
   }
   std::string line{};
   std::vector<std::string> ip_port{};
-  int count = 0;
-  while (std::getline(proxy_file, line) && count < 1000) {
+  std::size_t const max_allowed = 500;
+
+  while (std::getline(proxy_file, line)) {
     ip_port.clear();
     boost::trim(line);
     if (line.empty())
@@ -244,16 +302,19 @@ void safe_proxy::load_proxy_file() {
     try {
       auto endpoint = net::ip::tcp::endpoint(net::ip::make_address(ip_port[0]),
                                              std::stoi(ip_port[1]));
+      if (endpoints_.size() > max_allowed) {
+        endpoints_.erase(endpoints_.begin());
+      }
       endpoints_.emplace_back(std::make_shared<custom_endpoint>(
           std::move(endpoint), ProxyProperty::ProxyActive));
-      ++count;
     } catch (std::exception const &e) {
       spdlog::error("Error while converting( {} ), {}", line, e.what());
     }
   }
 }
 
-std::optional<endpoint_ptr> safe_proxy::next_endpoint() {
+std::optional<endpoint_ptr> proxy_base::next_endpoint() {
+  // spdlog::info("current: {}", count_);
   {
     std::lock_guard<std::mutex> lock_g{mutex_};
     if (has_error || endpoints_.empty())
@@ -279,12 +340,12 @@ net::io_context &get_network_context() {
   return context;
 }
 
-void safe_proxy::clear() {
+void proxy_base::clear() {
   std::lock_guard<std::mutex> lock_g{mutex_};
   endpoints_.clear();
 }
 
-void safe_proxy::push_back(custom_endpoint ep) {
+void proxy_base::push_back(custom_endpoint ep) {
   std::lock_guard<std::mutex> lock_g{mutex_};
   endpoints_.emplace_back(std::make_shared<custom_endpoint>(std::move(ep)));
 }

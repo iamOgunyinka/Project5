@@ -1,14 +1,14 @@
 #include "backgroundworker.hpp"
 #include "auto_home_sock.hpp"
 #include "database_connector.hpp"
-#include "jj_games_socket.hpp"
+#include "jjgames_socket.hpp"
 #include "pp_sports.hpp"
 #include <filesystem>
 #include <list>
 
 namespace wudi_server {
 enum constant_e {
-  MaxOpenSockets = 20,
+  MaxOpenSockets = 1,
 };
 
 background_worker_t::~background_worker_t() {
@@ -41,6 +41,11 @@ void background_worker_t::on_data_result_obtained(
     task_result_ptr_->ok_file << number << "\n";
     task_result_ptr_->ok_file.flush();
     break;
+  case search_result_type_e::Registered2:
+    ++task_result_ptr_->ok_count;
+    task_result_ptr_->ok2_file << number << "\n";
+    task_result_ptr_->ok2_file.flush();
+    break;
   case search_result_type_e::Registered:
     ++task_result_ptr_->not_ok_count;
     task_result_ptr_->not_ok_file << number << "\n";
@@ -59,11 +64,15 @@ void background_worker_t::on_data_result_obtained(
   }
 
   bool const signallable = (processed % MaxOpenSockets) == 0;
-
   if (signallable) {
     spdlog::info("Task({}) => Processed {} of {}", task_result_ptr_->task_id,
                  processed, total);
     db_connector->update_task_progress(*task_result_ptr_);
+  }
+  if (processed > 10 && ((processed - 10) > task_result_ptr_->total_numbers)) {
+    // if we get here, there's a problem
+    task_result_ptr_->stop();
+    task_result_ptr_->operation_status = task_status_e::AutoStopped;
   }
 }
 
@@ -96,11 +105,13 @@ bool background_worker_t::open_output_files() {
                       (current_time + ".txt")};
     task_result_ptr_->not_ok_filename = abs_path / "not_ok" / suffix;
     task_result_ptr_->ok_filename = abs_path / "ok" / suffix;
+    task_result_ptr_->ok2_filename = abs_path / "ok2" / suffix;
     task_result_ptr_->unknown_filename = abs_path / "unknown" / suffix;
   }
 
   if (!(create_file_directory(task_result_ptr_->not_ok_filename) &&
         create_file_directory(task_result_ptr_->ok_filename) &&
+        create_file_directory(task_result_ptr_->ok2_filename) &&
         create_file_directory(task_result_ptr_->unknown_filename))) {
     // create some error messages and fire out
     return false;
@@ -109,10 +120,14 @@ bool background_worker_t::open_output_files() {
                                      std::ios::out | std::ios::app);
   task_result_ptr_->ok_file.open(task_result_ptr_->ok_filename,
                                  std::ios::out | std::ios::app);
+  task_result_ptr_->ok2_file.open(task_result_ptr_->ok2_filename,
+                                  std::ios::out | std::ios::app);
   task_result_ptr_->unknown_file.open(task_result_ptr_->unknown_filename,
                                       std::ios::out | std::ios::app);
+
   return task_result_ptr_->not_ok_file.is_open() &&
          task_result_ptr_->ok_file.is_open() &&
+         task_result_ptr_->ok2_file.is_open() &&
          task_result_ptr_->unknown_file.is_open();
 }
 
@@ -134,17 +149,13 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
   bool &stopped = task_result_ptr_->stopped();
   stopped = false;
   if (type_ == website_type::Unknown) {
-    if (website_info_.alias.find("jjgames") != std::string::npos ||
-        website_info_.address.find("jjgames") != std::string::npos) {
+    if (website_info_.address.find("jjgames") != std::string::npos) {
       type_ = website_type::JJGames;
-    } else if (website_info_.alias.find("autohome") != std::string::npos ||
-               website_info_.address.find("autohome") != std::string::npos) {
+    } else if (website_info_.address.find("autohome") != std::string::npos) {
       type_ = website_type::AutoHomeRegister;
-    } else if (website_info_.alias.find("ppsports") != std::string::npos ||
-               website_info_.address.find("ppsports") != std::string::npos) {
+    } else if (website_info_.address.find("ppsports") != std::string::npos) {
       type_ = website_type::PPSports;
-    } else if (website_info_.alias.find("watch") != std::string::npos ||
-               website_info_.address.find("watch") != std::string::npos) {
+    } else if (website_info_.address.find("watch") != std::string::npos) {
       type_ = website_type::WatchHome;
     } else {
       spdlog::error("Type not found");
@@ -154,11 +165,16 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
 
   // we delayed construction of safe_proxy/io_context until now
   io_context_.emplace();
-  proxy_provider_.emplace(*io_context_);
+  if (type_ == website_type::JJGames) {
+    proxy_provider_.reset(new jjgames_proxy(*io_context_));
+  } else {
+    proxy_provider_.reset(new generic_proxy(*io_context_));
+  }
   auto callback = std::bind(&background_worker_t::on_data_result_obtained, this,
                             std::placeholders::_1, std::placeholders::_2);
   if (!db_connector->set_input_files(
           input_filename, task_result_ptr_->ok_filename.string(),
+          task_result_ptr_->ok2_filename.string(),
           task_result_ptr_->not_ok_filename.string(),
           task_result_ptr_->unknown_filename.string(),
           task_result_ptr_->task_id)) {
@@ -167,32 +183,30 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
   }
 
   {
-    if (type_ == website_type::JJGames) {
-      // we only need one socket of this type
-      auto socket_ptr = std::make_shared<jj_games_single_interface>(
-          stopped, *proxy_provider_, *number_stream_);
-      sockets_.push_back(socket_ptr); // keep a type-erased copy
-      (void)socket_ptr->signal().connect(callback);
-      socket_ptr->start_connect();
-    } else {
-      sockets_.reserve(MaxOpenSockets);
-      for (int i = 0; i != MaxOpenSockets; ++i) {
-        if (type_ == website_type::AutoHomeRegister) {
-          auto socket_ptr = std::make_shared<auto_home_socket_t>(
-              stopped, *io_context_, *proxy_provider_, *number_stream_);
-          sockets_.push_back(socket_ptr); // keep a type-erased copy
-          (void)socket_ptr->signal().connect(callback);
-          socket_ptr->start_connect();
-        } else if (type_ == website_type::PPSports) {
-          auto socket_ptr = std::make_shared<pp_sports_t>(
-              stopped, *io_context_, *proxy_provider_, *number_stream_);
-          sockets_.push_back(socket_ptr); // keep a type-erased copy
-          (void)socket_ptr->signal().connect(callback);
-          socket_ptr->start_connect();
-        }
+    sockets_.reserve(MaxOpenSockets);
+    for (int i = 0; i != MaxOpenSockets; ++i) {
+      if (type_ == website_type::AutoHomeRegister) {
+        auto socket_ptr = std::make_shared<auto_home_socket_t>(
+            stopped, *io_context_, *proxy_provider_, *number_stream_);
+        sockets_.push_back(socket_ptr); // keep a type-erased copy
+        (void)socket_ptr->signal().connect(callback);
+        socket_ptr->start_connect();
+      } else if (type_ == website_type::PPSports) {
+        auto socket_ptr = std::make_shared<pp_sports_t>(
+            stopped, *io_context_, *proxy_provider_, *number_stream_);
+        sockets_.push_back(socket_ptr);
+        (void)socket_ptr->signal().connect(callback);
+        socket_ptr->start_connect();
+      } else if (type_ == website_type::JJGames) {
+        auto socket_ptr = std::make_shared<jjgames_socket>(
+            stopped, *io_context_, *proxy_provider_, *number_stream_,
+            jjgames_socket::get_ssl_context());
+        sockets_.push_back(socket_ptr);
+        (void)socket_ptr->signal().connect(callback);
+        socket_ptr->start_connect();
       }
-      io_context_->run();
     }
+    io_context_->run();
   }
 
   if (task_result_ptr_->operation_status == task_status_e::Ongoing) {

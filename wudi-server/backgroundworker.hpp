@@ -51,7 +51,7 @@ private:
   utilities::task_status_e continue_old_task();
 
 private:
-  std::optional<proxy_provider_t> proxy_provider_;
+  std::unique_ptr<proxy_provider_t> proxy_provider_;
   website_type type_;
   std::shared_ptr<utilities::number_stream_t> number_stream_;
   website_result_t website_info_;

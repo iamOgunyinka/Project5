@@ -34,32 +34,33 @@ protected:
   std::vector<tcp::endpoint> temp_list_;
   std::size_t send_count_{};
   endpoint_ptr current_proxy_{nullptr};
-  void close_socket();
 
 protected:
+  void close_socket();
   void connect();
-  void on_connected(beast::error_code,
-                    tcp::resolver::results_type::endpoint_type);
-  void send_http_data();
-  void on_data_sent(beast::error_code, std::size_t const);
   void receive_data();
   void reconnect();
   void resend_http_request();
   void choose_next_proxy();
-  void send_next();
+  void send_http_data();
   void set_authentication_header();
+  void on_data_sent(beast::error_code, std::size_t const);
   void current_proxy_assign_prop(ProxyProperty);
-
-protected:
   void prepare_request_data(bool use_auth = false);
   void on_data_received(beast::error_code, std::size_t const);
+  void send_first_request();
+  virtual void on_connected(beast::error_code,
+                            tcp::resolver::results_type::endpoint_type);
+  virtual void send_next();
 
 public:
   web_base(bool &stopped, net::io_context &, proxy_provider_t &,
            utilities::number_stream_t &);
   void start_connect();
-  virtual ~web_base();
   auto &signal() { return signal_; }
+
+public:
+  virtual ~web_base();
 };
 
 template <typename DerivedClass> web_base<DerivedClass>::~web_base() {
@@ -97,16 +98,16 @@ template <typename DerivedClass> void web_base<DerivedClass>::send_http_data() {
 
 template <typename DerivedClass>
 void web_base<DerivedClass>::on_data_sent(beast::error_code ec,
-                                          std::size_t const) {
-  if (ec)
+                                          std::size_t const s) {
+  if (ec) {
     resend_http_request();
-  else
+  } else
     receive_data();
 }
 
 template <typename DerivedClass> void web_base<DerivedClass>::receive_data() {
   tcp_stream_.expires_after(
-      std::chrono::milliseconds(utilities::TimeoutMilliseconds * 3)); // 3*3secs
+      std::chrono::milliseconds(utilities::TimeoutMilliseconds * 4)); // 4*3secs
   response_ = {};
   buffer_ = {};
   http::async_read(
@@ -117,7 +118,24 @@ template <typename DerivedClass> void web_base<DerivedClass>::receive_data() {
 template <typename DerivedClass> void web_base<DerivedClass>::start_connect() {
   choose_next_proxy();
   if (current_proxy_)
-    send_next();
+    send_first_request();
+}
+
+template <typename DerivedClass>
+void web_base<DerivedClass>::send_first_request() {
+  if (stopped_) {
+    if (!current_number_.empty()) {
+      numbers_.push_back(current_number_);
+    }
+    current_number_.clear();
+    return;
+  }
+  try {
+    current_number_ = numbers_.get();
+    prepare_request_data();
+    connect();
+  } catch (utilities::empty_container_exception_t &) {
+  }
 }
 
 template <typename DerivedClass> void web_base<DerivedClass>::send_next() {
@@ -131,7 +149,6 @@ template <typename DerivedClass> void web_base<DerivedClass>::send_next() {
   try {
     current_number_ = numbers_.get();
     prepare_request_data();
-    // connect();
     send_http_data();
   } catch (utilities::empty_container_exception_t &) {
   }
@@ -164,9 +181,8 @@ template <typename DerivedClass>
 void web_base<DerivedClass>::on_connected(
     beast::error_code ec, tcp::resolver::results_type::endpoint_type) {
   if (ec)
-    reconnect();
-  else
-    send_http_data();
+    return reconnect();
+  send_http_data();
 }
 
 template <typename DerivedClass>

@@ -37,33 +37,60 @@ using EndpointList = std::vector<custom_endpoint>;
 using endpoint_ptr = std::shared_ptr<custom_endpoint>;
 void swap(custom_endpoint &a, custom_endpoint &b);
 
-class safe_proxy {
-private:
+class proxy_base {
+protected:
   net::io_context &context_;
+  std::string filename_;
+  std::string host_;
+  std::string target_;
+  std::string count_path_;
+
   extraction_data current_extracted_data_;
-  static std::string const https_proxy_filename;
-  static std::string const http_proxy_filename;
   std::mutex mutex_{};
   std::size_t count_{};
   std::vector<endpoint_ptr> endpoints_;
   std::atomic_bool has_error = false;
 
-private:
+protected:
   void load_proxy_file();
-  void get_more_proxies();
   void save_proxies_to_file();
-
-public:
-  static std::string const proxy_generator_address;
-
-  safe_proxy(net::io_context &context);
   void clear();
   void push_back(custom_endpoint ep);
+  virtual extraction_data
+  get_remain_count(net::ip::basic_resolver_results<net::ip::tcp> &);
+  virtual void get_more_proxies();
+
+public:
+  proxy_base(net::io_context &, std::string const &filename);
+  virtual ~proxy_base() {}
   std::optional<endpoint_ptr> next_endpoint();
-  static extraction_data
-  get_remain_count(net::io_context &,
-                   net::ip::basic_resolver_results<net::ip::tcp> &);
 };
 
-using proxy_provider_t = safe_proxy;
+class generic_proxy final : public proxy_base {
+  static std::string const proxy_filename;
+
+public:
+  generic_proxy(net::io_context &context);
+  ~generic_proxy() {}
+};
+
+class jjgames_proxy final : public proxy_base {
+  static std::string const proxy_filename;
+
+public:
+  jjgames_proxy(net::io_context &context);
+  ~jjgames_proxy() {}
+};
+
+class other_proxies_t final : public proxy_base {
+  static std::string const proxy_filename;
+
+public:
+  other_proxies_t(net::io_context &context);
+  ~other_proxies_t() {}
+  virtual extraction_data
+  get_remain_count(net::ip::basic_resolver_results<net::ip::tcp> &) override;
+};
+
+using proxy_provider_t = proxy_base;
 } // namespace wudi_server

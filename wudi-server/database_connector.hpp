@@ -82,7 +82,7 @@ public:
                                      std::string_view const);
   bool add_upload(utilities::upload_request_t const &upload_request);
   bool set_input_files(std::string input_filename, std::string ok_filename,
-                       std::string not_ok_filename,
+                       std::string ok2_filename, std::string not_ok_filename,
                        std::string unknown_filename, uint32_t const task_id);
 
   template <typename T>

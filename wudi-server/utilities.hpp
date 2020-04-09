@@ -66,14 +66,15 @@ enum class task_status_e {
 enum class search_result_type_e {
   Registered = 0xA,
   NotRegistered = 0xB,
-  Unknown = 0XE,
-  RequestStop = 0xF
+  Unknown = 0XC,
+  RequestStop = 0xD,
+  Registered2 = 0xE // only for PPSports
 };
 
 enum constants_e {
   MaxRetries = 2,
   SleepTimeoutSec = 5,
-  LenUserAgents = 18,
+  LenUserAgents = 14,
   TimeoutMilliseconds = 3'000,
   FiveMegabytes = 1024 * 1024 * 5
 };
@@ -89,16 +90,16 @@ struct scheduled_task_t {
 };
 
 struct task_result_t {
-  int task_status;
-  uint32_t id;
-  uint32_t total_numbers;
-  uint32_t ok;
-  uint32_t not_ok;
-  uint32_t unknown;
-  uint32_t processed;
-  uint32_t website_id;
-  std::string data_ids;
-  std::string scheduled_date;
+  int task_status{};
+  uint32_t id{};
+  uint32_t total{};
+  uint32_t ok{};
+  uint32_t not_ok{};
+  uint32_t unknown{};
+  uint32_t processed{};
+  uint32_t website_id{};
+  std::string data_ids{};
+  std::string scheduled_date{};
 };
 
 struct atomic_task_t {
@@ -114,6 +115,7 @@ struct atomic_task_t {
   uint32_t unknown_count{};
   std::string input_filename{};
   std::string ok_filename{};
+  std::string ok2_filename{};
   std::string not_ok_filename{};
   std::string unknown_filename{};
   std::string website_address{};
@@ -151,9 +153,11 @@ public:
   uint32_t total_numbers{};
 
   std::filesystem::path ok_filename;
+  std::filesystem::path ok2_filename;
   std::filesystem::path not_ok_filename;
   std::filesystem::path unknown_filename;
   std::ofstream ok_file;
+  std::ofstream ok2_file;
   std::ofstream not_ok_file;
   std::ofstream unknown_file;
 
@@ -361,6 +365,7 @@ using threadsafe_cv_container = threadsafe_container<T, std::deque<T>, true>;
 
 std::vector<atomic_task_t> restart_tasks(std::vector<uint32_t> const &task_ids);
 std::string get_random_agent();
+std::string get_random_ip_address();
 void normalize_paths(std::string &str);
 void replace_special_chars(std::string &str);
 void remove_file(std::string &filename);

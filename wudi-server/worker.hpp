@@ -41,5 +41,4 @@ bool save_status_to_persistent_storage(
 
 void background_task_executor(std::atomic_bool &stopped, std::mutex &,
                               std::shared_ptr<database_connector_t> &);
-void auto_task_restarter(boost::asio::io_context &);
 } // namespace wudi_server

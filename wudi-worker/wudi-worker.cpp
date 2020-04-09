@@ -1,8 +1,12 @@
+#include "fields_alloc.hpp"
 #include "json.hpp"
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
+#include <optional>
 
 namespace net = boost::asio;
 namespace beast = boost::beast;
@@ -65,12 +69,32 @@ void server::run() {
                 std::placeholders::_1, std::placeholders::_2));
 }
 
+struct ad_info {
+  enum ad_type { banner, full_screen };
+
+  int type = banner;
+  std::string url{};
+  std::string image_filename{};
+};
+
 class session : public std::enable_shared_from_this<session> {
+  static std::vector<ad_info> advertisement_list;
+  using crequest_parser = http::request_parser<http::empty_body>;
+  using alloc_t = wudi_server::fields_alloc<char>;
+
   net::io_context &context_;
   beast::tcp_stream tcp_stream_;
   beast::flat_buffer read_buffer_;
-  http::request_parser<http::empty_body> empty_body_parser_;
+  std::optional<crequest_parser> empty_body_parser_;
   std::shared_ptr<void> resp_;
+  std::optional<http::response<http::file_body, http::basic_fields<alloc_t>>>
+      file_response_;
+  alloc_t alloc_{8192};
+  // The file-based response serializer.
+  std::optional<
+      http::response_serializer<http::file_body, http::basic_fields<alloc_t>>>
+      file_serializer_;
+  void serve_file(char const *filename, char const *mime_type);
 
 public:
   session(net::io_context &io, tcp::socket &&socket)
@@ -81,7 +105,16 @@ public:
   std::string get_shangai_time();
   void on_data_written(beast::error_code ec, std::size_t);
   string_response make_response(std::string const &);
+  string_response make_html(std::string const &);
+  string_response make_json(json const &);
+  string_response not_found();
+  void get_logs_handler();
+  void get_ads_handler();
+  void load_advertisements();
+  void get_file_handler(boost::string_view);
 };
+
+std::vector<ad_info> session::advertisement_list;
 
 void session::on_data_written(beast::error_code ec, std::size_t const) {
   if (ec == beast::http::error::end_of_stream) {
@@ -96,6 +129,108 @@ void session::on_data_written(beast::error_code ec, std::size_t const) {
   }
   run();
 }
+void to_json(json &j, ad_info const &info) {
+  j = json{{"type", info.type},
+           {"url", info.url},
+           {"ad", "/data" + info.image_filename}};
+}
+
+void session::get_ads_handler() {
+  static std::random_device rd{};
+  static std::mt19937 gen{rd()};
+  static std::uniform_int_distribution<> uid(0, 9);
+  if (advertisement_list.empty())
+    load_advertisements();
+  return send_response(make_json(advertisement_list[uid(gen)]));
+}
+
+void session::load_advertisements() {
+  static char const *filename = "/root/woody/Project5/wudi-worker/data.json";
+  if (!advertisement_list.empty())
+    return;
+  if (!std::filesystem::exists(filename)) {
+    throw std::runtime_error("Ad file does not exist");
+  }
+  auto const file_size = std::filesystem::file_size(filename);
+  std::vector<char> data_buffer{};
+  data_buffer.resize(file_size);
+  {
+    std::ifstream in_file(filename);
+    if (!in_file)
+      throw std::runtime_error("Cannot open ad file");
+    in_file.read(data_buffer.data(), file_size);
+  }
+  try {
+    json::array_t item_list = json::parse(data_buffer.data());
+    for (auto const &item : item_list) {
+      json::object_t object = item.get<json::object_t>();
+      ad_info info{};
+      info.image_filename = object["image"].get<json::string_t>();
+      info.type = object["type"].get<json::number_integer_t>();
+      info.url = object["url"].get<json::string_t>();
+      advertisement_list.push_back(info);
+    }
+  } catch (std::exception const &e) {
+    std::cerr << e.what() << "\n";
+    throw;
+  }
+}
+
+void session::serve_file(char const *file_path, char const *mime_type) {
+  beast::error_code ec{};
+  http::file_body::value_type file;
+  file.open(file_path, beast::file_mode::read, ec);
+  file_response_.emplace(std::piecewise_construct, std::make_tuple(),
+                         std::make_tuple(alloc_));
+  file_response_->result(http::status::ok);
+  file_response_->keep_alive(false);
+  file_response_->set(http::field::server, "wudi-server");
+  file_response_->set(http::field::content_type, mime_type);
+  file_response_->body() = std::move(file);
+  file_response_->prepare_payload();
+  file_serializer_.emplace(*file_response_);
+  http::async_write(tcp_stream_, *file_serializer_,
+                    [self = shared_from_this()](
+                        beast::error_code ec, std::size_t const size_written) {
+                      self->file_serializer_.reset();
+                      self->file_response_.reset();
+                      self->on_data_written(ec, size_written);
+                    });
+}
+void session::get_logs_handler() {
+  std::filesystem::path const file_path =
+      "/root/woody/Project5/wudi-worker/stdout.log";
+  serve_file(file_path.string().c_str(), "text/plain");
+}
+
+string_response session::make_html(std::string const &str) {
+  string_response response{beast::http::status::ok, string_request{}.version()};
+  response.set(beast::http::field::content_type, "text/html");
+  response.keep_alive(false);
+  response.body() =
+      "<html><title>Hello</title><head><body>" + str + "</body></head></html>";
+  response.prepare_payload();
+  return response;
+}
+
+string_response session::make_json(json const &j) {
+  string_response response{beast::http::status::ok, string_request{}.version()};
+  response.set(beast::http::field::content_type, "application/json");
+  response.keep_alive(false);
+  response.body() = j.dump();
+  response.prepare_payload();
+  return response;
+}
+
+string_response session::not_found() {
+  string_response response{beast::http::status::not_found,
+                           string_request{}.version()};
+  response.set(beast::http::field::content_type, "application/txt");
+  response.keep_alive(false);
+  response.body() = "Object not found";
+  response.prepare_payload();
+  return response;
+}
 
 string_response session::make_response(std::string const &str) {
   string_response response{beast::http::status::ok, string_request{}.version()};
@@ -108,8 +243,10 @@ string_response session::make_response(std::string const &str) {
 
 void session::run() {
   read_buffer_.consume(read_buffer_.size());
+  read_buffer_.clear();
+  empty_body_parser_.emplace();
   beast::get_lowest_layer(tcp_stream_).expires_after(std::chrono::seconds(5));
-  beast::http::async_read(tcp_stream_, read_buffer_, empty_body_parser_,
+  beast::http::async_read(tcp_stream_, read_buffer_, *empty_body_parser_,
                           std::bind(&session::on_data_read, shared_from_this(),
                                     std::placeholders::_1,
                                     std::placeholders::_2));
@@ -157,6 +294,18 @@ std::string session::get_shangai_time() {
   }
 }
 
+void session::get_file_handler(boost::string_view target) {
+  char const *data_temp = "/data/";
+  boost::string_view::size_type found_index = target.find(data_temp);
+  auto file_name = target.substr(found_index + strlen(data_temp));
+  std::filesystem::path path = "/root/woody/Project5/wudi-worker" /
+                               std::filesystem::path(file_name.to_string());
+  if (!std::filesystem::exists(path)) {
+    return send_response(not_found());
+  }
+  return serve_file(path.string().c_str(), "image/png");
+}
+
 void session::on_data_read(beast::error_code const ec, std::size_t const) {
   if (ec == beast::http::error::end_of_stream) {
     beast::error_code ec{};
@@ -168,11 +317,20 @@ void session::on_data_read(beast::error_code const ec, std::size_t const) {
     std::cerr << ec.message() << std::endl;
     return;
   }
-  http::request<http::empty_body> r = empty_body_parser_.get();
-  if (r.target() == "/time")
-    return send_response(make_response(get_shangai_time()));
+  http::request<http::empty_body> r = empty_body_parser_->get();
   std::string remote_ep =
       tcp_stream_.socket().remote_endpoint().address().to_string();
+  std::cout << remote_ep << " => " << r[http::field::user_agent].to_string()
+            << std::endl;
+  if (r.target() == "/time") {
+    return send_response(make_response(get_shangai_time()));
+  } else if (r.target() == "/tony") {
+    return get_logs_handler();
+  } else if (r.target() == "/ads") {
+    return get_ads_handler();
+  } else if (r.target().starts_with("/data/img")) {
+    return get_file_handler(r.target());
+  }
   return send_response(make_response(remote_ep));
 }
 

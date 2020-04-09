@@ -481,12 +481,18 @@ void session::download_handler(string_request const &request,
       }
       utilities::normalize_paths(stopped_task.not_ok_filename);
       utilities::normalize_paths(stopped_task.ok_filename);
+      utilities::normalize_paths(stopped_task.ok2_filename);
       utilities::normalize_paths(stopped_task.unknown_filename);
       if (needs_ok) { // provides numbers that are OK.
-        std::string const filename = "task_{}_website_{}_ok.txt"_format(
+        std::string const ok_filename = "task_{}_website_{}_ok.txt"_format(
             stopped_task.task_id, stopped_task.website_id);
+        std::string const ok2_filename = "task_{}_website_{}_ok2.txt"_format(
+            stopped_task.task_id, stopped_task.website_id);
+
         paths.emplace_back(copy_file_n(stopped_task.ok_filename, temp_path,
-                                       filename, user_from, user_to));
+                                       ok_filename, user_from, user_to));
+        paths.emplace_back(copy_file_n(stopped_task.ok2_filename, temp_path,
+                                       ok2_filename, user_from, user_to));
       }
       if (needs_not_ok) {
         std::string const filename = "task_{}_website_{}_not_ok.txt"_format(
@@ -584,6 +590,7 @@ void session::delete_stopped_tasks_impl(
     remove_file(stopped_task.input_filename);
     remove_file(stopped_task.not_ok_filename);
     remove_file(stopped_task.ok_filename);
+    remove_file(stopped_task.ok2_filename);
     remove_file(stopped_task.unknown_filename);
   }
   return db_connector->delete_stopped_tasks(user_stopped_tasks);
@@ -630,7 +637,7 @@ void session::get_file_handler(string_request const &request,
   }
   auto iter = optional_query.find("filename");
   if (iter == optional_query.cend()) {
-    return error_handler(bad_request("key paramter missing", request));
+    return error_handler(bad_request("key parameter missing", request));
   }
   std::filesystem::path const file_path =
       download_path / iter->second.to_string();
@@ -701,7 +708,8 @@ void session::stop_tasks_handler(string_request const &request,
       unstarted_task.processed = 0;
       unstarted_task.total = task.total;
       unstarted_task.not_ok_filename = unstarted_task.ok_filename =
-          unstarted_task.unknown_filename = "{free}";
+          unstarted_task.ok2_filename = unstarted_task.unknown_filename =
+              "{free}";
 
       unstarted_task.input_filename =
           utilities::intlist_to_string(unstarted_task.number_ids);

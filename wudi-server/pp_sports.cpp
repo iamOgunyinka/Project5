@@ -97,7 +97,16 @@ void pp_sports_t::on_data_received(beast::error_code ec, std::size_t const) {
     if (object.find("errorCode") != object.end()) {
       std::string const error_code = object["errorCode"].get<json::string_t>();
       if (error_code == "0") {
-        signal_(search_result_type_e::Registered, current_number_);
+        if (object.find("status") != object.end()) {
+          std::string const status = object["status"].get<json::string_t>();
+          if (status == "1") {
+            signal_(search_result_type_e::Registered, current_number_);
+          } else {
+            signal_(search_result_type_e::Registered2, current_number_);
+          }
+        } else {
+          signal_(search_result_type_e::Registered, current_number_);
+        }
       } else if (error_code == "5") {
         signal_(search_result_type_e::NotRegistered, current_number_);
       } else {
