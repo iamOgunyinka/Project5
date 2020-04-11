@@ -3,6 +3,7 @@
 #include "safe_proxy.hpp"
 #include "utilities.hpp"
 #include <boost/asio.hpp>
+#include <boost/asio/ssl/context.hpp>
 #include <boost/beast.hpp>
 #include <boost/beast/ssl.hpp>
 
@@ -80,8 +81,6 @@ private:
   void on_data_received(beast::error_code, std::size_t const);
 
 public:
-  static net::ssl::context &get_ssl_context();
-
   jjgames_socket(bool &stopped, net::io_context &, proxy_provider_t &,
                  utilities::number_stream_t &, net::ssl::context &);
   void start_connect();

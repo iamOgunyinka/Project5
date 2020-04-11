@@ -75,8 +75,7 @@ enum constants_e {
   MaxRetries = 2,
   SleepTimeoutSec = 5,
   LenUserAgents = 14,
-  TimeoutMilliseconds = 3'000,
-  FiveMegabytes = 1024 * 1024 * 5
+  TimeoutMilliseconds = 3'000
 };
 
 struct scheduled_task_t {
@@ -131,8 +130,9 @@ struct upload_request_t {
 };
 
 struct upload_result_t {
-  int32_t upload_id;
-  int32_t total_numbers;
+  int32_t upload_id{};
+  int32_t total_numbers{};
+  int32_t status{};
   std::string upload_date;
   std::string filename;
   std::string name_on_disk;

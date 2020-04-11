@@ -4,7 +4,6 @@
 #include <boost/beast.hpp>
 #include <ctime>
 #include <memory>
-#include <optional>
 
 namespace wudi_server {
 namespace beast = boost::beast;
@@ -63,7 +62,7 @@ protected:
 public:
   proxy_base(net::io_context &, std::string const &filename);
   virtual ~proxy_base() {}
-  std::optional<endpoint_ptr> next_endpoint();
+  endpoint_ptr next_endpoint();
 };
 
 class generic_proxy final : public proxy_base {

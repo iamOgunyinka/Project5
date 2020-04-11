@@ -1,6 +1,7 @@
 #pragma once
 #include <atomic>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/ssl/context.hpp>
 #include <ctime>
 #include <memory>
 #include <mutex>
@@ -19,13 +20,16 @@ void on_task_ran(utilities::task_status_e, utilities::atomic_task_t &,
                  background_worker_t *);
 
 std::unique_ptr<background_worker_t>
-start_new_task(utilities::atomic_task_t &scheduled_task);
+start_new_task(utilities::atomic_task_t &scheduled_task,
+               boost::asio::ssl::context &);
 
 std::unique_ptr<background_worker_t>
-continue_recent_task(utilities::atomic_task_t &scheduled_task);
+continue_recent_task(utilities::atomic_task_t &scheduled_task,
+                     boost::asio::ssl::context &);
 
 std::unique_ptr<background_worker_t>
-resume_unstarted_task(utilities::atomic_task_t &scheduled_task);
+resume_unstarted_task(utilities::atomic_task_t &scheduled_task,
+                      boost::asio::ssl::context &);
 
 void run_completion_op(std::shared_ptr<database_connector_t> &,
                        background_worker_t &);
@@ -40,5 +44,5 @@ bool save_status_to_persistent_storage(
     std::shared_ptr<database_connector_t> db_connector);
 
 void background_task_executor(std::atomic_bool &stopped, std::mutex &,
-                              std::shared_ptr<database_connector_t> &);
+                              boost::asio::ssl::context &);
 } // namespace wudi_server

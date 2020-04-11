@@ -48,6 +48,7 @@ class Upload(db.Model):
 	name_on_disk = db.Column(db.String(128), nullable=False)
 	upload_date = db.Column(db.String(32), nullable=False)
 	total_numbers = db.Column(db.Integer, nullable=False)
+	status = db.Column(db.Integer, nullable=False, default=0)
 	numbers = db.relationship('Number', backref='upload')
 
 def create_app(config_name):

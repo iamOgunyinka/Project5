@@ -3,6 +3,7 @@
 
 #include "safe_proxy.hpp"
 #include "utilities.hpp"
+#include <boost/asio/ssl/context.hpp>
 #include <boost/signals2.hpp>
 #include <fstream>
 #include <optional>
@@ -29,10 +30,12 @@ class background_worker_t {
 public:
   background_worker_t(
       website_result_t &&, std::vector<upload_result_t> &&,
-      std::shared_ptr<utilities::internal_task_result_t> task_result);
+      std::shared_ptr<utilities::internal_task_result_t> task_result,
+      net::ssl::context &);
   background_worker_t(
       utilities::atomic_task_t old_task,
-      std::shared_ptr<utilities::internal_task_result_t> task_result);
+      std::shared_ptr<utilities::internal_task_result_t> task_result,
+      net::ssl::context &);
   ~background_worker_t();
 
   task_status_e run();
@@ -51,6 +54,8 @@ private:
   utilities::task_status_e continue_old_task();
 
 private:
+  net::ssl::context &ssl_context_;
+
   std::unique_ptr<proxy_provider_t> proxy_provider_;
   website_type type_;
   std::shared_ptr<utilities::number_stream_t> number_stream_;

@@ -189,15 +189,13 @@ template <typename DerivedClass>
 void web_base<DerivedClass>::choose_next_proxy() {
   send_count_ = 0;
   connect_count_ = 0;
-  auto proxy = proxy_provider_.next_endpoint();
-  if (!proxy.has_value()) {
+  current_proxy_ = proxy_provider_.next_endpoint();
+  if (!current_proxy_) {
     spdlog::error("error getting next endpoint");
     numbers_.push_back(current_number_);
     current_number_.clear();
-    current_proxy_ = nullptr;
     return signal_(search_result_type_e::RequestStop, current_number_);
   }
-  current_proxy_ = proxy.value();
 }
 
 template <typename DerivedClass>

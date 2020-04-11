@@ -3,6 +3,7 @@
 #include "worker.hpp"
 #include <CLI11/CLI11.hpp>
 #include <atomic>
+#include <boost/asio/ssl/context.hpp>
 #include <spdlog/spdlog.h>
 #include <thread>
 
@@ -38,14 +39,19 @@ int main(int argc, char *argv[]) {
 
   std::atomic_bool stop = false;
   std::mutex task_mutex{};
-  wudi_server::asio::io_context context{static_cast<int>(thread_count)};
+  boost::asio::ssl::context ssl_context(
+      boost::asio::ssl::context::tlsv12_client);
+  ssl_context.set_default_verify_paths();
+  ssl_context.set_verify_mode(boost::asio::ssl::verify_none);
+
+  wudi_server::asio::io_context io_context{static_cast<int>(thread_count)};
   {
     using wudi_server::background_task_executor;
     using namespace wudi_server::utilities;
 
     for (int i = 0; i != WorkerThreadCount; ++i) {
       std::thread t{background_task_executor, std::ref(stop),
-                    std::ref(task_mutex), std::ref(database_connector)};
+                    std::ref(task_mutex), std::ref(ssl_context)};
       t.detach();
     }
   }
@@ -56,15 +62,16 @@ int main(int argc, char *argv[]) {
     stop = true;
     return EXIT_FAILURE;
   }
-  auto server_instance = std::make_shared<wudi_server::server>(context, args);
+  auto server_instance =
+      std::make_shared<wudi_server::server>(io_context, args);
   server_instance->run();
 
   std::vector<std::thread> threads{};
   threads.reserve(args.thread_count);
   for (std::size_t counter = 0; counter < args.thread_count; ++counter) {
-    threads.emplace_back([&] { context.run(); });
+    threads.emplace_back([&] { io_context.run(); });
   }
-  context.run();
+  io_context.run();
   stop = true;
   return EXIT_SUCCESS;
 }

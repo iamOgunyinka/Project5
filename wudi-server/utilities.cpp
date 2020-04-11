@@ -19,6 +19,7 @@ bool operator<(internal_task_result_t const &task_1,
 
 void to_json(json &j, upload_result_t const &item) {
   j = json{{"id", item.upload_id},
+           {"status", item.status},
            {"date", item.upload_date},
            {"filename", item.filename},
            {"total", item.total_numbers}};
@@ -36,6 +37,7 @@ void to_json(json &j, task_result_t const &item) {
            {"web", item.website_id},
            {"numbers", item.data_ids},
            {"total", item.total},
+           {"unknown", item.unknown},
            {"not_ok", item.not_ok},
            {"date", item.scheduled_date}};
 }

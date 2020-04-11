@@ -32,7 +32,7 @@ void on_task_ran(utilities::task_status_e status,
 }
 
 std::unique_ptr<background_worker_t>
-start_new_task(atomic_task_t &scheduled_task) {
+start_new_task(atomic_task_t &scheduled_task, net::ssl::context &ssl_context) {
   using utilities::intlist_to_string;
   using utilities::task_status_e;
 
@@ -57,12 +57,13 @@ start_new_task(atomic_task_t &scheduled_task) {
   task_result->website_id = scheduled_task.website_id;
   scheduled_task.website_address = website->address;
   response_queue.emplace(scheduled_task.task_id, task_result);
-  return std::make_unique<background_worker_t>(std::move(*website),
-                                               std::move(numbers), task_result);
+  return std::make_unique<background_worker_t>(
+      std::move(*website), std::move(numbers), task_result, ssl_context);
 }
 
 std::unique_ptr<background_worker_t>
-continue_recent_task(atomic_task_t &scheduled_task) {
+continue_recent_task(atomic_task_t &scheduled_task,
+                     net::ssl::context &ssl_context) {
   using utilities::normalize_paths;
   using utilities::task_status_e;
 
@@ -108,11 +109,12 @@ continue_recent_task(atomic_task_t &scheduled_task) {
     scheduled_task.website_address = website->address;
   }
   return std::make_unique<background_worker_t>(std::move(scheduled_task),
-                                               task_result);
+                                               task_result, ssl_context);
 }
 
 std::unique_ptr<background_worker_t>
-resume_unstarted_task(utilities::atomic_task_t &scheduled_task) {
+resume_unstarted_task(utilities::atomic_task_t &scheduled_task,
+                      net::ssl::context &ssl_context) {
   auto string_to_intlist = [](std::string const &str, char const *delim = ",") {
     std::vector<uint32_t> list{};
     auto split = utilities::split_string_view(str, delim);
@@ -143,15 +145,16 @@ resume_unstarted_task(utilities::atomic_task_t &scheduled_task) {
   task_result->task_id = scheduled_task.task_id;
   task_result->website_id = scheduled_task.website_id;
   response_queue.emplace(scheduled_task.task_id, task_result);
-  return std::make_unique<background_worker_t>(std::move(*website),
-                                               std::move(numbers), task_result);
+  return std::make_unique<background_worker_t>(
+      std::move(*website), std::move(numbers), task_result, ssl_context);
 }
 
-void background_task_executor(
-    std::atomic_bool &stopped, std::mutex &mutex,
-    std::shared_ptr<database_connector_t> &db_connector) {
+void background_task_executor(std::atomic_bool &stopped, std::mutex &mutex,
+                              boost::asio::ssl::context &ssl_context) {
 
+  auto db_connector = database_connector_t::s_get_db_connector();
   auto &scheduled_tasks = utilities::get_scheduled_tasks();
+
   auto on_error = [db_connector](atomic_task_t &scheduled_task) {
     using utilities::replace_special_chars;
     if (scheduled_task.type_ != atomic_task_t::task_type::fresh) {
@@ -171,12 +174,12 @@ void background_task_executor(
     auto scheduled_task = std::move(scheduled_tasks.get());
     std::unique_ptr<background_worker_t> worker{};
     if (scheduled_task.type_ == atomic_task_t::task_type::fresh) {
-      worker = start_new_task(scheduled_task);
+      worker = start_new_task(scheduled_task, ssl_context);
     } else {
       if (scheduled_task.ok_filename == "{free}") {
-        worker = resume_unstarted_task(scheduled_task);
+        worker = resume_unstarted_task(scheduled_task, ssl_context);
       } else {
-        worker = continue_recent_task(scheduled_task);
+        worker = continue_recent_task(scheduled_task, ssl_context);
       }
     }
     if (worker) {

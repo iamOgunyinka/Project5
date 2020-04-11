@@ -313,12 +313,12 @@ void proxy_base::load_proxy_file() {
   }
 }
 
-std::optional<endpoint_ptr> proxy_base::next_endpoint() {
+endpoint_ptr proxy_base::next_endpoint() {
   // spdlog::info("current: {}", count_);
   {
     std::lock_guard<std::mutex> lock_g{mutex_};
     if (has_error || endpoints_.empty())
-      return std::nullopt;
+      return nullptr;
     if (count_ >= endpoints_.size()) {
       count_ = 0;
       while (count_ < endpoints_.size()) {

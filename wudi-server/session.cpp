@@ -11,6 +11,7 @@ std::filesystem::path const download_path =
     std::filesystem::current_path() / "downloads" / "zip_files";
 
 using namespace fmt::v6::literals;
+enum constant_e { RequestBodySize = 1024 * 1024 * 50 };
 
 rule_t::rule_t(std::initializer_list<http::verb> &&verbs, callback_t callback)
     : num_verbs_{verbs.size()}, route_callback_{std::move(callback)} {
@@ -45,7 +46,7 @@ endpoint_t::get_rules(boost::string_view const &target) {
 void session::http_read_data() {
   buffer_.clear();
   empty_body_parser_.emplace();
-  empty_body_parser_->body_limit(utilities::FiveMegabytes);
+  empty_body_parser_->body_limit(RequestBodySize);
   beast::get_lowest_layer(tcp_stream_)
       .expires_after(std::chrono::minutes(utilities::MaxRetries));
   http::async_read_header(
@@ -72,7 +73,7 @@ void session::on_header_read(beast::error_code ec, std::size_t const) {
     } else if (content_type_ == "application/gzip") {
       dynamic_body_parser =
           std::make_unique<dynamic_request>(std::move(*empty_body_parser_));
-      dynamic_body_parser->body_limit(utilities::FiveMegabytes);
+      dynamic_body_parser->body_limit(RequestBodySize);
       http::async_read(tcp_stream_, buffer_, *dynamic_body_parser,
                        beast::bind_front_handler(&session::binary_data_read,
                                                  shared_from_this()));
@@ -178,14 +179,12 @@ void session::login_handler(string_request const &request,
 
 void session::index_page_handler(string_request const &request,
                                  url_query const &) {
-  spdlog::info("[index_page_handler] {}", request.target());
   return error_handler(
       get_error("login", error_type_e::NoError, http::status::ok, request));
 }
 
 void session::upload_handler(string_request const &request,
                              url_query const &optional_query) {
-  spdlog::info("[/upload_handler] {}", request.target());
   static std::string uploads_directory{"uploads/"};
   auto const method = request.method();
   auto db_connector = database_connector_t::s_get_db_connector();
@@ -272,13 +271,18 @@ void session::upload_handler(string_request const &request,
     }
     // GET method
     if (method == http::verb::get) {
-      json json_result = db_connector->get_uploads(ids);
+      auto const with_deleted_iter = optional_query.find("with_deleted");
+      if (with_deleted_iter == optional_query.cend()) {
+        return error_handler(bad_request(
+            "Deletion not specified, use an updated client", request));
+      }
+      bool use_deleted = std::stoi(with_deleted_iter->second.to_string()) == 1;
+      json json_result = db_connector->get_uploads(ids, use_deleted);
       return send_response(json_success(json_result, request));
     } else {
       // a DELETE request
       std::vector<utilities::upload_result_t> uploads;
       if (!ids.empty() && ids[0] == "all") { // remove all
-        uploads = db_connector->get_uploads(std::vector<boost::string_view>{});
         if (!db_connector->remove_uploads({})) {
           return error_handler(server_error("unable to delete any record",
                                             error_type_e::ServerError,
@@ -292,11 +296,13 @@ void session::upload_handler(string_request const &request,
                                             request));
         }
       }
+      /*
       for (auto const &upload : uploads) {
         if (std::filesystem::exists(upload.name_on_disk)) {
           std::filesystem::remove(upload.name_on_disk);
         }
       }
+      */
       return send_response(success("ok", request));
     }
   }
@@ -837,7 +843,6 @@ void session::schedule_task_handler(string_request const &request,
 void session::website_handler(string_request const &request,
                               url_query const &) {
   auto db_connector = wudi_server::database_connector_t::s_get_db_connector();
-  spdlog::info("[website_handler] {}", request.target());
   if (request.method() == http::verb::get) {
     json j = db_connector->get_websites({});
     return send_response(json_success(j, request));

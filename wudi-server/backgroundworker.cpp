@@ -4,7 +4,6 @@
 #include "jjgames_socket.hpp"
 #include "pp_sports.hpp"
 #include <filesystem>
-#include <list>
 
 namespace wudi_server {
 enum constant_e {
@@ -19,15 +18,19 @@ background_worker_t::~background_worker_t() {
 
 background_worker_t::background_worker_t(
     website_result_t &&website, std::vector<upload_result_t> &&uploads,
-    std::shared_ptr<utilities::internal_task_result_t> task_result)
-    : website_info_{std::move(website)}, uploads_info_{std::move(uploads)},
+    std::shared_ptr<utilities::internal_task_result_t> task_result,
+    net::ssl::context &ssl_context)
+    : ssl_context_{ssl_context}, website_info_{std::move(website)},
+      uploads_info_{std::move(uploads)},
       task_result_ptr_{task_result}, type_{website_type::Unknown} {}
 
 background_worker_t::background_worker_t(
     utilities::atomic_task_t old_task,
-    std::shared_ptr<utilities::internal_task_result_t> task_result)
-    : website_info_{}, uploads_info_{}, task_result_ptr_{task_result},
-      type_{website_type::Unknown}, atomic_task_{std::move(old_task)} {}
+    std::shared_ptr<utilities::internal_task_result_t> task_result,
+    net::ssl::context &ssl_context)
+    : ssl_context_{ssl_context}, website_info_{}, uploads_info_{},
+      task_result_ptr_{task_result}, type_{website_type::Unknown},
+      atomic_task_{std::move(old_task)} {}
 
 void background_worker_t::on_data_result_obtained(
     utilities::search_result_type_e type, std::string_view number) {
@@ -200,7 +203,7 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
       } else if (type_ == website_type::JJGames) {
         auto socket_ptr = std::make_shared<jjgames_socket>(
             stopped, *io_context_, *proxy_provider_, *number_stream_,
-            jjgames_socket::get_ssl_context());
+            ssl_context_);
         sockets_.push_back(socket_ptr);
         (void)socket_ptr->signal().connect(callback);
         socket_ptr->start_connect();

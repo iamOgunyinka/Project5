@@ -7,12 +7,12 @@ using utilities::task_result_t;
 otl_stream &operator>>(otl_stream &os, task_result_t &item) {
   return os >> item.id >> item.total >> item.task_status >>
          item.scheduled_date >> item.website_id >> item.data_ids >>
-         item.processed >> item.not_ok;
+         item.processed >> item.not_ok >> item.unknown;
 }
 
 otl_stream &operator>>(otl_stream &os, utilities::upload_result_t &item) {
   return os >> item.upload_id >> item.filename >> item.total_numbers >>
-         item.upload_date >> item.name_on_disk;
+         item.upload_date >> item.name_on_disk >> item.status;
 }
 
 otl_stream &operator>>(otl_stream &os, utilities::website_result_t &web) {
@@ -158,12 +158,13 @@ bool database_connector_t::add_upload(
     utilities::upload_request_t const &upload_request) {
   using utilities::bv2sv;
   std::string const sql_statement{
-      "insert into tb_uploads (uploader_id, filename, upload_date, "
-      "total_numbers, name_on_disk) VALUES( {}, \"{}\", \"{}\", {}, \"{}\" )"_format(
-          bv2sv(upload_request.uploader_id),
-          bv2sv(upload_request.upload_filename),
-          bv2sv(upload_request.upload_date), upload_request.total_numbers,
-          bv2sv(upload_request.name_on_disk))};
+      "insert into tb_uploads (uploader_id, filename, upload_date, status,"
+      "total_numbers, name_on_disk) VALUES( {}, \"{}\", \"{}\", 0, {}, "
+      "\"{}\" )"_format(bv2sv(upload_request.uploader_id),
+                        bv2sv(upload_request.upload_filename),
+                        bv2sv(upload_request.upload_date),
+                        upload_request.total_numbers,
+                        bv2sv(upload_request.name_on_disk))};
   try {
     {
       std::lock_guard<std::mutex> lock_g{db_mutex_};
@@ -294,14 +295,14 @@ std::vector<utilities::task_result_t> database_connector_t::get_all_tasks(
   if (task_ids.empty()) {
     sql_statement =
         "SELECT id, total_numbers, status, date_scheduled, website_id, "
-        "uploads, processed, not_ok_count FROM tb_tasks WHERE scheduler_id"
-        "={}"_format(user_id.to_string());
+        "uploads, processed, not_ok_count, unknown_count FROM tb_tasks "
+        "WHERE scheduler_id={}"_format(user_id.to_string());
   } else {
     sql_statement =
         "SELECT id, total_numbers, status, date_scheduled, website_id, "
-        "uploads, processed, not_ok_count FROM tb_tasks WHERE scheduler_id"
-        "={} AND id IN ({})"_format(user_id.to_string(),
-                                    utilities::svector_to_string(task_ids));
+        "uploads, processed, not_ok_count, unknown_count FROM tb_tasks "
+        "WHERE scheduler_id ={} AND id IN ({})"_format(
+            user_id.to_string(), utilities::svector_to_string(task_ids));
   }
   std::lock_guard<std::mutex> lock_g{db_mutex_};
   std::vector<utilities::task_result_t> result{};
@@ -386,9 +387,7 @@ bool database_connector_t::get_stopped_tasks(
       "SELECT id, website_id, processed, total_numbers, input_filename, "
       "ok_file, not_ok_file, unknown_file, ok2_file, ok_count, not_ok_count, "
       "unknown_count FROM tb_tasks WHERE id IN ({})"_format(
-          utilities::intlist_to_string(tasks),
-          utilities::task_status_e::Stopped,
-          utilities::task_status_e::AutoStopped);
+          utilities::intlist_to_string(tasks));
   try {
     std::lock_guard<std::mutex> lock_g{db_mutex_};
 
@@ -455,10 +454,10 @@ bool database_connector_t::remove_uploads(
   using utilities::svector_to_string;
   std::string sql_statement;
   if (!ids.empty()) {
-    sql_statement = "DELETE FROM tb_uploads WHERE id in ({})"_format(
+    sql_statement = "UPDATE tb_uploads SET status=1 WHERE id in ({})"_format(
         svector_to_string(ids));
   } else {
-    sql_statement = "ALTER TABLE tb_uploads AUTO_INCREMENT = 1";
+    sql_statement = "UPDATE tb_uploads SET status=1 WHERE id >= 1";
   }
   try {
     {

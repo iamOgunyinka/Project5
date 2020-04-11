@@ -87,20 +87,23 @@ public:
 
   template <typename T>
   std::vector<utilities::upload_result_t>
-  get_uploads(std::vector<T> const &ids) {
+  get_uploads(std::vector<T> const &ids, bool const include_deleted = true) {
     std::string sql_statement{};
     if (ids.empty()) {
       sql_statement = "SELECT id, filename, total_numbers, upload_date, "
-                      "name_on_disk FROM tb_uploads";
+                      "name_on_disk, status FROM tb_uploads{}"_format(
+                          include_deleted ? "" : " WHERE status=0");
     } else {
       if constexpr (std::is_same_v<T, boost::string_view>) {
         sql_statement = "SELECT id, filename, total_numbers, upload_date, "
-                        "name_on_disk FROM tb_uploads WHERE id IN "
-                        "({})"_format(utilities::svector_to_string(ids));
+                        "name_on_disk, status FROM tb_uploads WHERE id IN "
+                        "({}){}"_format(utilities::svector_to_string(ids),
+                                        include_deleted ? "" : " AND status=0");
       } else {
         sql_statement = "SELECT id, filename, total_numbers, upload_date, "
-                        "name_on_disk FROM tb_uploads WHERE id IN "
-                        "({})"_format(utilities::intlist_to_string(ids));
+                        "name_on_disk, status FROM tb_uploads WHERE id IN "
+                        "({}){}"_format(utilities::intlist_to_string(ids),
+                                        include_deleted ? "" : "AND status=0");
       }
     }
     std::vector<utilities::upload_result_t> result{};
