@@ -11,7 +11,7 @@ std::filesystem::path const download_path =
     std::filesystem::current_path() / "downloads" / "zip_files";
 
 using namespace fmt::v6::literals;
-enum constant_e { RequestBodySize = 1024 * 1024 * 50 };
+enum constant_e { MaxRequestBodySize = 1024 * 1024 * 50 };
 
 rule_t::rule_t(std::initializer_list<http::verb> &&verbs, callback_t callback)
     : num_verbs_{verbs.size()}, route_callback_{std::move(callback)} {
@@ -46,7 +46,7 @@ endpoint_t::get_rules(boost::string_view const &target) {
 void session::http_read_data() {
   buffer_.clear();
   empty_body_parser_.emplace();
-  empty_body_parser_->body_limit(RequestBodySize);
+  empty_body_parser_->body_limit(MaxRequestBodySize);
   beast::get_lowest_layer(tcp_stream_)
       .expires_after(std::chrono::minutes(utilities::MaxRetries));
   http::async_read_header(
@@ -73,7 +73,7 @@ void session::on_header_read(beast::error_code ec, std::size_t const) {
     } else if (content_type_ == "application/gzip") {
       dynamic_body_parser =
           std::make_unique<dynamic_request>(std::move(*empty_body_parser_));
-      dynamic_body_parser->body_limit(RequestBodySize);
+      dynamic_body_parser->body_limit(MaxRequestBodySize);
       http::async_read(tcp_stream_, buffer_, *dynamic_body_parser,
                        beast::bind_front_handler(&session::binary_data_read,
                                                  shared_from_this()));

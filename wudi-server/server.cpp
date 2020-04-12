@@ -57,6 +57,7 @@ void server::on_connection_accepted(beast::error_code const &ec,
   }
   accept_connections();
 }
+
 void server::accept_connections() {
   acceptor_.async_accept(
       asio::make_strand(io_context_),

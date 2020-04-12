@@ -71,7 +71,7 @@ private:
   void reconnect();
   void resend_http_request();
   void choose_next_proxy();
-  void send_http_data();
+  void send_https_data();
   void on_data_sent(beast::error_code, std::size_t const);
   void current_proxy_assign_prop(ProxyProperty);
   void prepare_request_data(bool use_auth = false);
@@ -84,7 +84,10 @@ public:
   jjgames_socket(bool &stopped, net::io_context &, proxy_provider_t &,
                  utilities::number_stream_t &, net::ssl::context &);
   void start_connect();
-  ~jjgames_socket() { close_socket(); }
+  ~jjgames_socket() {
+    signal_.disconnect_all_slots();
+    close_socket();
+  }
   auto &signal() { return signal_; }
 };
 

@@ -7,7 +7,7 @@
 #include <spdlog/spdlog.h>
 #include <thread>
 
-enum constant_e { WorkerThreadCount = 10 };
+enum constant_e { WorkerThreadCount = 15 };
 
 int main(int argc, char *argv[]) {
   CLI::App cli_parser{
