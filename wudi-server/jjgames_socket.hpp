@@ -21,9 +21,7 @@ using utilities::task_status_e;
 
 class jjgames_socket {
   static std::string jjgames_hostname;
-  enum class type_sent_e { Normal, GetHash, SetHash };
-  type_sent_e type_ = type_sent_e::Normal;
-
+  
 private:
   net::io_context &io_;
   utilities::number_stream_t &numbers_;
@@ -43,14 +41,11 @@ private:
 
   std::size_t success_sent_count_{};
   std::size_t handshake_retries_{};
+  std::size_t second_handshake_retries_{};
   std::vector<uint8_t> handshake_buffer{};
   char reply_buffer[512]{};
 
 private:
-  void get_form_hash();
-  void prepare_hash_request();
-  void process_gethash_response(std::string const &body);
-  void process_sethash_response();
   void process_normal_response(std::string const &body);
   void send_first_request();
 
@@ -64,6 +59,7 @@ private:
   void on_handshake_response_received(beast::error_code, bool const);
   void perform_sock5_second_handshake();
   void retry_first_handshake();
+  void retry_second_handshake();
 
   void close_socket();
   void connect();

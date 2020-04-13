@@ -55,18 +55,27 @@ void jjgames_socket::retry_first_handshake() {
   ++handshake_retries_;
   if (handshake_retries_ >= utilities::MaxRetries) {
     handshake_retries_ = 0;
+    current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
     choose_next_proxy();
     return connect();
   }
   perform_socks5_handshake();
 }
 
-void jjgames_socket::on_first_handshake_initiated(beast::error_code const ec,
-                                                  std::size_t const) {
-  if (ec == net::error::eof) { // connection closed
+void jjgames_socket::retry_second_handshake() {
+  ++second_handshake_retries_;
+  if (second_handshake_retries_ >= utilities::MaxRetries) {
+    second_handshake_retries_ = 0;
+    current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
     choose_next_proxy();
     return connect();
-  } else if (ec) { // could be timeout
+  }
+  perform_sock5_second_handshake();
+}
+
+void jjgames_socket::on_first_handshake_initiated(beast::error_code const ec,
+                                                  std::size_t const) {
+  if (ec) { // could be timeout
     spdlog::error("on first handshake: {}", ec.message());
     return retry_first_handshake();
   }
@@ -90,13 +99,16 @@ void jjgames_socket::read_socks5_server_response(
 void jjgames_socket::on_handshake_response_received(
     beast::error_code ec, bool const is_first_handshake) {
   if (ec) {
-    // spdlog::error("On handshake response: {}", ec.message());
-    choose_next_proxy();
-    return connect();
+    if (is_first_handshake) {
+      return retry_first_handshake();
+    }
+
+    return retry_second_handshake();
   }
   if (is_first_handshake) {
     if (reply_buffer[1] != 0x00) {
       // std::cout << "Could not finish handshake with server\n";
+      current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
       choose_next_proxy();
       return connect();
     }
@@ -106,6 +118,7 @@ void jjgames_socket::on_handshake_response_received(
     // std::cout << "Second HS failed: 0x" << std::hex << reply_buffer[1]
     //          << std::dec << "\n";
     beast::get_lowest_layer(ssl_stream_).close();
+    current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
     choose_next_proxy();
     return connect();
   }
@@ -128,6 +141,7 @@ void jjgames_socket::on_ssl_handshake(beast::error_code ec) {
   }
   if (ec) {
     spdlog::error("Handshake failed: {}", ec.message());
+    current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
     choose_next_proxy();
     return connect();
   }
@@ -146,7 +160,7 @@ void jjgames_socket::perform_sock5_second_handshake() {
   }
   // host to network short(htons)
   handshake_buffer.push_back(443 >> 8);
-  handshake_buffer.push_back(443 & 0xff);
+  handshake_buffer.push_back(443 & 0xFF);
 
   beast::get_lowest_layer(ssl_stream_).expires_after(std::chrono::seconds(5));
   beast::get_lowest_layer(ssl_stream_)
@@ -154,66 +168,39 @@ void jjgames_socket::perform_sock5_second_handshake() {
           net::const_buffer(handshake_buffer.data(), handshake_buffer.size()),
           [this](beast::error_code ec, std::size_t const) {
             if (ec) {
-              std::cout << ec.message() << std::endl;
-              return;
+              current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
+              choose_next_proxy();
+              return connect();
             }
             return read_socks5_server_response(false);
           });
 }
 
 time_data_t get_time_data() {
-  static std::random_device
-      rd; // Will be used to obtain a seed for the random number engine
-  static std::mt19937 gen(
-      rd()); // Standard mersenne_twister_engine seeded with rd()
+  static std::random_device rd{};
+  static std::mt19937 gen(rd());
   static std::uniform_real_distribution<> dis(0.0, 1.0);
   uint64_t const current_time = std::time(nullptr) * 1'000;
-  std::size_t const random_number = std::round(1e3 * dis(gen));
+  std::size_t const random_number =
+      static_cast<std::size_t>(std::round(1e3 * dis(gen)));
   std::uint64_t const callback_number =
       static_cast<std::size_t>(current_time + random_number);
   return time_data_t{current_time, callback_number};
 }
 
-void jjgames_socket::get_form_hash() {
-  prepare_hash_request();
-  send_https_data();
-}
-
-void jjgames_socket::prepare_hash_request() {
-  type_ = type_sent_e::GetHash;
-  auto const time_data = get_time_data();
-  std::string const target =
-      "/formhash/get_form_hash.php?content={}&_={}&callback=JSONP_{}"_format(
-          current_number_, time_data.current_time, time_data.callback_number);
-  request_.clear();
-  request_.method(http::verb::get);
-  request_.version(11);
-  request_.target(target);
-  request_.keep_alive(false);
-  request_.set(http::field::host, "o2tvseries.com:443");
-  request_.set(http::field::user_agent, utilities::get_random_agent());
-  request_.set(http::field::accept, "*/*");
-  request_.set(http::field::referer,
-               "https://www.jj.cn/reg/reg.html?type=phone");
-  request_.set(http::field::accept_language, "en-US,en;q=0.5 --compressed");
-  request_.set(http::field::cache_control, "no-cache");
-  request_.set("sec-fetch-dest", "script");
-  request_.set("sec-fetch-site", "same-site");
-  request_.set("sec-fetch-mode", "no-cors");
-  request_.body() = {};
-  request_.prepare_payload();
-  // std::cout << request_ << std::endl;
-}
-
 void jjgames_socket::prepare_request_data(bool use_authentication_header) {
-  type_ = type_sent_e::Normal;
   auto const time_data = get_time_data();
   std::string const target =
       "/reg/check_loginname.php?regtype=2&t={}&n=1&loginname={}&callback="
       "JSONP_{}"_format(time_data.current_time, current_number_,
                         time_data.callback_number);
+  std::string const md5_hash =
+      utilities::md5(std::to_string(time_data.current_time));
+  auto const seconds = time_data.current_time / 1'000;
+  std::string const cookie =
+      "Hm_lvt_{}={}; visitorId=4460870697_{}; Hm_lpvt_{}={}"_format(
+          md5_hash, seconds, time_data.current_time, md5_hash, seconds + 3);
 
-  // std::string const target = "/a";
   request_.clear();
   request_.method(beast::http::verb::get);
   request_.version(11);
@@ -236,24 +223,10 @@ void jjgames_socket::prepare_request_data(bool use_authentication_header) {
   request_.set(http::field::referer,
                "https://www.jj.cn/reg/reg.html?type=phone");
   request_.set(http::field::accept_language, "en-US,en;q=0.5 --compressed");
+  request_.set(http::field::cookie, cookie);
   request_.body() = {};
   request_.prepare_payload();
-  // std::cout << request_ << std::endl;
 }
-
-void jjgames_socket::process_gethash_response(std::string const &message_body) {
-  try {
-    json json_response = json::parse(message_body);
-    json::object_t object = json_response.get<json::object_t>();
-    json::object_t data = object["DATA"].get<json::object_t>();
-    std::string const js_src = data["js_src"].get<json::string_t>();
-    std::string const form_hash = data["formhash"].get<json::string_t>();
-
-  } catch (std::exception const &e) {
-  }
-}
-
-void jjgames_socket::process_sethash_response() {}
 
 void jjgames_socket::process_normal_response(std::string const &message_body) {
   try {
@@ -268,18 +241,30 @@ void jjgames_socket::process_normal_response(std::string const &message_body) {
       static char const *const already_registered{
           "%E8%AF%A5%E6%89%8B%E6%9C%BA%E5%8F%B7%E5%B7%B2%E6%B3%A8%E5%86%8C%EF%"
           "BC%8C%E8%AF%B7%E6%9B%B4%E6%8D%A2"};
+      static char const *const blocked{
+          "%E6%93%8D%E4%BD%9C%E5%BC%82%E5%B8%B8%EF%BC%8C%E8%AF%B7%E7%A8%8D%E5%"
+          "90%8E%E9%87%8D%E8%AF%95"};
+      static char const *const blocked_2{
+          "%E8%AE%BF%E9%97%AE%E5%BC%82%E5%B8%B8%EF%BC%8C%E8%AF%B7%E7%A8%8D%E5%"
+          "90%8E%E5%86%8D%E8%AF%95"};
+      static char const *const blocked_3{
+          "%E7%99%BB%E5%BD%95%E5%90%8D%E9%9D%9E%E6%B3%95"};
       std::string const server_message = object["MSG"].get<json::string_t>();
       if (server_message.find(already_registered) != std::string::npos) {
         signal_(search_result_type_e::Registered, current_number_);
+      } else if (server_message.find(blocked) != std::string::npos ||
+                 server_message.find(blocked_2) != std::string::npos ||
+                 server_message.find(blocked_3) != std::string::npos) {
+        current_proxy_assign_prop(ProxyProperty::ProxyBlocked);
+        choose_next_proxy();
+        return connect();
       } else {
-        type_ = type_sent_e::Normal;
         choose_next_proxy();
         return connect();
       }
     }
   } catch (std::exception const &e) {
     spdlog::error("exception in process_normal_response: {}", e.what());
-    type_ = type_sent_e::Normal;
     choose_next_proxy();
     return connect();
   }
@@ -436,7 +421,6 @@ void jjgames_socket::on_data_received(beast::error_code ec, std::size_t const) {
     }
     spdlog::error(ec.message());
     choose_next_proxy();
-    type_ = type_sent_e::Normal;
     return connect();
   }
   std::size_t const status_code = response_.result_int();
@@ -452,27 +436,13 @@ void jjgames_socket::on_data_received(beast::error_code ec, std::size_t const) {
   std::size_t opening_brace_index = response_body.find_first_of('{');
   std::size_t closing_brace_index = response_body.find_last_of('}');
   if ((opening_brace_index == std::string::npos ||
-       closing_brace_index == std::string::npos) &&
-      type_ != type_sent_e::SetHash) {
-    type_ = type_sent_e::Normal;
+       closing_brace_index == std::string::npos)) {
     choose_next_proxy();
     return connect();
   }
-  std::string body_temp{};
-  if (type_ != type_sent_e::SetHash) {
-    body_temp = std::string(
-        response_body.begin() + static_cast<int>(opening_brace_index),
-        response_body.begin() + static_cast<int>(closing_brace_index + 1));
-  }
-
-  switch (type_) {
-  case type_sent_e::Normal:
-    return process_normal_response(body_temp);
-  case type_sent_e::GetHash:
-    return process_gethash_response(body_temp);
-  case type_sent_e::SetHash:
-  default:
-    return process_sethash_response();
-  }
+  std::string const body_temp(std::string(
+      response_body.begin() + static_cast<int>(opening_brace_index),
+      response_body.begin() + static_cast<int>(closing_brace_index + 1)));
+  return process_normal_response(body_temp);
 }
 } // namespace wudi_server

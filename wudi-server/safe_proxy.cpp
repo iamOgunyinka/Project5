@@ -275,20 +275,15 @@ void proxy_base::save_proxies_to_file() {
 void proxy_base::load_proxy_file() {
   std::filesystem::path const http_filename_path{filename_};
   if (!std::filesystem::exists(http_filename_path)) {
-    get_more_proxies();
-    if (!endpoints_.empty()) {
-      save_proxies_to_file();
-    }
-    return;
+    return get_more_proxies();
   }
   std::ifstream proxy_file{http_filename_path};
   if (!proxy_file) {
-    get_more_proxies();
-    return save_proxies_to_file();
+    return get_more_proxies();
   }
   std::string line{};
   std::vector<std::string> ip_port{};
-  std::size_t const max_allowed = 500;
+  std::size_t const max_allowed = 5'000;
 
   while (std::getline(proxy_file, line)) {
     ip_port.clear();
@@ -319,15 +314,20 @@ endpoint_ptr proxy_base::next_endpoint() {
     if (has_error_ || endpoints_.empty())
       return nullptr;
     if (count_ >= endpoints_.size()) {
-      std::size_t temp_count = 0;
-      while (temp_count < endpoints_.size()) {
-        if (endpoints_[temp_count]->property == ProxyProperty::ProxyActive) {
-          return endpoints_[temp_count++];
+      count_ = 0;
+      while (count_ < endpoints_.size()) {
+        if (endpoints_[count_]->property == ProxyProperty::ProxyActive) {
+          return endpoints_[count_++];
         }
-        temp_count++;
+        count_++;
       }
     } else {
-      return endpoints_[count_++];
+      while (count_ < endpoints_.size()) {
+        if (endpoints_[count_]->property == ProxyProperty::ProxyActive) {
+          return endpoints_[count_++];
+        }
+        count_++;
+      }
     }
   }
   if (first_pass_) {
@@ -344,11 +344,16 @@ endpoint_ptr proxy_base::next_endpoint() {
       ep->property = ProxyProperty::ProxyActive;
     }
     count_ = 0;
+    if (endpoints_.empty()) {
+      first_pass_ = true;
+      get_more_proxies();
+      return next_endpoint();
+    }
     return endpoints_[count_++];
   }
-  get_more_proxies();
-  first_pass_ = true;
   count_ = 0;
+  first_pass_ = true;
+  get_more_proxies();
   return next_endpoint();
 }
 

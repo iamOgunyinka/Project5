@@ -7,7 +7,7 @@
 
 namespace wudi_server {
 enum constant_e {
-  MaxOpenSockets = 1,
+  MaxOpenSockets = 10,
 };
 
 background_worker_t::~background_worker_t() {
@@ -21,8 +21,8 @@ background_worker_t::background_worker_t(
     std::shared_ptr<utilities::internal_task_result_t> task_result,
     net::ssl::context &ssl_context)
     : ssl_context_{ssl_context}, website_info_{std::move(website)},
-      uploads_info_{std::move(uploads)},
-      task_result_ptr_{task_result}, website_type_{website_type_e::Unknown} {}
+      uploads_info_{std::move(uploads)}, task_result_ptr_{task_result},
+      website_type_{website_type_e::Unknown} {}
 
 background_worker_t::background_worker_t(
     utilities::atomic_task_t old_task,
@@ -229,7 +229,6 @@ utilities::task_status_e background_worker_t::continue_old_task() {
   using utilities::task_status_e;
 
   auto &task = atomic_task_.value();
-  spdlog::info("Web address: {}", task.website_address);
   if (task.website_address.find("autohome") != std::string::npos) {
     website_type_ = website_type_e::AutoHomeRegister;
   } else if (task.website_address.find("jjgames") != std::string::npos) {

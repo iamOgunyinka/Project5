@@ -364,6 +364,7 @@ template <typename T>
 using threadsafe_cv_container = threadsafe_container<T, std::deque<T>, true>;
 
 std::vector<atomic_task_t> restart_tasks(std::vector<uint32_t> const &task_ids);
+std::string md5(std::string const &);
 std::string get_random_agent();
 std::string get_random_ip_address();
 void normalize_paths(std::string &str);

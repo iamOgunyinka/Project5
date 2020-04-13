@@ -3,8 +3,13 @@
 #include <boost/algorithm/string.hpp>
 #include <filesystem>
 #include <fstream>
+#include <openssl/md5.h>
 #include <random>
 #include <vector>
+
+#if _MSC_VER && !__INTEL_COMPILER
+#pragma warning(disable : 4996)
+#endif
 
 namespace wudi_server {
 using namespace fmt::v6::literals;
@@ -82,6 +87,32 @@ std::string decode_url(boost::string_view const &encoded_string) {
   }
 
   return src;
+}
+
+std::string &HexToChar(std::string &s, std::vector<char> const &data) {
+  s = "";
+  for (unsigned int i = 0; i < data.size(); ++i) {
+    char szBuff[3] = "";
+    sprintf(szBuff, "%02x",
+            *reinterpret_cast<const unsigned char *>(&data[i]) & 0xff);
+    s += szBuff[0];
+    s += szBuff[1];
+  }
+  return s;
+}
+
+std::string md5(std::string const &sInputData) {
+  std::vector<char> vMd5;
+  vMd5.resize(16);
+
+  MD5_CTX ctx;
+  MD5_Init(&ctx);
+  MD5_Update(&ctx, sInputData.c_str(), sInputData.size());
+  MD5_Final((unsigned char *)&vMd5[0], &ctx);
+
+  std::string sMd5;
+  HexToChar(sMd5, vMd5);
+  return sMd5;
 }
 
 bool create_file_directory(std::filesystem::path const &path) {
