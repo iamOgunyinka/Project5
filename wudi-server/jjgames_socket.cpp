@@ -7,12 +7,17 @@
 #include <vector>
 
 namespace wudi_server {
-enum Constants { PROXY_REQUIRES_AUTHENTICATION = 407 };
 using utilities::request_handler;
 using namespace fmt::v6::literals;
 
- std::string jjgames_socket::jjgames_hostname{"a4.srv.jj.cn"};
-//std::string jjgames_socket::jjgames_hostname{"o2tvseries.com"};
+enum Constants { PROXY_REQUIRES_AUTHENTICATION = 407 };
+
+struct time_data_t {
+  uint64_t current_time{};
+  uint64_t callback_number{};
+};
+
+std::string jjgames_socket::jjgames_hostname{"a4.srv.jj.cn"};
 
 jjgames_socket::jjgames_socket(bool &stopped, net::io_context &io_context,
                                proxy_provider_t &proxy_provider,
@@ -20,11 +25,6 @@ jjgames_socket::jjgames_socket(bool &stopped, net::io_context &io_context,
                                net::ssl::context &ssl_context)
     : io_{io_context}, ssl_stream_{net::make_strand(io_), ssl_context},
       numbers_{numbers}, proxy_provider_{proxy_provider}, stopped_{stopped} {}
-
-struct time_data_t {
-  uint64_t current_time{};
-  uint64_t callback_number{};
-};
 
 void jjgames_socket::on_connected(beast::error_code ec,
                                   tcp::resolver::results_type::endpoint_type) {
@@ -213,7 +213,7 @@ void jjgames_socket::prepare_request_data(bool use_authentication_header) {
       "JSONP_{}"_format(time_data.current_time, current_number_,
                         time_data.callback_number);
 
-  //std::string const target = "/a";
+  // std::string const target = "/a";
   request_.clear();
   request_.method(beast::http::verb::get);
   request_.version(11);
@@ -231,10 +231,10 @@ void jjgames_socket::prepare_request_data(bool use_authentication_header) {
                "https://www.jj.cn/reg/reg.html?type=phone");
   request_.set("sec-fetch-site", "same-site");
   request_.set("sec-fetch-mode", "no-cors");
-  request_.set( http::field::accept_language, "en-US,en;q=0.5 --compressed" );
-  request_.set( http::field::cache_control, "no-cache" );
-  request_.set( http::field::referer,
-      "https://www.jj.cn/reg/reg.html?type=phone" );
+  request_.set(http::field::accept_language, "en-US,en;q=0.5 --compressed");
+  request_.set(http::field::cache_control, "no-cache");
+  request_.set(http::field::referer,
+               "https://www.jj.cn/reg/reg.html?type=phone");
   request_.set(http::field::accept_language, "en-US,en;q=0.5 --compressed");
   request_.body() = {};
   request_.prepare_payload();
@@ -256,10 +256,8 @@ void jjgames_socket::process_gethash_response(std::string const &message_body) {
 void jjgames_socket::process_sethash_response() {}
 
 void jjgames_socket::process_normal_response(std::string const &message_body) {
-  std::cout << message_body << std::endl;
   try {
-    // badly formed JSON response, server's fault -> there's nothing we can do
-    // about that
+    // badly formed JSON response, blame the server
     json json_response = json::parse(message_body);
     json::object_t object = json_response.get<json::object_t>();
     bool const status = object["REV"].get<json::boolean_t>();
@@ -279,7 +277,8 @@ void jjgames_socket::process_normal_response(std::string const &message_body) {
         return connect();
       }
     }
-  } catch (std::exception const &) {
+  } catch (std::exception const &e) {
+    spdlog::error("exception in process_normal_response: {}", e.what());
     type_ = type_sent_e::Normal;
     choose_next_proxy();
     return connect();
@@ -460,10 +459,7 @@ void jjgames_socket::on_data_received(beast::error_code ec, std::size_t const) {
     return connect();
   }
   std::string body_temp{};
-  std::cout << body_temp << std::endl;
-  if (type_ == type_sent_e::SetHash) {
-    body_temp.clear();
-  } else {
+  if (type_ != type_sent_e::SetHash) {
     body_temp = std::string(
         response_body.begin() + static_cast<int>(opening_brace_index),
         response_body.begin() + static_cast<int>(closing_brace_index + 1));

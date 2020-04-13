@@ -18,7 +18,7 @@ using utilities::website_result_t;
 namespace asio = boost::asio;
 namespace http = boost::beast::http;
 
-enum class website_type {
+enum class website_type_e {
   Unknown,
   AutoHomeRegister,
   JJGames,
@@ -39,7 +39,7 @@ public:
   ~background_worker_t();
 
   task_status_e run();
-  website_type type() const { return type_; }
+  website_type_e type() const { return website_type_; }
   auto &number_stream() { return number_stream_; }
   auto task_result() { return task_result_ptr_; }
   std::string filename() { return input_filename; }
@@ -53,11 +53,28 @@ private:
   utilities::task_status_e run_number_crawler();
   utilities::task_status_e continue_old_task();
 
+  /*
+  template <typename... Args> auto get_socket(Args &... args) {
+    switch (website_type_) {
+    case website_type_e::AutoHomeRegister:
+      return std::make_shared<auto_home_socket_t>(std::forward<Args>(args)...);
+    case website_type_e::JJGames:
+      return std::make_shared<jjgames_socket>(std::forward<Args>(args)...);
+    case website_type_e::PPSports:
+      return std::make_shared<pp_sports_t>(std::forward<Args>(args)...);
+    case website_type_e::WatchHome:
+      return std::make_shared<watch_home_t>(std::forward<Args>(args)...);
+    case website_type_e::Unknown:
+    default:
+      return nullptr;
+    }
+  }
+  */
 private:
   net::ssl::context &ssl_context_;
 
   std::unique_ptr<proxy_provider_t> proxy_provider_;
-  website_type type_;
+  website_type_e website_type_;
   std::shared_ptr<utilities::number_stream_t> number_stream_;
   website_result_t website_info_;
   std::vector<upload_result_t> uploads_info_;

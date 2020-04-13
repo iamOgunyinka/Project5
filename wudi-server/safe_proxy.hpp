@@ -48,7 +48,8 @@ protected:
   std::mutex mutex_{};
   std::size_t count_{};
   std::vector<endpoint_ptr> endpoints_;
-  std::atomic_bool has_error = false;
+  std::atomic_bool has_error_ = false;
+  std::atomic_bool first_pass_ = true;
 
 protected:
   void load_proxy_file();

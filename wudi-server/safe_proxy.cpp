@@ -180,7 +180,7 @@ void proxy_base::get_more_proxies() {
     current_extracted_data_ = get_remain_count(resolves);
     http_tcp_stream.connect(resolves);
     if (!current_extracted_data_.is_available) {
-      has_error = true;
+      has_error_ = true;
       return;
     }
     if (current_extracted_data_.extract_remain > 0) {
@@ -197,7 +197,7 @@ void proxy_base::get_more_proxies() {
       beast::error_code ec{};
       http_tcp_stream.socket().shutdown(tcp::socket::shutdown_both, ec);
       if (server_response.result_int() != 200 || ec) {
-        has_error = true;
+        has_error_ = true;
         return spdlog::error("Error obtaining proxy servers from server");
       }
       auto &response_body = server_response.body();
@@ -205,7 +205,7 @@ void proxy_base::get_more_proxies() {
       boost::split(ips, response_body,
                    [](char const ch) { return ch == '\n'; });
       if (ips.empty()) {
-        has_error = true;
+        has_error_ = true;
         return spdlog::error("IPs empty");
       }
       spdlog::info("Grabbed {} proxies", ips.size());
@@ -231,11 +231,11 @@ void proxy_base::get_more_proxies() {
           spdlog::error("[get_more_proxies] {}", except.what());
         }
       }
-      has_error = ips.empty();
+      has_error_ = ips.empty();
     }
   } catch (std::exception const &e) {
     spdlog::error("safe_proxy exception: {}", e.what());
-    has_error = true;
+    has_error_ = true;
   }
   endpoints_.erase(std::remove_if(endpoints_.begin(), endpoints_.end(),
                                   [](auto const &ep) {
@@ -247,7 +247,7 @@ void proxy_base::get_more_proxies() {
     ep->property = ProxyProperty::ProxyActive;
   }
   save_proxies_to_file();
-  if (has_error)
+  if (has_error_)
     spdlog::error("Error occurred while getting more proxies");
 } // namespace wudi_server
 
@@ -314,24 +314,41 @@ void proxy_base::load_proxy_file() {
 }
 
 endpoint_ptr proxy_base::next_endpoint() {
-  // spdlog::info("current: {}", count_);
   {
     std::lock_guard<std::mutex> lock_g{mutex_};
-    if (has_error || endpoints_.empty())
+    if (has_error_ || endpoints_.empty())
       return nullptr;
     if (count_ >= endpoints_.size()) {
-      count_ = 0;
-      while (count_ < endpoints_.size()) {
-        if (endpoints_[count_]->property == ProxyProperty::ProxyActive) {
-          return endpoints_[count_++];
+      std::size_t temp_count = 0;
+      while (temp_count < endpoints_.size()) {
+        if (endpoints_[temp_count]->property == ProxyProperty::ProxyActive) {
+          return endpoints_[temp_count++];
         }
-        count_++;
+        temp_count++;
       }
     } else {
       return endpoints_[count_++];
     }
   }
+  if (first_pass_) {
+    first_pass_ = false;
+    // let's remove all blocked proxy IPs and see if all non-respsonsive
+    // IP addresses may respond now.
+    endpoints_.erase(std::remove_if(endpoints_.begin(), endpoints_.end(),
+                                    [](auto const &ep) {
+                                      return ep->property ==
+                                             ProxyProperty::ProxyBlocked;
+                                    }),
+                     endpoints_.end());
+    for (auto &ep : endpoints_) {
+      ep->property = ProxyProperty::ProxyActive;
+    }
+    count_ = 0;
+    return endpoints_[count_++];
+  }
   get_more_proxies();
+  first_pass_ = true;
+  count_ = 0;
   return next_endpoint();
 }
 

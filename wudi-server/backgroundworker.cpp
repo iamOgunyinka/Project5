@@ -22,14 +22,14 @@ background_worker_t::background_worker_t(
     net::ssl::context &ssl_context)
     : ssl_context_{ssl_context}, website_info_{std::move(website)},
       uploads_info_{std::move(uploads)},
-      task_result_ptr_{task_result}, type_{website_type::Unknown} {}
+      task_result_ptr_{task_result}, website_type_{website_type_e::Unknown} {}
 
 background_worker_t::background_worker_t(
     utilities::atomic_task_t old_task,
     std::shared_ptr<utilities::internal_task_result_t> task_result,
     net::ssl::context &ssl_context)
     : ssl_context_{ssl_context}, website_info_{}, uploads_info_{},
-      task_result_ptr_{task_result}, type_{website_type::Unknown},
+      task_result_ptr_{task_result}, website_type_{website_type_e::Unknown},
       atomic_task_{std::move(old_task)} {}
 
 void background_worker_t::on_data_result_obtained(
@@ -151,15 +151,15 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
   task_result_ptr_->operation_status = task_status_e::Ongoing;
   bool &stopped = task_result_ptr_->stopped();
   stopped = false;
-  if (type_ == website_type::Unknown) {
+  if (website_type_ == website_type_e::Unknown) {
     if (website_info_.address.find("jjgames") != std::string::npos) {
-      type_ = website_type::JJGames;
+      website_type_ = website_type_e::JJGames;
     } else if (website_info_.address.find("autohome") != std::string::npos) {
-      type_ = website_type::AutoHomeRegister;
+      website_type_ = website_type_e::AutoHomeRegister;
     } else if (website_info_.address.find("ppsports") != std::string::npos) {
-      type_ = website_type::PPSports;
+      website_type_ = website_type_e::PPSports;
     } else if (website_info_.address.find("watch") != std::string::npos) {
-      type_ = website_type::WatchHome;
+      website_type_ = website_type_e::WatchHome;
     } else {
       spdlog::error("Type not found");
       return task_status_e::Erred;
@@ -168,7 +168,7 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
 
   // we delayed construction of safe_proxy/io_context until now
   io_context_.emplace();
-  if (type_ == website_type::JJGames) {
+  if (website_type_ == website_type_e::JJGames) {
     proxy_provider_.reset(new jjgames_proxy(*io_context_));
   } else {
     proxy_provider_.reset(new generic_proxy(*io_context_));
@@ -188,19 +188,19 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
   {
     sockets_.reserve(MaxOpenSockets);
     for (int i = 0; i != MaxOpenSockets; ++i) {
-      if (type_ == website_type::AutoHomeRegister) {
+      if (website_type_ == website_type_e::AutoHomeRegister) {
         auto socket_ptr = std::make_shared<auto_home_socket_t>(
             stopped, *io_context_, *proxy_provider_, *number_stream_);
         sockets_.push_back(socket_ptr); // keep a type-erased copy
         (void)socket_ptr->signal().connect(callback);
         socket_ptr->start_connect();
-      } else if (type_ == website_type::PPSports) {
+      } else if (website_type_ == website_type_e::PPSports) {
         auto socket_ptr = std::make_shared<pp_sports_t>(
             stopped, *io_context_, *proxy_provider_, *number_stream_);
         sockets_.push_back(socket_ptr);
         (void)socket_ptr->signal().connect(callback);
         socket_ptr->start_connect();
-      } else if (type_ == website_type::JJGames) {
+      } else if (website_type_ == website_type_e::JJGames) {
         auto socket_ptr = std::make_shared<jjgames_socket>(
             stopped, *io_context_, *proxy_provider_, *number_stream_,
             ssl_context_);
@@ -231,13 +231,13 @@ utilities::task_status_e background_worker_t::continue_old_task() {
   auto &task = atomic_task_.value();
   spdlog::info("Web address: {}", task.website_address);
   if (task.website_address.find("autohome") != std::string::npos) {
-    type_ = website_type::AutoHomeRegister;
+    website_type_ = website_type_e::AutoHomeRegister;
   } else if (task.website_address.find("jjgames") != std::string::npos) {
-    type_ = website_type::JJGames;
+    website_type_ = website_type_e::JJGames;
   } else if (task.website_address.find("ppsports") != std::string::npos) {
-    type_ = website_type::PPSports;
+    website_type_ = website_type_e::PPSports;
   } else if (task.website_address.find("watch") != std::string::npos) {
-    type_ = website_type::WatchHome;
+    website_type_ = website_type_e::WatchHome;
   }
 
   input_filename = task.input_filename;
