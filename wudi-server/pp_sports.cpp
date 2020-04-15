@@ -9,8 +9,7 @@ namespace wudi_server {
 using utilities::request_handler;
 using namespace fmt::v6::literals;
 
-char const *const pp_sports_t::pp_sports_address =
-    "http://api.passport.pptv.com/checkLogin";
+char const *const pp_sports_t::pp_sports_hostname = "api.passport.pptv.com";
 
 std::string const pp_sports_t::password_base64_hash{
     "bGFueHVhbjM2OUBnbWFpbC5jb206TGFueHVhbjk2Mw=="};
@@ -18,15 +17,16 @@ std::string const pp_sports_t::password_base64_hash{
 pp_sports_t::pp_sports_t(bool &stopped, net::io_context &io_context,
                          proxy_provider_t &proxy_provider,
                          utilities::number_stream_t &numbers)
-    : web_base(stopped, io_context, proxy_provider, numbers) {}
+    : socks5_http_socket_base_t(stopped, io_context, proxy_provider, numbers) {}
 
 pp_sports_t::~pp_sports_t() {}
 
+std::string pp_sports_t::hostname() const { return pp_sports_hostname; }
+
 void pp_sports_t::prepare_request_data(bool use_authentication_header) {
   std::string address =
-      "http://api.passport.pptv.com/checkLogin?cb="
-      "checklogin&loginid={}&sceneFlag=1&channel=208000103001&format=jsonp"_format(
-          current_number_);
+      "/checkLogin?cb=checklogin&loginid={}&sceneFlag=1&channel=208"
+      "000103001&format=jsonp"_format(current_number_);
   request_.clear();
   request_.method(beast::http::verb::get);
   request_.version(11);
@@ -36,8 +36,7 @@ void pp_sports_t::prepare_request_data(bool use_authentication_header) {
                  "Basic " + password_base64_hash);
   }
   request_.keep_alive(true);
-  request_.set(beast::http::field::host,
-               utilities::uri{pp_sports_address}.host() + ":80");
+  request_.set(beast::http::field::host, pp_sports_hostname);
   request_.set(beast::http::field::cache_control, "no-cache");
   request_.set(beast::http::field::user_agent, utilities::get_random_agent());
   request_.set(beast::http::field::accept, "*/*");
@@ -51,10 +50,8 @@ void pp_sports_t::on_data_received(beast::error_code ec, std::size_t const) {
   if (ec) {
     if (ec != http::error::end_of_stream) {
       current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
-      tcp_stream_.close();
     }
-    choose_next_proxy();
-    return connect();
+    return choose_next_proxy();
   }
 
   std::size_t const status_code = response_.result_int();
@@ -73,20 +70,17 @@ void pp_sports_t::on_data_received(beast::error_code ec, std::size_t const) {
     std::size_t const closing_brace_index = body.find_last_of('}');
     // we possibly got 477(Client error), ignore, choose a new proxy
     if (status_code != 200 || opening_brace_index == std::string::npos) {
-      choose_next_proxy();
-      return connect();
+      return choose_next_proxy();
     } else {
       if (closing_brace_index == std::string::npos) {
-        choose_next_proxy();
-        return connect();
+        return choose_next_proxy();
       } else {
         body = std::string(body.begin() + opening_brace_index,
                            body.begin() + closing_brace_index + 1);
         try {
           document = json::parse(body);
         } catch (std::exception const &) {
-          choose_next_proxy();
-          return connect();
+          return choose_next_proxy();
         }
       }
     }
@@ -116,9 +110,7 @@ void pp_sports_t::on_data_received(beast::error_code ec, std::size_t const) {
       signal_(search_result_type_e::Unknown, current_number_);
     }
   } catch (...) {
-    tcp_stream_.close();
-    choose_next_proxy();
-    return connect();
+    return choose_next_proxy();
   }
   current_number_.clear();
   send_next();

@@ -11,11 +11,12 @@
 
 namespace wudi_server {
 std::string const other_proxies_t::proxy_filename{"./other_proxy_servers.txt"};
-std::string const generic_proxy::proxy_filename{"./generic_proxy_servers.txt"};
-std::string const jjgames_proxy::proxy_filename{"./jjgames_proxy_servers.txt"};
+std::string const generic_proxy::proxy_filename{"./socks5_proxy_servers.txt"};
+std::string const autohome_proxy::proxy_filename{"./autohome_proxy_servers.txt"};
 
-proxy_base::proxy_base(net::io_context &context, std::string const &filename)
-    : context_{context}, filename_{filename} {}
+proxy_base::proxy_base(net::io_context &context, // global_proxy_repo_t &r,
+                       std::string const &filename)
+    : context_{context}, /*global_repo_{r}, */ filename_{filename} {}
 
 extraction_data other_proxies_t::get_remain_count(
     net::ip::basic_resolver_results<net::ip::tcp> &resolves) {
@@ -57,8 +58,9 @@ extraction_data other_proxies_t::get_remain_count(
   }
 }
 
-other_proxies_t::other_proxies_t(net::io_context &io_)
-    : proxy_base{io_, proxy_filename} {
+other_proxies_t::other_proxies_t(
+    net::io_context &io_ /*, global_proxy_repo_t &r*/)
+    : proxy_base{io_ /*, r*/, proxy_filename} {
   target_ =
       R"(/api/getiplist.aspx?vkey=3E4E5F973F4EE6FACA34F5BD1A1B9C43&num=100&port=80&style=5)";
   host_ = "http://api.tkdaili.com/api/getiplist.aspx";
@@ -67,21 +69,33 @@ other_proxies_t::other_proxies_t(net::io_context &io_)
   load_proxy_file();
 }
 
-jjgames_proxy::jjgames_proxy(net::io_context &io)
-    : proxy_base{io, proxy_filename} {
+autohome_proxy::autohome_proxy(net::io_context &io /*, global_proxy_repo_t &r*/)
+    : proxy_base{io, /*r, */ proxy_filename} {
   target_ =
-      R"(/api/ip?app_key=86adb80a7af9ee8d31bf765dd02e1431&pack=210115&num=20&xy=3&type=1&lb=\n&port=3&mr=1&)";
-  host_ = "http://api.wandoudl.com/api/ip";
-  count_path_ = R"(/api/product/list?app_key=86adb80a7af9ee8d31bf765dd02e1431)";
+      "/index.php/api/"
+      "entry?method=proxyServer.tiqu_api_url&packid=1&fa=0&fetch_key=&groupid="
+      "0&qty=50&time=1&port=1&format=txt&ss=3&css=&pro=&city=&dt=0&usertype=20";
+  host_ = "http://120.79.85.144";
+  // count_path_ =
+  // R"(/api/product/list?app_key=86adb80a7af9ee8d31bf765dd02e1431)";
+  verify_extract_ = false;
   load_proxy_file();
 }
 
-generic_proxy::generic_proxy(net::io_context &context)
-    : proxy_base{context, proxy_filename} {
+generic_proxy::generic_proxy(
+    net::io_context &context /*, global_proxy_repo_t &r*/)
+    : proxy_base{context /*, r*/, proxy_filename} {
   target_ =
-      (R"(/api/ip?app_key=d9c96cbb82ce73721589f1d63125690e&pack=208774&num=100&xy=1&type=1&lb=\n&mr=1)");
-  host_ = ("http://api.wandoudl.com/api/ip");
-  count_path_ = R"(/api/product/list?app_key=d9c96cbb82ce73721589f1d63125690e)";
+      //(R"(/api/ip?app_key=d9c96cbb82ce73721589f1d63125690e&pack=208774&num=100&xy=1&type=1&lb=\n&mr=1)");
+      "/index.php/api/"
+      "entry?method=proxyServer.tiqu_api_url&packid=1&fa=0&fetch_key=&groupid="
+      "0&qty=50&time=1&port=2&format=txt&ss=3&css=&pro=&city=&dt=0&usertype=20";
+
+  // host_ = "http://api.wandoudl.com/api/ip";
+  host_ = "http://120.79.85.144";
+  verify_extract_ = false;
+  // count_path_ =
+  // R"(/api/product/list?app_key=d9c96cbb82ce73721589f1d63125690e)";
   load_proxy_file();
 }
 
@@ -177,13 +191,15 @@ void proxy_base::get_more_proxies() {
   std::lock_guard<std::mutex> lock_g{mutex_};
   try {
     auto resolves = resolver.resolve(uri_.host(), "http");
-    current_extracted_data_ = get_remain_count(resolves);
-    http_tcp_stream.connect(resolves);
-    if (!current_extracted_data_.is_available) {
-      has_error_ = true;
-      return;
+    if (verify_extract_) {
+      current_extracted_data_ = get_remain_count(resolves);
+      if (!current_extracted_data_.is_available) {
+        has_error_ = true;
+        return;
+      }
     }
-    if (current_extracted_data_.extract_remain > 0) {
+    if (!verify_extract_ || current_extracted_data_.extract_remain > 0) {
+      http_tcp_stream.connect(resolves);
       http_request_ = {};
       http_request_.method(http::verb::get);
       http_request_.target(target_);
@@ -209,7 +225,7 @@ void proxy_base::get_more_proxies() {
         return spdlog::error("IPs empty");
       }
       spdlog::info("Grabbed {} proxies", ips.size());
-      int const max_allowed = 500;
+      int const max_allowed = 5'000;
       if (endpoints_.size() >= max_allowed) {
         endpoints_.erase(endpoints_.begin(), endpoints_.begin() + 100);
       }
@@ -228,7 +244,8 @@ void proxy_base::get_more_proxies() {
           endpoints_.emplace_back(std::make_shared<custom_endpoint>(
               std::move(endpoint), ProxyProperty::ProxyActive));
         } catch (std::exception const &except) {
-          spdlog::error("[get_more_proxies] {}", except.what());
+          has_error_ = true;
+          return spdlog::error("[get_more_proxies] {}", except.what());
         }
       }
       has_error_ = ips.empty();
@@ -265,9 +282,13 @@ void proxy_base::save_proxies_to_file() {
     out_file_ptr->seekp(std::ios::beg);
   } catch (std::exception const &) {
   }
+  std::set<std::string> unique_set{};
   for (auto const &proxy : this->endpoints_) {
-    (*out_file_ptr) << boost::lexical_cast<std::string>(proxy->endpoint)
-                    << "\n";
+    std::string const ep = boost::lexical_cast<std::string>(proxy->endpoint);
+    if (unique_set.find(ep) == unique_set.end()) {
+      unique_set.insert(ep);
+      (*out_file_ptr) << ep << "\n";
+    }
   }
   out_file_ptr->close();
 }
@@ -322,12 +343,15 @@ endpoint_ptr proxy_base::next_endpoint() {
         count_++;
       }
     } else {
+
       while (count_ < endpoints_.size()) {
         if (endpoints_[count_]->property == ProxyProperty::ProxyActive) {
           return endpoints_[count_++];
         }
         count_++;
       }
+
+      // return endpoints_[count_++];
     }
   }
   if (first_pass_) {
@@ -353,6 +377,7 @@ endpoint_ptr proxy_base::next_endpoint() {
   }
   count_ = 0;
   first_pass_ = true;
+  endpoints_.clear();
   get_more_proxies();
   return next_endpoint();
 }

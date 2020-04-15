@@ -1,12 +1,12 @@
 #pragma once
 
-#include "web_base.hpp"
+#include "http_socket_base.hpp"
 
 namespace wudi_server {
 namespace net = boost::asio;
 using tcp = boost::asio::ip::tcp;
 
-class watch_home_t : public web_base<watch_home_t> {
+class watch_home_t : public http_proxy_web_base<watch_home_t> {
   static std::string const password_base64_hash;
   static char const *const watch_home_address;
 

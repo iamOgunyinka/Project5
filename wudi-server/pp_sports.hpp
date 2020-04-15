@@ -1,14 +1,14 @@
 #pragma once
 
-#include "web_base.hpp"
+#include "socks5_http_socket_base.hpp"
 
 namespace wudi_server {
 namespace net = boost::asio;
 using tcp = boost::asio::ip::tcp;
 
-class pp_sports_t : public web_base<pp_sports_t> {
+class pp_sports_t : public socks5_http_socket_base_t<pp_sports_t> {
   static std::string const password_base64_hash;
-  static char const *const pp_sports_address;
+  static char const *const pp_sports_hostname;
 
 public:
   void on_data_received(beast::error_code, std::size_t const);
@@ -17,5 +17,6 @@ public:
               proxy_provider_t &proxy_provider,
               utilities::number_stream_t &numbers);
   ~pp_sports_t();
+  std::string hostname() const;
 };
 } // namespace wudi_server

@@ -17,7 +17,7 @@ set(PROJECT_NAME woody)
 
 include_directories(${PROJECT_DIR}/third-party/)
 link_directories(/usr/lib)
-link_libraries(pthread ssl crypto odbc z stdc++fs curl zip)
+link_libraries(pthread ssl crypto odbc z stdc++fs zip)
 
 # Outputs
 set(OUTPUT_DEBUG ${PROJECT_DIR}/bin)
@@ -62,36 +62,38 @@ message("${PROJECT_NAME}: CURR BIN DIR: ${CMAKE_CURRENT_BINARY_DIR}")
 
 # Source Files
 set(SRC_FILES
+    ./auto_home_sock.cpp
     ./backgroundworker.cpp
     ./database_connector.cpp
-    ./auto_home_sock.cpp
+    ./jjgames_socket.cpp
     ./main.cpp
+    ./pp_sports.cpp
     ./safe_proxy.cpp
     ./server.cpp
-    ./worker.cpp
     ./session.cpp
     ./utilities.cpp
-    ./jj_games_socket.cpp
-    ./pp_sports.cpp
     ./watch_home.cpp
+    ./worker.cpp
 )
 source_group("Sources" FILES ${SRC_FILES})
 
 # Header Files
 set(HEADERS_FILES
+    auto_home_sock.hpp
     backgroundworker.hpp
+    database_connector.hpp
+    fields_alloc.hpp
+    http_socket_base.hpp
+    jjgames_socket.hpp
+    pp_sports.hpp
     safe_proxy.hpp
     server.hpp
-    auto_home_sock.hpp
     session.hpp
+    socks5_http_socket_base.hpp
+    socks5_https_socket_base.hpp
     utilities.hpp
-    web_base.hpp
-    jj_games_socket.hpp
-    database_connector.hpp
-    worker.hpp
-    fields_alloc.hpp
-    pp_sports.hpp
     watch_home.hpp
+    worker.hpp
 )
 source_group("Headers" FILES ${HEADERS_FILES})
 

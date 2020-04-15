@@ -35,10 +35,22 @@ struct custom_endpoint {
 using EndpointList = std::vector<custom_endpoint>;
 using endpoint_ptr = std::shared_ptr<custom_endpoint>;
 void swap(custom_endpoint &a, custom_endpoint &b);
+/*
+class global_proxy_repo_t {
+  std::mutex mutex_{};
+
+public:
+  global_proxy_repo_t() {}
+  std::vector<endpoint_ptr> fetch_locally(std::string const &filename,
+                                          std::string const &last_fetched);
+};
+*/
 
 class proxy_base {
 protected:
   net::io_context &context_;
+  // global_proxy_repo_t& global_repo_;
+
   std::string filename_;
   std::string host_;
   std::string target_;
@@ -48,6 +60,7 @@ protected:
   std::mutex mutex_{};
   std::size_t count_{};
   std::vector<endpoint_ptr> endpoints_;
+  std::atomic_bool verify_extract_ = false;
   std::atomic_bool has_error_ = false;
   std::atomic_bool first_pass_ = true;
 
@@ -61,7 +74,8 @@ protected:
   virtual void get_more_proxies();
 
 public:
-  proxy_base(net::io_context &, std::string const &filename);
+  proxy_base(net::io_context &,
+             /*global_proxy_repo_t&, */ std::string const &filename);
   virtual ~proxy_base() {}
   endpoint_ptr next_endpoint();
 };
@@ -70,23 +84,24 @@ class generic_proxy final : public proxy_base {
   static std::string const proxy_filename;
 
 public:
-  generic_proxy(net::io_context &context);
+  generic_proxy(
+      net::io_context &context /*, global_proxy_repo_t &global_repo */);
   ~generic_proxy() {}
 };
 
-class jjgames_proxy final : public proxy_base {
+class autohome_proxy final : public proxy_base {
   static std::string const proxy_filename;
 
 public:
-  jjgames_proxy(net::io_context &context);
-  ~jjgames_proxy() {}
+  autohome_proxy(net::io_context &context /*,global_proxy_repo_t &*/);
+  ~autohome_proxy() {}
 };
 
 class other_proxies_t final : public proxy_base {
   static std::string const proxy_filename;
 
 public:
-  other_proxies_t(net::io_context &context);
+  other_proxies_t(net::io_context &context /*, global_proxy_repo_t &*/);
   ~other_proxies_t() {}
   virtual extraction_data
   get_remain_count(net::ip::basic_resolver_results<net::ip::tcp> &) override;

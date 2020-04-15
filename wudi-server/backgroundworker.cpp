@@ -7,7 +7,7 @@
 
 namespace wudi_server {
 enum constant_e {
-  MaxOpenSockets = 10,
+  MaxOpenSockets = 1,
 };
 
 background_worker_t::~background_worker_t() {
@@ -168,11 +168,8 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
 
   // we delayed construction of safe_proxy/io_context until now
   io_context_.emplace();
-  if (website_type_ == website_type_e::JJGames) {
-    proxy_provider_.reset(new jjgames_proxy(*io_context_));
-  } else {
-    proxy_provider_.reset(new generic_proxy(*io_context_));
-  }
+  proxy_provider_.reset(new generic_proxy(*io_context_));
+
   auto callback = std::bind(&background_worker_t::on_data_result_obtained, this,
                             std::placeholders::_1, std::placeholders::_2);
   if (!db_connector->set_input_files(
@@ -190,7 +187,8 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
     for (int i = 0; i != MaxOpenSockets; ++i) {
       if (website_type_ == website_type_e::AutoHomeRegister) {
         auto socket_ptr = std::make_shared<auto_home_socket_t>(
-            stopped, *io_context_, *proxy_provider_, *number_stream_);
+            stopped, *io_context_, *proxy_provider_, *number_stream_,
+            ssl_context_);
         sockets_.push_back(socket_ptr); // keep a type-erased copy
         (void)socket_ptr->signal().connect(callback);
         socket_ptr->start_connect();

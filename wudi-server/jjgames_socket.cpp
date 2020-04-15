@@ -23,158 +23,10 @@ jjgames_socket::jjgames_socket(bool &stopped, net::io_context &io_context,
                                proxy_provider_t &proxy_provider,
                                utilities::number_stream_t &numbers,
                                net::ssl::context &ssl_context)
-    : io_{io_context}, ssl_stream_{net::make_strand(io_), ssl_context},
-      numbers_{numbers}, proxy_provider_{proxy_provider}, stopped_{stopped} {}
+    : socks5_https_socket_base_t{stopped, io_context, proxy_provider, numbers,
+                                 ssl_context} {}
 
-void jjgames_socket::on_connected(beast::error_code ec,
-                                  tcp::resolver::results_type::endpoint_type) {
-  if (ec) {
-    return reconnect();
-  }
-  return perform_socks5_handshake();
-}
-
-void jjgames_socket::perform_socks5_handshake() {
-  handshake_buffer.clear();
-  handshake_buffer.push_back(0x05); // version
-  handshake_buffer.push_back(0x01); // method count
-  handshake_buffer.push_back(0x00); // first method
-
-  beast::get_lowest_layer(ssl_stream_)
-      .expires_after(std::chrono::milliseconds(5'000));
-  beast::get_lowest_layer(ssl_stream_)
-      .async_write_some(
-          net::const_buffer(
-              reinterpret_cast<char const *>(handshake_buffer.data()),
-              handshake_buffer.size()),
-          std::bind(&jjgames_socket::on_first_handshake_initiated, this,
-                    std::placeholders::_1, std::placeholders::_2));
-}
-
-void jjgames_socket::retry_first_handshake() {
-  ++handshake_retries_;
-  if (handshake_retries_ >= utilities::MaxRetries) {
-    handshake_retries_ = 0;
-    current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
-    choose_next_proxy();
-    return connect();
-  }
-  perform_socks5_handshake();
-}
-
-void jjgames_socket::retry_second_handshake() {
-  ++second_handshake_retries_;
-  if (second_handshake_retries_ >= utilities::MaxRetries) {
-    second_handshake_retries_ = 0;
-    current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
-    choose_next_proxy();
-    return connect();
-  }
-  perform_sock5_second_handshake();
-}
-
-void jjgames_socket::on_first_handshake_initiated(beast::error_code const ec,
-                                                  std::size_t const) {
-  if (ec) { // could be timeout
-    spdlog::error("on first handshake: {}", ec.message());
-    return retry_first_handshake();
-  }
-  return read_socks5_server_response(true);
-}
-
-void jjgames_socket::read_socks5_server_response(
-    bool const is_first_handshake) {
-  std::memset(reply_buffer, 0, 512);
-  beast::get_lowest_layer(ssl_stream_)
-      .expires_after(
-          std::chrono::milliseconds(utilities::TimeoutMilliseconds * 3));
-  beast::get_lowest_layer(ssl_stream_)
-      .async_read_some(
-          net::mutable_buffer(reply_buffer, 512),
-          [this, is_first_handshake](beast::error_code ec, std::size_t const) {
-            on_handshake_response_received(ec, is_first_handshake);
-          });
-}
-
-void jjgames_socket::on_handshake_response_received(
-    beast::error_code ec, bool const is_first_handshake) {
-  if (ec) {
-    if (is_first_handshake) {
-      return retry_first_handshake();
-    }
-
-    return retry_second_handshake();
-  }
-  if (is_first_handshake) {
-    if (reply_buffer[1] != 0x00) {
-      // std::cout << "Could not finish handshake with server\n";
-      current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
-      choose_next_proxy();
-      return connect();
-    }
-    return perform_sock5_second_handshake();
-  }
-  if (reply_buffer[1] != 0x00) {
-    // std::cout << "Second HS failed: 0x" << std::hex << reply_buffer[1]
-    //          << std::dec << "\n";
-    beast::get_lowest_layer(ssl_stream_).close();
-    current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
-    choose_next_proxy();
-    return connect();
-  }
-  std::cout << "Performing SSL handshake\n";
-  return perform_ssl_handshake();
-}
-
-void jjgames_socket::perform_ssl_handshake() {
-  beast::get_lowest_layer(ssl_stream_)
-      .expires_after(std::chrono::milliseconds(10'000));
-  ssl_stream_.async_handshake(
-      net::ssl::stream_base::client,
-      beast::bind_front_handler(&jjgames_socket::on_ssl_handshake, this));
-}
-
-void jjgames_socket::on_ssl_handshake(beast::error_code ec) {
-  if ((ec.category() == boost::asio::error::get_ssl_category()) &&
-      (ERR_GET_REASON(ec.value()) == SSL_R_SHORT_READ)) {
-    return send_https_data();
-  }
-  if (ec) {
-    spdlog::error("Handshake failed: {}", ec.message());
-    current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
-    choose_next_proxy();
-    return connect();
-  }
-  send_https_data();
-}
-
-void jjgames_socket::perform_sock5_second_handshake() {
-  handshake_buffer.clear();
-  handshake_buffer.push_back(0x05); // version
-  handshake_buffer.push_back(0x01); // TCP/IP
-  handshake_buffer.push_back(0x00); // must be 0x00 always
-  handshake_buffer.push_back(0x03); // Domain=0x03. IPv4 = 0x01. IPv6=0x04
-  handshake_buffer.push_back(jjgames_hostname.size());
-  for (auto const &hn : jjgames_hostname) {
-    handshake_buffer.push_back(hn);
-  }
-  // host to network short(htons)
-  handshake_buffer.push_back(443 >> 8);
-  handshake_buffer.push_back(443 & 0xFF);
-
-  beast::get_lowest_layer(ssl_stream_).expires_after(std::chrono::seconds(5));
-  beast::get_lowest_layer(ssl_stream_)
-      .async_write_some(
-          net::const_buffer(handshake_buffer.data(), handshake_buffer.size()),
-          [this](beast::error_code ec, std::size_t const) {
-            if (ec) {
-              current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
-              choose_next_proxy();
-              return connect();
-            }
-            return read_socks5_server_response(false);
-          });
-}
+std::string jjgames_socket::hostname() const { return jjgames_hostname; }
 
 time_data_t get_time_data() {
   static std::random_device rd{};
@@ -228,7 +80,7 @@ void jjgames_socket::prepare_request_data(bool use_authentication_header) {
   request_.prepare_payload();
 }
 
-void jjgames_socket::process_normal_response(std::string const &message_body) {
+void jjgames_socket::process_response(std::string const &message_body) {
   try {
     // badly formed JSON response, blame the server
     json json_response = json::parse(message_body);
@@ -256,138 +108,19 @@ void jjgames_socket::process_normal_response(std::string const &message_body) {
                  server_message.find(blocked_2) != std::string::npos ||
                  server_message.find(blocked_3) != std::string::npos) {
         current_proxy_assign_prop(ProxyProperty::ProxyBlocked);
-        choose_next_proxy();
-        return connect();
+        return choose_next_proxy();
       } else {
-        choose_next_proxy();
-        return connect();
+        return choose_next_proxy();
       }
     }
   } catch (std::exception const &e) {
     spdlog::error("exception in process_normal_response: {}", e.what());
-    choose_next_proxy();
-    return connect();
+    return choose_next_proxy();
   }
 
   ++success_sent_count_;
   current_number_.clear();
   send_next();
-}
-
-void jjgames_socket::reconnect() {
-  ++connect_count_;
-  if (connect_count_ >= utilities::MaxRetries) {
-    current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
-    choose_next_proxy();
-  }
-  connect();
-}
-
-void jjgames_socket::choose_next_proxy() {
-  send_count_ = 0;
-  connect_count_ = 0;
-  current_proxy_ = proxy_provider_.next_endpoint();
-  if (!current_proxy_) {
-    spdlog::error("error getting next endpoint");
-    numbers_.push_back(current_number_);
-    current_number_.clear();
-    return signal_(search_result_type_e::RequestStop, current_number_);
-  }
-}
-
-void jjgames_socket::current_proxy_assign_prop(ProxyProperty property) {
-  if (current_proxy_)
-    current_proxy_->property = property;
-}
-
-void jjgames_socket::connect() {
-  if (!current_proxy_ || stopped_) {
-    if (stopped_ && !current_number_.empty())
-      numbers_.push_back(current_number_);
-    current_number_.clear();
-    return;
-  }
-  beast::get_lowest_layer(ssl_stream_)
-      .expires_after(std::chrono::milliseconds(utilities::TimeoutMilliseconds));
-  temp_list_ = {*current_proxy_};
-  beast::get_lowest_layer(ssl_stream_)
-      .async_connect(temp_list_, beast::bind_front_handler(
-                                     &jjgames_socket::on_connected, this));
-}
-
-void jjgames_socket::send_first_request() {
-  if (stopped_) {
-    if (!current_number_.empty()) {
-      numbers_.push_back(current_number_);
-    }
-    current_number_.clear();
-    return;
-  }
-  try {
-    current_number_ = numbers_.get();
-    prepare_request_data();
-    connect();
-  } catch (utilities::empty_container_exception_t &) {
-  }
-}
-
-void jjgames_socket::receive_data() {
-  beast::get_lowest_layer(ssl_stream_)
-      .expires_after(std::chrono::milliseconds(utilities::TimeoutMilliseconds *
-                                               4)); // 4*3secs
-  response_ = {};
-  buffer_ = {};
-  http::async_read(
-      ssl_stream_, buffer_, response_,
-      beast::bind_front_handler(&jjgames_socket::on_data_received, this));
-}
-
-void jjgames_socket::start_connect() {
-  if (!SSL_set_tlsext_host_name(ssl_stream_.native_handle(),
-                                jjgames_hostname.c_str())) {
-    beast::error_code ec{static_cast<int>(::ERR_get_error()),
-                         net::error::get_ssl_category()};
-    return spdlog::error("Unable to set TLS because: {}", ec.message());
-  }
-  ssl_stream_.set_verify_mode(net::ssl::verify_none);
-  choose_next_proxy();
-  if (current_proxy_)
-    send_first_request();
-}
-
-void jjgames_socket::send_https_data() {
-  beast::get_lowest_layer(ssl_stream_)
-      .expires_after(std::chrono::milliseconds(utilities::TimeoutMilliseconds));
-  http::async_write(
-      ssl_stream_, request_,
-      beast::bind_front_handler(&jjgames_socket::on_data_sent, this));
-}
-
-void jjgames_socket::on_data_sent(beast::error_code ec, std::size_t const s) {
-  if (ec) {
-    resend_http_request();
-  } else
-    receive_data();
-}
-
-void jjgames_socket::resend_http_request() {
-  if (++send_count_ >= utilities::MaxRetries) {
-    current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
-    choose_next_proxy();
-    connect();
-  } else {
-    send_https_data();
-  }
-}
-
-void jjgames_socket::close_socket() {
-  beast::get_lowest_layer(ssl_stream_).cancel();
-  beast::error_code ec{};
-  ec = {};
-  // beast::get_lowest_layer(ssl_stream_).close();
-  ssl_stream_.async_shutdown([this](beast::error_code) {
-    beast::get_lowest_layer(ssl_stream_).close();
-  });
 }
 
 void jjgames_socket::send_next() {
@@ -401,48 +134,41 @@ void jjgames_socket::send_next() {
   try {
     current_number_ = numbers_.get();
     prepare_request_data();
-    if (success_sent_count_ == 8) {
+    if (success_sent_count_ == 20) {
       success_sent_count_ = 0;
-      choose_next_proxy();
-      return connect();
+      return choose_next_proxy();
     }
     send_https_data();
   } catch (utilities::empty_container_exception_t &) {
   }
 }
 
-void jjgames_socket::set_authentication_header() { prepare_request_data(true); }
-
 void jjgames_socket::on_data_received(beast::error_code ec, std::size_t const) {
   if (ec) {
     if (ec != http::error::end_of_stream) {
       current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
-      beast::get_lowest_layer(ssl_stream_).close();
     }
     spdlog::error(ec.message());
-    choose_next_proxy();
-    return connect();
+    return choose_next_proxy();
   }
   std::size_t const status_code = response_.result_int();
   if (status_code == PROXY_REQUIRES_AUTHENTICATION) {
     set_authentication_header();
-    return connect();
+    return choose_next_proxy();
   }
 
   auto &response_body{response_.body()};
-  std::cout << response_body << std::endl;
 
   using utilities::search_result_type_e;
   std::size_t opening_brace_index = response_body.find_first_of('{');
   std::size_t closing_brace_index = response_body.find_last_of('}');
   if ((opening_brace_index == std::string::npos ||
        closing_brace_index == std::string::npos)) {
-    choose_next_proxy();
-    return connect();
+    return choose_next_proxy();
   }
   std::string const body_temp(std::string(
       response_body.begin() + static_cast<int>(opening_brace_index),
       response_body.begin() + static_cast<int>(closing_brace_index + 1)));
-  return process_normal_response(body_temp);
+  return process_response(body_temp);
 }
 } // namespace wudi_server

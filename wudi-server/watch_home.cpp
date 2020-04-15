@@ -18,7 +18,7 @@ std::string const watch_home_t::password_base64_hash{
 watch_home_t::watch_home_t(bool &stopped, net::io_context &io_context,
                            proxy_provider_t &proxy_provider,
                            utilities::number_stream_t &numbers)
-    : web_base(stopped, io_context, proxy_provider, numbers) {}
+    : http_proxy_web_base(stopped, io_context, proxy_provider, numbers) {}
 
 watch_home_t::~watch_home_t() {}
 void watch_home_t::prepare_request_data(bool use_authentication_header) {
@@ -47,7 +47,7 @@ void watch_home_t::on_data_received(beast::error_code ec, std::size_t const) {
   if (ec) {
     if (ec != http::error::end_of_stream) {
       current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
-      tcp_stream_.close();
+      // tcp_stream_.close();
     }
     choose_next_proxy();
     return connect();
