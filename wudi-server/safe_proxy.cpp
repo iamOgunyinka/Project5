@@ -10,9 +10,13 @@
 #include <sstream>
 
 namespace wudi_server {
+
+enum constants_e { max_allowed = 2'000 };
+
 std::string const other_proxies_t::proxy_filename{"./other_proxy_servers.txt"};
 std::string const generic_proxy::proxy_filename{"./socks5_proxy_servers.txt"};
-std::string const autohome_proxy::proxy_filename{"./autohome_proxy_servers.txt"};
+std::string const autohome_proxy::proxy_filename{
+    "./autohome_proxy_servers.txt"};
 
 proxy_base::proxy_base(net::io_context &context, // global_proxy_repo_t &r,
                        std::string const &filename)
@@ -225,7 +229,6 @@ void proxy_base::get_more_proxies() {
         return spdlog::error("IPs empty");
       }
       spdlog::info("Grabbed {} proxies", ips.size());
-      int const max_allowed = 5'000;
       if (endpoints_.size() >= max_allowed) {
         endpoints_.erase(endpoints_.begin(), endpoints_.begin() + 100);
       }
@@ -304,7 +307,6 @@ void proxy_base::load_proxy_file() {
   }
   std::string line{};
   std::vector<std::string> ip_port{};
-  std::size_t const max_allowed = 5'000;
 
   while (std::getline(proxy_file, line)) {
     ip_port.clear();
@@ -350,7 +352,6 @@ endpoint_ptr proxy_base::next_endpoint() {
         }
         count_++;
       }
-
       // return endpoints_[count_++];
     }
   }
@@ -379,6 +380,18 @@ endpoint_ptr proxy_base::next_endpoint() {
   first_pass_ = true;
   endpoints_.clear();
   get_more_proxies();
+  if (has_error_) {
+    has_error_ = false;
+    std::size_t retries = 1;
+    while (retries < 5) {
+      std::this_thread::sleep_for(std::chrono::seconds(10));
+      has_error_ = false;
+      get_more_proxies();
+      if (!has_error_)
+        break;
+      ++retries;
+    }
+  }
   return next_endpoint();
 }
 

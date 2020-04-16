@@ -7,7 +7,7 @@
 
 namespace wudi_server {
 enum constant_e {
-  MaxOpenSockets = 1,
+  MaxOpenSockets = 40,
 };
 
 background_worker_t::~background_worker_t() {
@@ -166,10 +166,6 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
     }
   }
 
-  // we delayed construction of safe_proxy/io_context until now
-  io_context_.emplace();
-  proxy_provider_.reset(new generic_proxy(*io_context_));
-
   auto callback = std::bind(&background_worker_t::on_data_result_obtained, this,
                             std::placeholders::_1, std::placeholders::_2);
   if (!db_connector->set_input_files(
@@ -181,6 +177,9 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
     spdlog::error("Could not set input files");
     return task_status_e::Erred;
   }
+  // we delayed construction of safe_proxy/io_context until now
+  io_context_.emplace();
+  proxy_provider_.reset(new generic_proxy(*io_context_));
 
   {
     sockets_.reserve(MaxOpenSockets);

@@ -81,7 +81,6 @@ void auto_home_socket_t::on_data_received(beast::error_code ec,
   }
 
   auto &body{response_.body()};
-  std::cout << body << std::endl;
   json document;
   try {
     document = json::parse(body);
