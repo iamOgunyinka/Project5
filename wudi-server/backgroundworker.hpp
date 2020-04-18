@@ -38,6 +38,7 @@ public:
       net::ssl::context &);
   ~background_worker_t();
 
+  void proxy_callback_signal(NewProxySignal *signal);
   task_status_e run();
   website_type_e type() const { return website_type_; }
   auto &number_stream() { return number_stream_; }
@@ -54,7 +55,7 @@ private:
   utilities::task_status_e continue_old_task();
 
   /*
-  template <typename... Args> auto get_socket(Args &... args) {
+  template <typename... Args> auto get_socket(Args &&... args) {
     switch (website_type_) {
     case website_type_e::AutoHomeRegister:
       return std::make_shared<auto_home_socket_t>(std::forward<Args>(args)...);
@@ -72,7 +73,6 @@ private:
   */
 private:
   net::ssl::context &ssl_context_;
-
   std::unique_ptr<proxy_provider_t> proxy_provider_;
   website_type_e website_type_;
   std::shared_ptr<utilities::number_stream_t> number_stream_;
@@ -85,6 +85,7 @@ private:
   std::optional<utilities::atomic_task_t> atomic_task_;
   std::optional<net::io_context> io_context_;
   std::vector<std::shared_ptr<void>> sockets_{};
+  NewProxySignal *new_proxy_signal_{nullptr};
 };
 } // namespace wudi_server
 

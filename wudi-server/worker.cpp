@@ -150,7 +150,8 @@ resume_unstarted_task(utilities::atomic_task_t &scheduled_task,
 }
 
 void background_task_executor(std::atomic_bool &stopped, std::mutex &mutex,
-                              boost::asio::ssl::context &ssl_context) {
+                              boost::asio::ssl::context &ssl_context,
+                              global_proxy_repo_t &r) {
 
   auto db_connector = database_connector_t::s_get_db_connector();
   auto &scheduled_tasks = utilities::get_scheduled_tasks();
@@ -190,6 +191,7 @@ void background_task_executor(std::atomic_bool &stopped, std::mutex &mutex,
                         utilities::task_status_e status) {
         on_task_ran(status, scheduled_task, db_connector, worker_ptr);
       };
+      worker->proxy_callback_signal(r.new_ep_signal());
       handle(worker->run());
       auto task_result_ptr = worker->task_result();
 

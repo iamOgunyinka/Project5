@@ -2,14 +2,18 @@
 
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
+#include <boost/signals2/signal.hpp>
 #include <ctime>
 #include <memory>
 
 namespace wudi_server {
-namespace beast = boost::beast;
 namespace net = boost::asio;
+namespace beast = boost::beast;
 namespace http = beast::http;
-using tcp = boost::asio::ip::tcp;
+namespace ip = net::ip;
+namespace signals2 = boost::signals2;
+
+using tcp = ip::tcp;
 
 net::io_context &get_network_context();
 
@@ -24,37 +28,36 @@ struct extraction_data {
 
 struct custom_endpoint {
   tcp::endpoint endpoint{};
-  ProxyProperty property{};
+  ProxyProperty property{ProxyProperty::ProxyActive};
 
-  custom_endpoint(tcp::endpoint &&ep, ProxyProperty prop)
-      : endpoint(std::move(ep)), property{prop} {}
-  operator net::ip::tcp::endpoint() const { return endpoint; }
+  custom_endpoint(tcp::endpoint &&ep) : endpoint(std::move(ep)) {}
+  operator tcp::endpoint() const { return endpoint; }
   void swap(custom_endpoint &);
 };
 
 using EndpointList = std::vector<custom_endpoint>;
 using endpoint_ptr = std::shared_ptr<custom_endpoint>;
+
+using NewProxySignal =
+    signals2::signal<void(std::thread::id, std::vector<endpoint_ptr> const &)>;
 void swap(custom_endpoint &a, custom_endpoint &b);
-/*
+
 class global_proxy_repo_t {
-  std::mutex mutex_{};
+  NewProxySignal new_endpoints_signal_;
 
 public:
-  global_proxy_repo_t() {}
-  std::vector<endpoint_ptr> fetch_locally(std::string const &filename,
-                                          std::string const &last_fetched);
+  NewProxySignal *new_ep_signal() { return &new_endpoints_signal_; }
 };
-*/
 
 class proxy_base {
 protected:
   net::io_context &context_;
-  // global_proxy_repo_t& global_repo_;
+  NewProxySignal &broadcast_proxy_signal_;
 
-  std::string filename_;
   std::string host_;
   std::string target_;
   std::string count_path_;
+  std::string filename_;
 
   extraction_data current_extracted_data_;
   std::mutex mutex_{};
@@ -63,6 +66,7 @@ protected:
   std::atomic_bool verify_extract_ = false;
   std::atomic_bool has_error_ = false;
   std::atomic_bool first_pass_ = true;
+  std::atomic_bool is_free_ = true;
 
 protected:
   void load_proxy_file();
@@ -70,41 +74,30 @@ protected:
   void clear();
   void push_back(custom_endpoint ep);
   virtual extraction_data
-  get_remain_count(net::ip::basic_resolver_results<net::ip::tcp> &);
+  get_remain_count(ip::basic_resolver_results<ip::tcp> &);
   virtual void get_more_proxies();
 
 public:
-  proxy_base(net::io_context &,
-             /*global_proxy_repo_t&, */ std::string const &filename);
+  proxy_base(net::io_context &, NewProxySignal &, std::string const &filename);
   virtual ~proxy_base() {}
   endpoint_ptr next_endpoint();
+  void add_more(std::thread::id const, std::vector<endpoint_ptr> const &);
 };
 
-class generic_proxy final : public proxy_base {
+class http_proxy final : public proxy_base {
   static std::string const proxy_filename;
 
 public:
-  generic_proxy(
-      net::io_context &context /*, global_proxy_repo_t &global_repo */);
-  ~generic_proxy() {}
+  http_proxy(net::io_context &, NewProxySignal &);
+  ~http_proxy() {}
 };
 
-class autohome_proxy final : public proxy_base {
+class socks5_proxy final : public proxy_base {
   static std::string const proxy_filename;
 
 public:
-  autohome_proxy(net::io_context &context /*,global_proxy_repo_t &*/);
-  ~autohome_proxy() {}
-};
-
-class other_proxies_t final : public proxy_base {
-  static std::string const proxy_filename;
-
-public:
-  other_proxies_t(net::io_context &context /*, global_proxy_repo_t &*/);
-  ~other_proxies_t() {}
-  virtual extraction_data
-  get_remain_count(net::ip::basic_resolver_results<net::ip::tcp> &) override;
+  socks5_proxy(net::io_context &, NewProxySignal &);
+  ~socks5_proxy() {}
 };
 
 using proxy_provider_t = proxy_base;

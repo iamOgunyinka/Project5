@@ -14,6 +14,7 @@ enum class task_status_e;
 
 struct database_connector_t;
 class background_worker_t;
+class global_proxy_repo_t;
 
 void on_task_ran(utilities::task_status_e, utilities::atomic_task_t &,
                  std::shared_ptr<database_connector_t> &,
@@ -44,5 +45,6 @@ bool save_status_to_persistent_storage(
     std::shared_ptr<database_connector_t> db_connector);
 
 void background_task_executor(std::atomic_bool &stopped, std::mutex &,
-                              boost::asio::ssl::context &);
+                              boost::asio::ssl::context &,
+                              global_proxy_repo_t &);
 } // namespace wudi_server

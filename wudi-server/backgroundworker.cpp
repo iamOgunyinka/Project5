@@ -179,7 +179,12 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
   }
   // we delayed construction of safe_proxy/io_context until now
   io_context_.emplace();
-  proxy_provider_.reset(new generic_proxy(*io_context_));
+  proxy_provider_.reset(new http_proxy(*io_context_, *new_proxy_signal_));
+  // here, when this signal is emitted, all workers subscribe to it so they
+  // can have copies of the new proxies obtained
+  new_proxy_signal_->connect([this](auto const &id, auto const &proxies) {
+    proxy_provider_->add_more(id, proxies);
+  });
 
   {
     sockets_.reserve(MaxOpenSockets);
@@ -318,5 +323,9 @@ utilities::task_status_e background_worker_t::run() {
     return run_new_task();
   }
   return continue_old_task();
+}
+
+void background_worker_t::proxy_callback_signal(NewProxySignal *signal) {
+  new_proxy_signal_ = signal;
 }
 } // namespace wudi_server

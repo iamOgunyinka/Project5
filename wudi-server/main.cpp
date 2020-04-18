@@ -1,4 +1,5 @@
 #include "database_connector.hpp"
+#include "safe_proxy.hpp"
 #include "server.hpp"
 #include "worker.hpp"
 #include <CLI11/CLI11.hpp>
@@ -39,6 +40,8 @@ int main(int argc, char *argv[]) {
 
   std::atomic_bool stop = false;
   std::mutex task_mutex{};
+
+  wudi_server::global_proxy_repo_t global_proxy_provider{};
   boost::asio::ssl::context ssl_context(
       boost::asio::ssl::context::tlsv12_client);
   ssl_context.set_default_verify_paths();
@@ -48,10 +51,12 @@ int main(int argc, char *argv[]) {
   {
     using wudi_server::background_task_executor;
     using namespace wudi_server::utilities;
-
+    auto thread_callback = [&] {
+      background_task_executor(stop, task_mutex, ssl_context,
+                               global_proxy_provider);
+    };
     for (int i = 0; i != WorkerThreadCount; ++i) {
-      std::thread t{background_task_executor, std::ref(stop),
-                    std::ref(task_mutex), std::ref(ssl_context)};
+      std::thread t{thread_callback};
       t.detach();
     }
   }
