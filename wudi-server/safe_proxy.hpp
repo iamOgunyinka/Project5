@@ -53,6 +53,7 @@ class proxy_base {
 protected:
   net::io_context &context_;
   NewProxySignal &broadcast_proxy_signal_;
+  std::thread::id this_thread_id_;
 
   std::string host_;
   std::string target_;
@@ -78,7 +79,8 @@ protected:
   virtual void get_more_proxies();
 
 public:
-  proxy_base(net::io_context &, NewProxySignal &, std::string const &filename);
+  proxy_base(net::io_context &, NewProxySignal &, std::thread::id,
+             std::string const &filename);
   virtual ~proxy_base() {}
   endpoint_ptr next_endpoint();
   void add_more(std::thread::id const, std::vector<endpoint_ptr> const &);
@@ -88,7 +90,7 @@ class http_proxy final : public proxy_base {
   static std::string const proxy_filename;
 
 public:
-  http_proxy(net::io_context &, NewProxySignal &);
+  http_proxy(net::io_context &, NewProxySignal &, std::thread::id);
   ~http_proxy() {}
 };
 
@@ -96,7 +98,7 @@ class socks5_proxy final : public proxy_base {
   static std::string const proxy_filename;
 
 public:
-  socks5_proxy(net::io_context &, NewProxySignal &);
+  socks5_proxy(net::io_context &, NewProxySignal &, std::thread::id);
   ~socks5_proxy() {}
 };
 

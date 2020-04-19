@@ -31,6 +31,7 @@ int main(int argc, char *argv[]) {
 
   auto database_connector{
       wudi_server::database_connector_t::s_get_db_connector()};
+  
   auto db_config = wudi_server::parse_database_file(
       args.database_config_filename, args.launch_type);
   if (!db_config) {

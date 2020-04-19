@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <optional>
 
@@ -109,7 +110,7 @@ public:
   string_response make_json(json const &);
   string_response not_found();
   void get_logs_handler();
-  void get_ads_handler();
+  void get_ads_handler(beast::string_view);
   void load_advertisements();
   void get_file_handler(boost::string_view);
 };
@@ -135,13 +136,70 @@ void to_json(json &j, ad_info const &info) {
            {"ad", "/data" + info.image_filename}};
 }
 
-void session::get_ads_handler() {
+std::vector<boost::string_view> split_string_view(boost::string_view const &str,
+                                                  char const *delim) {
+  std::size_t const delim_length = std::strlen(delim);
+  std::size_t from_pos{};
+  std::size_t index{str.find(delim, from_pos)};
+  if (index == std::string::npos)
+    return {str};
+  std::vector<boost::string_view> result{};
+  while (index != std::string::npos) {
+    result.emplace_back(str.data() + from_pos, index - from_pos);
+    from_pos = index + delim_length;
+    index = str.find(delim, from_pos);
+  }
+  if (from_pos < str.length())
+    result.emplace_back(str.data() + from_pos, str.size() - from_pos);
+  return result;
+}
+
+using url_query = std::map<boost::string_view, boost::string_view>;
+
+url_query split_optional_queries(boost::string_view const &optional_query) {
+  url_query result{};
+  if (!optional_query.empty()) {
+    auto queries = split_string_view(optional_query, "&");
+    for (auto const &q : queries) {
+      auto split = split_string_view(q, "=");
+      if (split.size() < 2)
+        continue;
+      result.emplace(split[0], split[1]);
+    }
+  }
+  return result;
+}
+
+void session::get_ads_handler(beast::string_view target) {
   static std::random_device rd{};
   static std::mt19937 gen{rd()};
   static std::uniform_int_distribution<> uid(0, 9);
+  std::cout << "ere\n";
   if (advertisement_list.empty())
     load_advertisements();
-  return send_response(make_json(advertisement_list[uid(gen)]));
+  std::cout << "tere\n";
+  auto split = split_string_view(target, "?");
+  if (split[0] == target) {
+    return send_response(make_json(advertisement_list[uid(gen)]));
+  }
+  std::cout << "There\n";
+  boost::string_view const query_string = split.size() > 1 ? split[1] : "";
+  auto url_query_{split_optional_queries(query_string)};
+  auto iter = url_query_.find("type");
+  if (iter == url_query_.end()) {
+    return send_response(make_json(advertisement_list[uid(gen)]));
+  }
+  int type = 0;
+  try {
+    type = std::stoi(iter->second.to_string());
+  } catch (std::exception const &) {
+    type = 0;
+  }
+  auto ad = advertisement_list[uid(gen)];
+  while (ad.type != type) {
+    ad = advertisement_list[uid(gen)];
+  }
+  return send_response(make_json(ad));
 }
 
 void session::load_advertisements() {
@@ -326,8 +384,8 @@ void session::on_data_read(beast::error_code const ec, std::size_t const) {
     return send_response(make_response(get_shangai_time()));
   } else if (r.target() == "/tony") {
     return get_logs_handler();
-  } else if (r.target() == "/ads") {
-    return get_ads_handler();
+  } else if (r.target().find("/ads") != beast::string_view::npos) {
+    return get_ads_handler(r.target());
   } else if (r.target().starts_with("/data/img")) {
     return get_file_handler(r.target());
   }

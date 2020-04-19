@@ -7,11 +7,12 @@
 
 namespace wudi_server {
 enum constant_e {
-  MaxOpenSockets = 40,
+  MaxOpenSockets = 10,
 };
 
 background_worker_t::~background_worker_t() {
   sockets_.clear();
+  signal_connector_.disconnect();
   io_context_.reset();
   spdlog::info("Closing all files");
 }
@@ -178,13 +179,16 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
     return task_status_e::Erred;
   }
   // we delayed construction of safe_proxy/io_context until now
+  auto thread_id = std::this_thread::get_id();
   io_context_.emplace();
-  proxy_provider_.reset(new http_proxy(*io_context_, *new_proxy_signal_));
+  proxy_provider_.reset(
+      new socks5_proxy(*io_context_, *new_proxy_signal_, thread_id));
   // here, when this signal is emitted, all workers subscribe to it so they
   // can have copies of the new proxies obtained
-  new_proxy_signal_->connect([this](auto const &id, auto const &proxies) {
-    proxy_provider_->add_more(id, proxies);
-  });
+  signal_connector_ =
+      new_proxy_signal_->connect([this](auto const &id, auto const &proxies) {
+        proxy_provider_->add_more(id, proxies);
+      });
 
   {
     sockets_.reserve(MaxOpenSockets);

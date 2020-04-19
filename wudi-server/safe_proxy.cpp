@@ -14,15 +14,15 @@
 
 namespace wudi_server {
 
-enum constants_e { max_allowed = 2'000 };
+enum constants_e { max_allowed = 5'000 };
 
 std::string const http_proxy::proxy_filename{"./http_proxy_servers.txt"};
 std::string const socks5_proxy::proxy_filename{"./socks5_proxy_servers.txt"};
 
 proxy_base::proxy_base(net::io_context &context, NewProxySignal &proxy_signal,
-                       std::string const &filename)
-    : context_{context},
-      broadcast_proxy_signal_(proxy_signal), filename_{filename} {}
+                       std::thread::id id, std::string const &filename)
+    : context_{context}, broadcast_proxy_signal_(proxy_signal),
+      this_thread_id_{id}, filename_{filename} {}
 
 extraction_data proxy_base::get_remain_count(
     net::ip::basic_resolver_results<net::ip::tcp> &resolves) {
@@ -192,8 +192,7 @@ void proxy_base::get_more_proxies() {
 
 void proxy_base::add_more(std::thread::id const thread_id,
                           std::vector<endpoint_ptr> const &endpoints) {
-  std::thread::id const this_thread_id = std::this_thread::get_id();
-  if (thread_id == this_thread_id || !is_free_)
+  if (thread_id == this_thread_id_ || !is_free_)
     return;
   is_free_ = false;
   std::lock_guard<std::mutex> lock_g{mutex_};
@@ -202,7 +201,8 @@ void proxy_base::add_more(std::thread::id const thread_id,
   }
   std::copy(endpoints.begin(), endpoints.cend(),
             std::back_inserter(endpoints_));
-  count_;
+  count_ = 0;
+  first_pass_ = true;
   is_free_ = true;
 }
 
@@ -353,29 +353,6 @@ endpoint_ptr proxy_base::next_endpoint() {
   return next_endpoint();
 }
 
-socks5_proxy::socks5_proxy(net::io_context &io, NewProxySignal &proxy_signal)
-    : proxy_base{io, proxy_signal, proxy_filename} {
-  target_ =
-      R"(/api/ip?app_key=86adb80a7af9ee8d31bf765dd02e1431&pack=210115&num=40&xy=1&type=1&lb=\n&mr=1)";
-  host_ = "http://api.wandoudl.com/api/ip";
-  count_path_ = R"(/api/product/list?app_key=86adb80a7af9ee8d31bf765dd02e1431)";
-  load_proxy_file();
-}
-
-http_proxy::http_proxy(net::io_context &context, NewProxySignal &proxy_signal)
-    : proxy_base{context, proxy_signal, proxy_filename} {
-  target_ =
-      (R"(/api/ip?app_key=86adb80a7af9ee8d31bf765dd02e1431&pack=210115&num=100&xy=1&type=1&lb=\n&mr=1)");
-  host_ = "http://api.wandoudl.com/api/ip";
-  count_path_ = R"(/api/product/list?app_key=86adb80a7af9ee8d31bf765dd02e1431)";
-  load_proxy_file();
-}
-
-net::io_context &get_network_context() {
-  static boost::asio::io_context context{};
-  return context;
-}
-
 void proxy_base::clear() {
   std::lock_guard<std::mutex> lock_g{mutex_};
   endpoints_.clear();
@@ -384,6 +361,31 @@ void proxy_base::clear() {
 void proxy_base::push_back(custom_endpoint ep) {
   std::lock_guard<std::mutex> lock_g{mutex_};
   endpoints_.emplace_back(std::make_shared<custom_endpoint>(std::move(ep)));
+}
+
+socks5_proxy::socks5_proxy(net::io_context &io, NewProxySignal &proxy_signal,
+                           std::thread::id id)
+    : proxy_base{io, proxy_signal, id, proxy_filename} {
+  target_ =
+      R"(/api/ip?app_key=86adb80a7af9ee8d31bf765dd02e1431&pack=210115&num=20&xy=3&type=1&lb=\n&mr=1)";
+  host_ = "http://api.wandoudl.com/api/ip";
+  count_path_ = R"(/api/product/list?app_key=86adb80a7af9ee8d31bf765dd02e1431)";
+  load_proxy_file();
+}
+
+http_proxy::http_proxy(net::io_context &context, NewProxySignal &proxy_signal,
+                       std::thread::id id)
+    : proxy_base{context, proxy_signal, id, proxy_filename} {
+  target_ =
+      (R"(/api/ip?app_key=86adb80a7af9ee8d31bf765dd02e1431&pack=210115&num=20&xy=1&type=1&lb=\n&mr=1)");
+  host_ = "http://api.wandoudl.com/api/ip";
+  count_path_ = R"(/api/product/list?app_key=86adb80a7af9ee8d31bf765dd02e1431)";
+  load_proxy_file();
+}
+
+net::io_context &get_network_context() {
+  static boost::asio::io_context context{};
+  return context;
 }
 
 void custom_endpoint::swap(custom_endpoint &other) {

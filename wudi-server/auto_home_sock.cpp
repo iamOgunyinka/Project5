@@ -62,6 +62,7 @@ void auto_home_socket_t::on_data_received(beast::error_code ec,
   static std::array<std::size_t, 10> redirect_codes{300, 301, 302, 303, 304,
                                                     305, 306, 307, 308};
   if (ec) {
+    spdlog::error("on data received: {}", ec.message());
     if (ec != http::error::end_of_stream) {
       current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
     }

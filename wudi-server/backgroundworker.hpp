@@ -86,6 +86,7 @@ private:
   std::optional<net::io_context> io_context_;
   std::vector<std::shared_ptr<void>> sockets_{};
   NewProxySignal *new_proxy_signal_{nullptr};
+  boost::signals2::connection signal_connector_;
 };
 } // namespace wudi_server
 
