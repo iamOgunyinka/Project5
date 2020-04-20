@@ -38,8 +38,8 @@ struct custom_endpoint {
 using EndpointList = std::vector<custom_endpoint>;
 using endpoint_ptr = std::shared_ptr<custom_endpoint>;
 
-using NewProxySignal =
-    signals2::signal<void(std::thread::id, std::vector<endpoint_ptr> const &)>;
+using NewProxySignal = signals2::signal<void(
+    std::thread::id, std::uint32_t, std::vector<endpoint_ptr> const &)>;
 void swap(custom_endpoint &a, custom_endpoint &b);
 
 class global_proxy_repo_t {
@@ -53,7 +53,8 @@ class proxy_base {
 protected:
   net::io_context &context_;
   NewProxySignal &broadcast_proxy_signal_;
-  std::thread::id this_thread_id_;
+  std::thread::id const this_thread_id_;
+  std::uint32_t const website_id_;
 
   std::string host_;
   std::string target_;
@@ -80,17 +81,19 @@ protected:
 
 public:
   proxy_base(net::io_context &, NewProxySignal &, std::thread::id,
-             std::string const &filename);
+             std::uint32_t, std::string const &filename);
   virtual ~proxy_base() {}
   endpoint_ptr next_endpoint();
-  void add_more(std::thread::id const, std::vector<endpoint_ptr> const &);
+  void add_more(std::thread::id const, std::uint32_t const,
+                std::vector<endpoint_ptr> const &);
 };
 
 class http_proxy final : public proxy_base {
   static std::string const proxy_filename;
 
 public:
-  http_proxy(net::io_context &, NewProxySignal &, std::thread::id);
+  http_proxy(net::io_context &, NewProxySignal &, std::thread::id,
+             std::uint32_t);
   ~http_proxy() {}
 };
 
@@ -98,7 +101,8 @@ class socks5_proxy final : public proxy_base {
   static std::string const proxy_filename;
 
 public:
-  socks5_proxy(net::io_context &, NewProxySignal &, std::thread::id);
+  socks5_proxy(net::io_context &, NewProxySignal &, std::thread::id,
+               std::uint32_t);
   ~socks5_proxy() {}
 };
 

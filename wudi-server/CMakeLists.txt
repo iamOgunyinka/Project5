@@ -62,12 +62,9 @@ message("${PROJECT_NAME}: CURR BIN DIR: ${CMAKE_CURRENT_BINARY_DIR}")
 
 # Source Files
 set(SRC_FILES
-    ./auto_home_sock.cpp
     ./backgroundworker.cpp
     ./database_connector.cpp
-    ./jjgames_socket.cpp
     ./main.cpp
-    ./pp_sports.cpp
     ./safe_proxy.cpp
     ./server.cpp
     ./session.cpp

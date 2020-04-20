@@ -1,7 +1,6 @@
 #pragma once
 #pragma once
 
-#include "safe_proxy.hpp"
 #include "utilities.hpp"
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
@@ -16,13 +15,14 @@ using utilities::search_result_type_e;
 using tcp = boost::asio::ip::tcp;
 using utilities::search_result_type_e;
 
-template <typename Derived> class socks5_http_socket_base_t {
+template <typename Derived, typename ProxyProvider>
+class socks5_http_socket_base_t {
   net::io_context &io_;
   beast::tcp_stream tcp_stream_;
 
 protected:
   utilities::number_stream_t &numbers_;
-  proxy_provider_t &proxy_provider_;
+  ProxyProvider &proxy_provider_;
   bool &stopped_;
 
   beast::flat_buffer buffer_{};
@@ -79,20 +79,21 @@ public:
   auto &signal() { return signal_; }
 };
 
-template <typename Derived>
-socks5_http_socket_base_t<Derived>::socks5_http_socket_base_t(
+template <typename Derived, typename ProxyProvider>
+socks5_http_socket_base_t<Derived, ProxyProvider>::socks5_http_socket_base_t(
     bool &stopped, net::io_context &io_context,
     proxy_provider_t &proxy_provider, utilities::number_stream_t &numbers)
     : io_{io_context}, tcp_stream_{net::make_strand(io_)}, numbers_{numbers},
       proxy_provider_{proxy_provider}, stopped_{stopped} {}
 
-template <typename Derived>
-std::string socks5_http_socket_base_t<Derived>::hostname() const {
+template <typename Derived, typename ProxyProvider>
+std::string
+socks5_http_socket_base_t<Derived, ProxyProvider>::hostname() const {
   return static_cast<Derived const *>(this)->hostname();
 }
 
-template <typename Derived>
-void socks5_http_socket_base_t<Derived>::on_connected(
+template <typename Derived, typename ProxyProvider>
+void socks5_http_socket_base_t<Derived, ProxyProvider>::on_connected(
     beast::error_code ec, tcp::resolver::results_type::endpoint_type) {
   if (ec) {
     return reconnect();
@@ -100,8 +101,9 @@ void socks5_http_socket_base_t<Derived>::on_connected(
   return perform_socks5_handshake();
 }
 
-template <typename Derived>
-void socks5_http_socket_base_t<Derived>::perform_socks5_handshake() {
+template <typename Derived, typename ProxyProvider>
+void socks5_http_socket_base_t<Derived,
+                               ProxyProvider>::perform_socks5_handshake() {
   handshake_buffer.clear();
   handshake_buffer.push_back(0x05); // version
   handshake_buffer.push_back(0x01); // method count
@@ -115,8 +117,9 @@ void socks5_http_socket_base_t<Derived>::perform_socks5_handshake() {
                 std::placeholders::_1, std::placeholders::_2));
 }
 
-template <typename Derived>
-void socks5_http_socket_base_t<Derived>::retry_first_handshake() {
+template <typename Derived, typename ProxyProvider>
+void socks5_http_socket_base_t<Derived,
+                               ProxyProvider>::retry_first_handshake() {
   ++handshake_retries_;
   if (handshake_retries_ >= utilities::MaxRetries) {
     handshake_retries_ = 0;
@@ -126,8 +129,9 @@ void socks5_http_socket_base_t<Derived>::retry_first_handshake() {
   perform_socks5_handshake();
 }
 
-template <typename Derived>
-void socks5_http_socket_base_t<Derived>::retry_second_handshake() {
+template <typename Derived, typename ProxyProvider>
+void socks5_http_socket_base_t<Derived,
+                               ProxyProvider>::retry_second_handshake() {
   ++second_handshake_retries_;
   if (second_handshake_retries_ >= utilities::MaxRetries) {
     second_handshake_retries_ = 0;
@@ -137,18 +141,19 @@ void socks5_http_socket_base_t<Derived>::retry_second_handshake() {
   perform_sock5_second_handshake();
 }
 
-template <typename Derived>
-void socks5_http_socket_base_t<Derived>::on_first_handshake_initiated(
-    beast::error_code const ec, std::size_t const) {
+template <typename Derived, typename ProxyProvider>
+void socks5_http_socket_base_t<Derived, ProxyProvider>::
+    on_first_handshake_initiated(beast::error_code const ec,
+                                 std::size_t const) {
   if (ec) { // could be timeout
     return retry_first_handshake();
   }
   return read_socks5_server_response(true);
 }
 
-template <typename Derived>
-void socks5_http_socket_base_t<Derived>::read_socks5_server_response(
-    bool const is_first_handshake) {
+template <typename Derived, typename ProxyProvider>
+void socks5_http_socket_base_t<Derived, ProxyProvider>::
+    read_socks5_server_response(bool const is_first_handshake) {
   std::memset(reply_buffer, 0, 512);
   tcp_stream_.expires_after(
       std::chrono::milliseconds(utilities::TimeoutMilliseconds * 3));
@@ -159,9 +164,10 @@ void socks5_http_socket_base_t<Derived>::read_socks5_server_response(
       });
 }
 
-template <typename Derived>
-void socks5_http_socket_base_t<Derived>::on_handshake_response_received(
-    beast::error_code ec, bool const is_first_handshake) {
+template <typename Derived, typename ProxyProvider>
+void socks5_http_socket_base_t<Derived, ProxyProvider>::
+    on_handshake_response_received(beast::error_code ec,
+                                   bool const is_first_handshake) {
   if (ec) {
     if (is_first_handshake) {
       return retry_first_handshake();
@@ -182,8 +188,9 @@ void socks5_http_socket_base_t<Derived>::on_handshake_response_received(
   return send_http_data();
 }
 
-template <typename Derived>
-void socks5_http_socket_base_t<Derived>::perform_sock5_second_handshake() {
+template <typename Derived, typename ProxyProvider>
+void socks5_http_socket_base_t<
+    Derived, ProxyProvider>::perform_sock5_second_handshake() {
 
   std::string const host_name = hostname();
   handshake_buffer.clear();
@@ -196,8 +203,8 @@ void socks5_http_socket_base_t<Derived>::perform_sock5_second_handshake() {
     handshake_buffer.push_back(hn);
   }
   // host to network short(htons)
-  handshake_buffer.push_back( 80 >> 8 );
-  handshake_buffer.push_back( 80 & 0xFF );
+  handshake_buffer.push_back(80 >> 8);
+  handshake_buffer.push_back(80 & 0xFF);
 
   tcp_stream_.expires_after(std::chrono::seconds(10));
   tcp_stream_.async_write_some(
@@ -211,14 +218,14 @@ void socks5_http_socket_base_t<Derived>::perform_sock5_second_handshake() {
       });
 }
 
-template <typename Derived>
-void socks5_http_socket_base_t<Derived>::prepare_request_data(
+template <typename Derived, typename ProxyProvider>
+void socks5_http_socket_base_t<Derived, ProxyProvider>::prepare_request_data(
     bool use_authentication_header) {
   static_cast<Derived *>(this)->prepare_request_data(use_authentication_header);
 }
 
-template <typename Derived>
-void socks5_http_socket_base_t<Derived>::reconnect() {
+template <typename Derived, typename ProxyProvider>
+void socks5_http_socket_base_t<Derived, ProxyProvider>::reconnect() {
   ++connect_count_;
   if (connect_count_ >= utilities::MaxRetries) {
     current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
@@ -227,8 +234,8 @@ void socks5_http_socket_base_t<Derived>::reconnect() {
   connect();
 }
 
-template <typename Derived>
-void socks5_http_socket_base_t<Derived>::choose_next_proxy(
+template <typename Derived, typename ProxyProvider>
+void socks5_http_socket_base_t<Derived, ProxyProvider>::choose_next_proxy(
     bool const is_first_request) {
   send_count_ = 0;
   connect_count_ = 0;
@@ -246,14 +253,15 @@ void socks5_http_socket_base_t<Derived>::choose_next_proxy(
   }
 }
 
-template <typename Derived>
-void socks5_http_socket_base_t<Derived>::current_proxy_assign_prop(
-    ProxyProperty property) {
+template <typename Derived, typename ProxyProvider>
+void socks5_http_socket_base_t<
+    Derived, ProxyProvider>::current_proxy_assign_prop(ProxyProperty property) {
   if (current_proxy_)
     current_proxy_->property = property;
 }
 
-template <typename Derived> void socks5_http_socket_base_t<Derived>::connect() {
+template <typename Derived, typename ProxyProvider>
+void socks5_http_socket_base_t<Derived, ProxyProvider>::connect() {
   if (!current_proxy_ || stopped_) {
     if (stopped_ && !current_number_.empty())
       numbers_.push_back(current_number_);
@@ -268,8 +276,8 @@ template <typename Derived> void socks5_http_socket_base_t<Derived>::connect() {
       [=](auto const &ec, auto const &ep_type) { on_connected(ec, ep_type); });
 }
 
-template <typename Derived>
-void socks5_http_socket_base_t<Derived>::send_first_request() {
+template <typename Derived, typename ProxyProvider>
+void socks5_http_socket_base_t<Derived, ProxyProvider>::send_first_request() {
   if (stopped_) {
     if (!current_number_.empty()) {
       numbers_.push_back(current_number_);
@@ -285,8 +293,8 @@ void socks5_http_socket_base_t<Derived>::send_first_request() {
   }
 }
 
-template <typename Derived>
-void socks5_http_socket_base_t<Derived>::receive_data() {
+template <typename Derived, typename ProxyProvider>
+void socks5_http_socket_base_t<Derived, ProxyProvider>::receive_data() {
   tcp_stream_.expires_after(
       std::chrono::milliseconds(utilities::TimeoutMilliseconds * 4)); // 4*3secs
   response_ = {};
@@ -296,15 +304,15 @@ void socks5_http_socket_base_t<Derived>::receive_data() {
                        &socks5_http_socket_base_t::on_data_received, this));
 }
 
-template <typename Derived>
-void socks5_http_socket_base_t<Derived>::start_connect() {
+template <typename Derived, typename ProxyProvider>
+void socks5_http_socket_base_t<Derived, ProxyProvider>::start_connect() {
   choose_next_proxy(true);
   if (current_proxy_)
     send_first_request();
 }
 
-template <typename Derived>
-void socks5_http_socket_base_t<Derived>::send_http_data() {
+template <typename Derived, typename ProxyProvider>
+void socks5_http_socket_base_t<Derived, ProxyProvider>::send_http_data() {
   tcp_stream_.expires_after(
       std::chrono::milliseconds(utilities::TimeoutMilliseconds));
   http::async_write(tcp_stream_, request_,
@@ -312,17 +320,17 @@ void socks5_http_socket_base_t<Derived>::send_http_data() {
                         &socks5_http_socket_base_t::on_data_sent, this));
 }
 
-template <typename Derived>
-void socks5_http_socket_base_t<Derived>::on_data_sent(beast::error_code ec,
-                                                      std::size_t const s) {
+template <typename Derived, typename ProxyProvider>
+void socks5_http_socket_base_t<Derived, ProxyProvider>::on_data_sent(
+    beast::error_code ec, std::size_t const s) {
   if (ec) {
     resend_http_request();
   } else
     receive_data();
 }
 
-template <typename Derived>
-void socks5_http_socket_base_t<Derived>::resend_http_request() {
+template <typename Derived, typename ProxyProvider>
+void socks5_http_socket_base_t<Derived, ProxyProvider>::resend_http_request() {
   if (++send_count_ >= utilities::MaxRetries) {
     current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
     return choose_next_proxy();
@@ -330,8 +338,8 @@ void socks5_http_socket_base_t<Derived>::resend_http_request() {
   send_http_data();
 }
 
-template <typename Derived>
-void socks5_http_socket_base_t<Derived>::close_socket() {
+template <typename Derived, typename ProxyProvider>
+void socks5_http_socket_base_t<Derived, ProxyProvider>::close_socket() {
   tcp_stream_.cancel();
   signal_.disconnect_all_slots();
   beast::error_code ec{};
@@ -342,8 +350,8 @@ void socks5_http_socket_base_t<Derived>::close_socket() {
   beast::get_lowest_layer(tcp_stream_).socket().close(ec);
 }
 
-template <typename Derived>
-void socks5_http_socket_base_t<Derived>::send_next() {
+template <typename Derived, typename ProxyProvider>
+void socks5_http_socket_base_t<Derived, ProxyProvider>::send_next() {
   if (stopped_) {
     if (!current_number_.empty()) {
       numbers_.push_back(current_number_);
@@ -359,14 +367,15 @@ void socks5_http_socket_base_t<Derived>::send_next() {
   }
 }
 
-template <typename Derived>
-void socks5_http_socket_base_t<Derived>::set_authentication_header() {
+template <typename Derived, typename ProxyProvider>
+void socks5_http_socket_base_t<Derived,
+                               ProxyProvider>::set_authentication_header() {
   prepare_request_data(true);
 }
 
-template <typename Derived>
-void socks5_http_socket_base_t<Derived>::on_data_received(beast::error_code ec,
-                                                          std::size_t const s) {
+template <typename Derived, typename ProxyProvider>
+void socks5_http_socket_base_t<Derived, ProxyProvider>::on_data_received(
+    beast::error_code ec, std::size_t const s) {
   static_cast<Derived *>(this)->on_data_received(ec, s);
 }
 

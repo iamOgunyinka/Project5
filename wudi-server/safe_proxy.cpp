@@ -20,9 +20,10 @@ std::string const http_proxy::proxy_filename{"./http_proxy_servers.txt"};
 std::string const socks5_proxy::proxy_filename{"./socks5_proxy_servers.txt"};
 
 proxy_base::proxy_base(net::io_context &context, NewProxySignal &proxy_signal,
-                       std::thread::id id, std::string const &filename)
+                       std::thread::id id, std::uint32_t web_id,
+                       std::string const &filename)
     : context_{context}, broadcast_proxy_signal_(proxy_signal),
-      this_thread_id_{id}, filename_{filename} {}
+      this_thread_id_{id}, website_id_{web_id}, filename_{filename} {}
 
 extraction_data proxy_base::get_remain_count(
     net::ip::basic_resolver_results<net::ip::tcp> &resolves) {
@@ -179,9 +180,9 @@ void proxy_base::get_more_proxies() {
   if (has_error_) {
     return spdlog::error("Error occurred while getting more proxies");
   }
-  broadcast_proxy_signal_(std::this_thread::get_id(), new_eps);
+  broadcast_proxy_signal_(this_thread_id_, website_id_, new_eps);
   if (endpoints_.size() >= max_allowed) {
-    endpoints_.erase(endpoints_.begin(), endpoints_.begin() + 100);
+    endpoints_.erase(endpoints_.begin(), endpoints_.begin() + new_eps.size());
   }
   using iter_t = std::vector<endpoint_ptr>::iterator;
   std::copy(std::move_iterator<iter_t>(new_eps.begin()),
@@ -191,17 +192,19 @@ void proxy_base::get_more_proxies() {
 }
 
 void proxy_base::add_more(std::thread::id const thread_id,
+                          std::uint32_t const web_id,
                           std::vector<endpoint_ptr> const &endpoints) {
-  if (thread_id == this_thread_id_ || !is_free_)
+  if (thread_id == this_thread_id_ || website_id_ == web_id)
     return;
+  while (!is_free_)
+    ;
   is_free_ = false;
   std::lock_guard<std::mutex> lock_g{mutex_};
   if (endpoints_.size() >= max_allowed) {
-    endpoints_.erase(endpoints_.begin(), endpoints_.begin() + 100);
+    endpoints_.erase(endpoints_.begin(), endpoints_.begin() + endpoints.size());
   }
-  std::copy(endpoints.begin(), endpoints.cend(),
+  std::copy(endpoints.cbegin(), endpoints.cend(),
             std::back_inserter(endpoints_));
-  count_ = 0;
   first_pass_ = true;
   is_free_ = true;
 }
@@ -345,8 +348,10 @@ endpoint_ptr proxy_base::next_endpoint() {
       is_free_ = false;
       get_more_proxies();
       is_free_ = true;
-      if (!has_error_)
+      if (!has_error_ || !endpoints_.empty()) {
+        count_ = 0;
         break;
+      }
       ++retries;
     }
   }
@@ -364,8 +369,8 @@ void proxy_base::push_back(custom_endpoint ep) {
 }
 
 socks5_proxy::socks5_proxy(net::io_context &io, NewProxySignal &proxy_signal,
-                           std::thread::id id)
-    : proxy_base{io, proxy_signal, id, proxy_filename} {
+                           std::thread::id id, std::uint32_t web_id)
+    : proxy_base{io, proxy_signal, id, web_id, proxy_filename} {
   target_ =
       R"(/api/ip?app_key=86adb80a7af9ee8d31bf765dd02e1431&pack=210115&num=20&xy=3&type=1&lb=\n&mr=1)";
   host_ = "http://api.wandoudl.com/api/ip";
@@ -374,8 +379,8 @@ socks5_proxy::socks5_proxy(net::io_context &io, NewProxySignal &proxy_signal,
 }
 
 http_proxy::http_proxy(net::io_context &context, NewProxySignal &proxy_signal,
-                       std::thread::id id)
-    : proxy_base{context, proxy_signal, id, proxy_filename} {
+                       std::thread::id thread_id, std::uint32_t web_id)
+    : proxy_base{context, proxy_signal, thread_id, web_id, proxy_filename} {
   target_ =
       (R"(/api/ip?app_key=86adb80a7af9ee8d31bf765dd02e1431&pack=210115&num=20&xy=1&type=1&lb=\n&mr=1)");
   host_ = "http://api.wandoudl.com/api/ip";

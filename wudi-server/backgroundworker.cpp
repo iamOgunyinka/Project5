@@ -181,33 +181,34 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
   // we delayed construction of safe_proxy/io_context until now
   auto thread_id = std::this_thread::get_id();
   io_context_.emplace();
-  proxy_provider_.reset(
-      new socks5_proxy(*io_context_, *new_proxy_signal_, thread_id));
+  proxy_provider_.reset(new socks5_proxy(*io_context_, *new_proxy_signal_,
+                                         thread_id,
+                                         task_result_ptr_->website_id));
   // here, when this signal is emitted, all workers subscribe to it so they
   // can have copies of the new proxies obtained
-  signal_connector_ =
-      new_proxy_signal_->connect([this](auto const &id, auto const &proxies) {
-        proxy_provider_->add_more(id, proxies);
-      });
+  signal_connector_ = new_proxy_signal_->connect([this](auto &&... args) {
+    proxy_provider_->add_more(std::forward<decltype(args)>(args)...);
+  });
 
   {
     sockets_.reserve(MaxOpenSockets);
     for (int i = 0; i != MaxOpenSockets; ++i) {
       if (website_type_ == website_type_e::AutoHomeRegister) {
-        auto socket_ptr = std::make_shared<auto_home_socket_t>(
-            stopped, *io_context_, *proxy_provider_, *number_stream_,
-            ssl_context_);
+        auto socket_ptr =
+            std::make_shared<auto_home_socket_t<proxy_provider_t>>(
+                stopped, *io_context_, *proxy_provider_, *number_stream_,
+                ssl_context_);
         sockets_.push_back(socket_ptr); // keep a type-erased copy
         (void)socket_ptr->signal().connect(callback);
         socket_ptr->start_connect();
       } else if (website_type_ == website_type_e::PPSports) {
-        auto socket_ptr = std::make_shared<pp_sports_t>(
+        auto socket_ptr = std::make_shared<pp_sports_t<proxy_provider_t>>(
             stopped, *io_context_, *proxy_provider_, *number_stream_);
         sockets_.push_back(socket_ptr);
         (void)socket_ptr->signal().connect(callback);
         socket_ptr->start_connect();
       } else if (website_type_ == website_type_e::JJGames) {
-        auto socket_ptr = std::make_shared<jjgames_socket>(
+        auto socket_ptr = std::make_shared<jjgames_socket<proxy_provider_t>>(
             stopped, *io_context_, *proxy_provider_, *number_stream_,
             ssl_context_);
         sockets_.push_back(socket_ptr);
