@@ -14,7 +14,7 @@
 
 namespace wudi_server {
 
-enum constants_e { max_allowed = 5'000 };
+enum constants_e { max_allowed = 5'000, minutes_allowed = 60 * 5 };
 
 std::string const http_proxy::proxy_filename{"./http_proxy_servers.txt"};
 std::string const socks5_proxy::proxy_filename{"./socks5_proxy_servers.txt"};
@@ -107,6 +107,23 @@ extraction_data proxy_base::get_remain_count(
 }
 
 void proxy_base::get_more_proxies() {
+  if (last_fetch_time_ == 0) {
+    last_fetch_time_ = std::time(nullptr);
+  } else {
+    std::time_t const current_time = std::time(nullptr);
+    auto const time_difference = current_time - last_fetch_time_;
+    if (time_difference < minutes_allowed) {
+      auto const ep_size = endpoints_.size();
+      std::this_thread::sleep_for(
+          std::chrono::seconds(minutes_allowed - time_difference));
+      last_fetch_time_ += minutes_allowed;
+      // while this is sleeping, has a new thread fetched new EPs?
+      if (endpoints_.size() != ep_size)
+        return;
+    } else {
+      last_fetch_time_ = current_time;
+    }
+  }
   utilities::uri uri_{host_};
 
   beast::tcp_stream http_tcp_stream(net::make_strand(context_));
@@ -139,11 +156,12 @@ void proxy_base::get_more_proxies() {
       http::read(http_tcp_stream, buffer, server_response);
       beast::error_code ec{};
       http_tcp_stream.socket().shutdown(tcp::socket::shutdown_both, ec);
+      auto &response_body = server_response.body();
       if (server_response.result_int() != 200 || ec) {
         has_error_ = true;
+        spdlog::error("server was kind enough to say: {}", response_body);
         return spdlog::error("Error obtaining proxy servers from server");
       }
-      auto &response_body = server_response.body();
       std::vector<std::string> ips;
       boost::split(ips, response_body,
                    [](char const ch) { return ch == '\n'; });
@@ -168,6 +186,7 @@ void proxy_base::get_more_proxies() {
               std::make_shared<custom_endpoint>(std::move(endpoint)));
         } catch (std::exception const &except) {
           has_error_ = true;
+          spdlog::error("server says: {}", response_body);
           return spdlog::error("[get_more_proxies] {}", except.what());
         }
       }
@@ -182,7 +201,7 @@ void proxy_base::get_more_proxies() {
   }
   broadcast_proxy_signal_(this_thread_id_, website_id_, new_eps);
   if (endpoints_.size() >= max_allowed) {
-    endpoints_.erase(endpoints_.begin(), endpoints_.begin() + new_eps.size());
+    endpoints_.remove(new_eps.size());
   }
   using iter_t = std::vector<endpoint_ptr>::iterator;
   std::copy(std::move_iterator<iter_t>(new_eps.begin()),
@@ -193,17 +212,16 @@ void proxy_base::get_more_proxies() {
 
 void proxy_base::add_more(std::thread::id const thread_id,
                           std::uint32_t const web_id,
-                          std::vector<endpoint_ptr> const &endpoints) {
+                          std::vector<endpoint_ptr> const &new_endpoints) {
   if (thread_id == this_thread_id_ || website_id_ == web_id)
     return;
   while (!is_free_)
     ;
   is_free_ = false;
-  std::lock_guard<std::mutex> lock_g{mutex_};
   if (endpoints_.size() >= max_allowed) {
-    endpoints_.erase(endpoints_.begin(), endpoints_.begin() + endpoints.size());
+    endpoints_.remove(new_endpoints.size());
   }
-  std::copy(endpoints.cbegin(), endpoints.cend(),
+  std::copy(new_endpoints.cbegin(), new_endpoints.cend(),
             std::back_inserter(endpoints_));
   first_pass_ = true;
   is_free_ = true;
@@ -224,13 +242,17 @@ void proxy_base::save_proxies_to_file() {
   } catch (std::exception const &) {
   }
   std::set<std::string> unique_set{};
-  for (auto const &proxy : this->endpoints_) {
-    std::string const ep = boost::lexical_cast<std::string>(proxy->endpoint);
-    if (unique_set.find(ep) == unique_set.end()) {
-      unique_set.insert(ep);
-      (*out_file_ptr) << ep << "\n";
+  endpoints_.for_each([&](auto const &proxy) {
+    try {
+      std::string const ep = boost::lexical_cast<std::string>(proxy->endpoint);
+      if (unique_set.find(ep) == unique_set.end()) {
+        unique_set.insert(ep);
+        (*out_file_ptr) << ep << "\n";
+      }
+    } catch (std::exception const &e) {
+      spdlog::error("Exception in \"saveproxy\": {}", e.what());
     }
-  }
+  });
   out_file_ptr->close();
 }
 
@@ -259,9 +281,9 @@ void proxy_base::load_proxy_file() {
       auto endpoint = net::ip::tcp::endpoint(net::ip::make_address(ip_port[0]),
                                              std::stoi(ip_port[1]));
       if (endpoints_.size() > max_allowed) {
-        endpoints_.erase(endpoints_.begin());
+        endpoints_.remove(1);
       }
-      endpoints_.emplace_back(
+      endpoints_.push_back(
           std::make_shared<custom_endpoint>(std::move(endpoint)));
     } catch (std::exception const &e) {
       spdlog::error("Error while converting( {} ), {}", line, e.what());
@@ -270,43 +292,44 @@ void proxy_base::load_proxy_file() {
 }
 
 endpoint_ptr proxy_base::next_endpoint() {
-  mutex_.lock();
+  // mutex_.lock();
   if (has_error_ || endpoints_.empty()) {
-    mutex_.unlock();
+    // mutex_.unlock();
     return nullptr;
   }
   if (count_ >= endpoints_.size()) {
     count_ = 0;
     while (count_ < endpoints_.size()) {
       if (endpoints_[count_]->property == ProxyProperty::ProxyActive) {
-        mutex_.unlock();
+        // mutex_.unlock();
         return endpoints_[count_++];
       }
       count_++;
     }
   } else {
-    mutex_.unlock();
-    return endpoints_[count_++];
+    while (count_ < endpoints_.size()) {
+      if (endpoints_[count_]->property == ProxyProperty::ProxyActive) {
+        // mutex_.unlock();
+        return endpoints_[count_++];
+      }
+      ++count_;
+    }
   }
 
   if (first_pass_) {
     first_pass_ = false;
     // let's remove all blocked proxy IPs and see if all non-respsonsive
     // IP addresses may respond now.
-    endpoints_.erase(std::remove_if(endpoints_.begin(), endpoints_.end(),
-                                    [](auto const &ep) {
-                                      return ep->property ==
-                                             ProxyProperty::ProxyBlocked;
-                                    }),
-                     endpoints_.end());
-    for (auto &ep : endpoints_) {
-      ep->property = ProxyProperty::ProxyActive;
-    }
+    endpoints_.remove_if([](auto const &ep) {
+      return ep->property == ProxyProperty::ProxyBlocked;
+    });
+    endpoints_.for_each(
+        [](auto &elem) { elem->property = ProxyProperty::ProxyActive; });
     count_ = 0;
     if (endpoints_.empty()) {
       first_pass_ = true;
       std::size_t const ep_size = endpoints_.size();
-      mutex_.unlock();
+      // mutex_.unlock();
       while (!is_free_)
         ;
       std::size_t const ep_new_size = endpoints_.size();
@@ -318,13 +341,13 @@ endpoint_ptr proxy_base::next_endpoint() {
       is_free_ = true;
       return next_endpoint();
     }
-    mutex_.unlock();
+    // mutex_.unlock();
     return endpoints_[count_++];
   }
   count_ = 0;
   first_pass_ = true;
   endpoints_.clear();
-  mutex_.unlock();
+  // mutex_.unlock();
   std::size_t const ep_size = endpoints_.size();
   while (!is_free_)
     ;
@@ -332,22 +355,13 @@ endpoint_ptr proxy_base::next_endpoint() {
   std::size_t const new_ep_size = endpoints_.size();
   if (new_ep_size > ep_size)
     return endpoints_[count_];
-  is_free_ = false;
   get_more_proxies();
-  is_free_ = true;
   if (has_error_) {
     has_error_ = false;
     std::size_t retries = 1;
     while (retries < 5) {
-      std::this_thread::sleep_for(std::chrono::seconds(10));
-      // while this is sleeping, has new thread being able to get new proxies?
-      std::size_t const new_ep_size = endpoints_.size();
-      if (new_ep_size > ep_size)
-        return endpoints_[count_];
       has_error_ = false;
-      is_free_ = false;
       get_more_proxies();
-      is_free_ = true;
       if (!has_error_ || !endpoints_.empty()) {
         count_ = 0;
         break;
@@ -356,16 +370,6 @@ endpoint_ptr proxy_base::next_endpoint() {
     }
   }
   return next_endpoint();
-}
-
-void proxy_base::clear() {
-  std::lock_guard<std::mutex> lock_g{mutex_};
-  endpoints_.clear();
-}
-
-void proxy_base::push_back(custom_endpoint ep) {
-  std::lock_guard<std::mutex> lock_g{mutex_};
-  endpoints_.emplace_back(std::make_shared<custom_endpoint>(std::move(ep)));
 }
 
 socks5_proxy::socks5_proxy(net::io_context &io, NewProxySignal &proxy_signal,

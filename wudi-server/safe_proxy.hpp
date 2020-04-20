@@ -5,6 +5,7 @@
 #include <boost/signals2/signal.hpp>
 #include <ctime>
 #include <memory>
+#include <vector>
 
 namespace wudi_server {
 namespace net = boost::asio;
@@ -35,8 +36,59 @@ struct custom_endpoint {
   void swap(custom_endpoint &);
 };
 
-using EndpointList = std::vector<custom_endpoint>;
+template <typename T> class vector_wrapper {
+  std::mutex mutex_{};
+  std::vector<T> container_{};
+
+public:
+  using value_type = T;
+
+  vector_wrapper() {}
+  bool empty() const { return container_.empty(); }
+  void clear() {
+    std::lock_guard<std::mutex> lock_g{mutex_};
+    container_.clear();
+  }
+  void push_back(T const &t) {
+    std::lock_guard<std::mutex> lock_g{mutex_};
+    container_.push_back(t);
+  }
+  void push_back(T &&t) {
+    std::lock_guard<std::mutex> lock_g{mutex_};
+    container_.push_back(std::move(t));
+  }
+  typename std::vector<T>::size_type size() { return container_.size(); }
+
+  T &operator[](typename std::vector<T>::size_type const index) {
+    std::lock_guard<std::mutex> lock_g{mutex_};
+    return container_[index];
+  }
+  T const &operator[](typename std::vector<T>::size_type const index) const {
+    std::lock_guard<std::mutex> lock_g{mutex_};
+    return container_[index];
+  }
+  void remove(std::size_t const count) {
+    std::lock_guard<std::mutex> lock_g{mutex_};
+    if (container_.size() < count) {
+      return container_.clear();
+    }
+    container_.erase(container_.begin(), container_.begin() + count);
+  }
+  template <typename Func> void remove_if(Func &&func) {
+    std::lock_guard<std::mutex> lock_g{mutex_};
+    container_.erase(std::remove_if(container_.begin(), container_.end(), func),
+                     container_.end());
+  }
+  template <typename Func> void for_each(Func &&func) {
+    std::lock_guard<std::mutex> lock_g{mutex_};
+    for (auto &elem : container_) {
+      std::forward<Func>(func)(elem);
+    }
+  }
+};
+
 using endpoint_ptr = std::shared_ptr<custom_endpoint>;
+using endpoint_ptr_list = vector_wrapper<endpoint_ptr>;
 
 using NewProxySignal = signals2::signal<void(
     std::thread::id, std::uint32_t, std::vector<endpoint_ptr> const &)>;
@@ -55,6 +107,7 @@ protected:
   NewProxySignal &broadcast_proxy_signal_;
   std::thread::id const this_thread_id_;
   std::uint32_t const website_id_;
+  std::time_t last_fetch_time_{};
 
   std::string host_;
   std::string target_;
@@ -64,7 +117,7 @@ protected:
   extraction_data current_extracted_data_;
   std::mutex mutex_{};
   std::size_t count_{};
-  std::vector<endpoint_ptr> endpoints_;
+  endpoint_ptr_list endpoints_;
   std::atomic_bool verify_extract_ = false;
   std::atomic_bool has_error_ = false;
   std::atomic_bool first_pass_ = true;
@@ -73,8 +126,6 @@ protected:
 protected:
   void load_proxy_file();
   void save_proxies_to_file();
-  void clear();
-  void push_back(custom_endpoint ep);
   virtual extraction_data
   get_remain_count(ip::basic_resolver_results<ip::tcp> &);
   virtual void get_more_proxies();
