@@ -11,8 +11,8 @@ enum constant_e {
 };
 
 background_worker_t::~background_worker_t() {
-  sockets_.clear();
   signal_connector_.disconnect();
+  sockets_.clear();
   io_context_.reset();
   spdlog::info("Closing all files");
 }
@@ -69,8 +69,6 @@ void background_worker_t::on_data_result_obtained(
 
   bool const signallable = (processed % MaxOpenSockets) == 0;
   if (signallable) {
-    spdlog::info("Task({}) => Processed {} of {}", task_result_ptr_->task_id,
-                 processed, total);
     db_connector->update_task_progress(*task_result_ptr_);
   }
   if (processed > 10 && ((processed - 10) > task_result_ptr_->total_numbers)) {

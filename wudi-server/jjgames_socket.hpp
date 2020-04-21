@@ -1,7 +1,6 @@
 #pragma once
 
 #include "socks5_https_socket_base.hpp"
-#include <boost/asio/ssl/rfc2818_verification.hpp>
 #include <spdlog/spdlog.h>
 
 namespace wudi_server {

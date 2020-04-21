@@ -16,6 +16,7 @@ namespace ssl = net::ssl;
 using utilities::proxy_address_t;
 using utilities::search_result_type_e;
 using tcp = boost::asio::ip::tcp;
+using beast::error_code;
 using utilities::search_result_type_e;
 
 template <typename Derived, typename Proxy> class socks5_https_socket_base_t {
@@ -27,8 +28,7 @@ protected:
   beast::ssl_stream<beast::tcp_stream> ssl_stream_;
   bool &stopped_;
 
-  std::vector<char> socks_read_buffer_{};
-
+  std::vector<char> read_buffer_{};
   std::optional<beast::flat_buffer> general_buffer_{};
   http::request<http::string_body> request_{};
   http::response<http::string_body> response_{};
@@ -48,10 +48,10 @@ protected:
   void perform_socks5_handshake();
   void perform_ssl_handshake();
   void set_authentication_header();
-  void on_ssl_handshake(beast::error_code);
-  void on_first_handshake_initiated(beast::error_code, std::size_t const);
+  void on_ssl_handshake(error_code);
+  void on_first_handshake_initiated(error_code, std::size_t const);
   void read_socks5_server_response(bool const);
-  void on_handshake_received(beast::error_code, std::size_t, bool const);
+  void on_handshake_received(error_code, std::size_t, bool const);
   void perform_sock5_second_handshake();
   void retry_first_handshake();
   void retry_second_handshake();
@@ -63,13 +63,12 @@ protected:
   void resend_http_request();
   void choose_next_proxy(bool first_request = false);
   void send_https_data();
-  void on_data_sent(beast::error_code, std::size_t const);
+  void on_data_sent(error_code, std::size_t const);
   void current_proxy_assign_prop(ProxyProperty);
   void prepare_request_data(bool use_auth = false);
-  void on_connected(beast::error_code,
-                    tcp::resolver::results_type::endpoint_type);
+  void on_connected(error_code, tcp::resolver::results_type::endpoint_type);
   virtual void send_next();
-  void on_data_received(beast::error_code, std::size_t const);
+  void on_data_received(error_code, std::size_t const);
   std::string hostname() const;
 
 public:
@@ -98,7 +97,7 @@ std::string socks5_https_socket_base_t<Derived, Proxy>::hostname() const {
 
 template <typename Derived, typename Proxy>
 void socks5_https_socket_base_t<Derived, Proxy>::on_connected(
-    beast::error_code ec, tcp::resolver::results_type::endpoint_type) {
+    error_code ec, tcp::resolver::results_type::endpoint_type) {
   if (ec) {
     return reconnect();
   }
@@ -112,8 +111,7 @@ void socks5_https_socket_base_t<Derived, Proxy>::perform_socks5_handshake() {
   handshake_buffer.push_back(0x01); // method count
   handshake_buffer.push_back(0x00); // first method
 
-  beast::get_lowest_layer(ssl_stream_)
-      .expires_after(std::chrono::milliseconds(5'000));
+  beast::get_lowest_layer(ssl_stream_).expires_after(std::chrono::seconds(3));
   beast::get_lowest_layer(ssl_stream_)
       .async_write_some(
           net::const_buffer(handshake_buffer.data(), handshake_buffer.size()),
@@ -145,7 +143,7 @@ void socks5_https_socket_base_t<Derived, Proxy>::retry_second_handshake() {
 
 template <typename Derived, typename Proxy>
 void socks5_https_socket_base_t<Derived, Proxy>::on_first_handshake_initiated(
-    beast::error_code const ec, std::size_t const) {
+    error_code const ec, std::size_t const) {
   if (ec) { // could be timeout
     return retry_first_handshake();
   }
@@ -155,14 +153,12 @@ void socks5_https_socket_base_t<Derived, Proxy>::on_first_handshake_initiated(
 template <typename Derived, typename Proxy>
 void socks5_https_socket_base_t<Derived, Proxy>::read_socks5_server_response(
     bool const is_first_handshake) {
-  socks_read_buffer_.clear();
-  socks_read_buffer_.resize(25, 0);
+  read_buffer_.clear();
+  read_buffer_.resize(32, 0);
   beast::get_lowest_layer(ssl_stream_)
-      .expires_after(
-          std::chrono::milliseconds(utilities::TimeoutMilliseconds * 3));
+      .expires_after(std::chrono::milliseconds(10'000));
   beast::get_lowest_layer(ssl_stream_)
-      .async_read_some(net::mutable_buffer(socks_read_buffer_.data(),
-                                           socks_read_buffer_.size()),
+      .async_read_some(net::mutable_buffer(read_buffer_.data(), 32),
                        [=](beast::error_code ec, std::size_t const s) {
                          on_handshake_received(ec, s, is_first_handshake);
                        });
@@ -171,21 +167,25 @@ void socks5_https_socket_base_t<Derived, Proxy>::read_socks5_server_response(
 template <typename Derived, typename Proxy>
 void socks5_https_socket_base_t<Derived, Proxy>::on_handshake_received(
     beast::error_code ec, std::size_t const sz, bool const is_first_handshake) {
-  if (ec) {
+  if (ec && (ec != http::error::partial_message || sz < 2)) {
+    if (ec == http::error::end_of_stream) {
+      current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
+      return choose_next_proxy();
+    }
     if (is_first_handshake) {
       return retry_first_handshake();
     }
     return retry_second_handshake();
   }
-  char const *p1 = reinterpret_cast<char *>(socks_read_buffer_.data());
+  char const *p1 = reinterpret_cast<char const *>(read_buffer_.data());
   if (is_first_handshake) {
-    if (sz > 1 && p1 && p1[1] != 0x00) {
+    if (!p1 || p1[0] != 0x05 || p1[1] != 0x00) {
       current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
       return choose_next_proxy();
     }
     return perform_sock5_second_handshake();
   }
-  if (sz > 1 && p1 && p1[1] != 0x00) {
+  if (!p1 || p1[1] == 0x01) {
     current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
     return choose_next_proxy();
   }
@@ -202,7 +202,7 @@ void socks5_https_socket_base_t<Derived, Proxy>::perform_ssl_handshake() {
 
 template <typename Derived, typename Proxy>
 void socks5_https_socket_base_t<Derived, Proxy>::on_ssl_handshake(
-    beast::error_code ec) {
+    error_code ec) {
   if (ec.category() == net::error::get_ssl_category() &&
       ec.value() == ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SHORT_READ)) {
     return send_https_data();
@@ -228,11 +228,12 @@ void socks5_https_socket_base_t<Derived,
   for (auto const &hn : host_name) {
     handshake_buffer.push_back(hn);
   }
+  uint16_t const port = 443;
   // host to network short(htons)
-  handshake_buffer.push_back(443 >> 8);
-  handshake_buffer.push_back(443 & 0xFF);
+  handshake_buffer.push_back(((char *)&port)[1]);
+  handshake_buffer.push_back(((char *)&port)[0]);
 
-  beast::get_lowest_layer(ssl_stream_).expires_after(std::chrono::seconds(5));
+  beast::get_lowest_layer(ssl_stream_).expires_after(std::chrono::seconds(10));
   beast::get_lowest_layer(ssl_stream_)
       .async_write_some(
           net::mutable_buffer(handshake_buffer.data(), handshake_buffer.size()),
@@ -268,7 +269,6 @@ void socks5_https_socket_base_t<Derived, Proxy>::choose_next_proxy(
   connect_count_ = 0;
   current_proxy_ = proxy_provider_.next_endpoint();
   if (!current_proxy_) {
-    spdlog::error("error getting next endpoint");
     numbers_.push_back(current_number_);
     current_number_.clear();
     return signal_(search_result_type_e::RequestStop, current_number_);
@@ -339,7 +339,6 @@ void socks5_https_socket_base_t<Derived, Proxy>::start_connect() {
                          net::error::get_ssl_category()};
     return spdlog::error("Unable to set TLS because: {}", ec.message());
   }
-  ssl_stream_.set_verify_mode(net::ssl::verify_none);
   choose_next_proxy(true);
   if (current_proxy_)
     send_first_request();

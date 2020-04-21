@@ -39,7 +39,7 @@ protected:
   std::size_t handshake_retries_{};
   std::size_t second_handshake_retries_{};
   std::vector<uint8_t> handshake_buffer{};
-  char reply_buffer[512]{};
+  char reply_buffer[64]{};
 
 protected:
   void send_first_request();
@@ -154,11 +154,11 @@ void socks5_http_socket_base_t<Derived, ProxyProvider>::
 template <typename Derived, typename ProxyProvider>
 void socks5_http_socket_base_t<Derived, ProxyProvider>::
     read_socks5_server_response(bool const is_first_handshake) {
-  std::memset(reply_buffer, 0, 512);
+  std::memset(reply_buffer, 0, 64);
   tcp_stream_.expires_after(
       std::chrono::milliseconds(utilities::TimeoutMilliseconds * 3));
   tcp_stream_.async_read_some(
-      net::mutable_buffer(reply_buffer, 512),
+      net::mutable_buffer(reply_buffer, 64),
       [this, is_first_handshake](beast::error_code ec, std::size_t const) {
         on_handshake_response_received(ec, is_first_handshake);
       });
@@ -174,14 +174,15 @@ void socks5_http_socket_base_t<Derived, ProxyProvider>::
     }
     return retry_second_handshake();
   }
+  char const *p1 = reinterpret_cast<char *>(reply_buffer);
   if (is_first_handshake) {
-    if (reply_buffer[1] != 0x00) {
+    if (!p1 || p1[0] != 0x05 || p1[1] != 0x00) {
       current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
       return choose_next_proxy();
     }
     return perform_sock5_second_handshake();
   }
-  if (reply_buffer[1] != 0x00) {
+  if (!p1 || p1[1] == 0x01) {
     current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
     return choose_next_proxy();
   }

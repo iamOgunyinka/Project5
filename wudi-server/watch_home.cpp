@@ -1,7 +1,5 @@
 #include "watch_home.hpp"
 #include <spdlog/spdlog.h>
-#include <string>
-#include <vector>
 
 enum Constants { PROXY_REQUIRES_AUTHENTICATION = 407 };
 

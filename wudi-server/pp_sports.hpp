@@ -2,8 +2,6 @@
 
 #include "socks5_http_socket_base.hpp"
 #include <spdlog/spdlog.h>
-#include <string>
-#include <vector>
 
 namespace wudi_server {
 namespace net = boost::asio;

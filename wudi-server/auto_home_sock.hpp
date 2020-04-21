@@ -1,11 +1,8 @@
 #pragma once
 
 #include "socks5_https_socket_base.hpp"
-#include <iostream>
-#include <map>
+#include <boost/lexical_cast.hpp>
 #include <spdlog/spdlog.h>
-#include <string>
-#include <vector>
 
 namespace wudi_server {
 enum Constants { PROXY_REQUIRES_AUTHENTICATION = 407 };
@@ -90,8 +87,7 @@ void auto_home_socket_t<Proxy>::on_data_received(beast::error_code ec,
   static std::array<std::size_t, 10> redirect_codes{300, 301, 302, 303, 304,
                                                     305, 306, 307, 308};
   if (ec) {
-    spdlog::error("on data received: {}", ec.message());
-    if (ec != http::error::end_of_stream) {
+    if (ec != ssl::error::stream_errors::stream_truncated) {
       this->current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
     }
     return this->choose_next_proxy();
@@ -100,6 +96,9 @@ void auto_home_socket_t<Proxy>::on_data_received(beast::error_code ec,
   std::size_t const status_code = this->response_.result_int();
   // check if we've been redirected, most likely due to IP ban
   if (utilities::status_in_codes(status_code, redirect_codes)) {
+    std::string const f =
+        boost::lexical_cast<std::string>(this->current_proxy_->endpoint);
+    spdlog::error("{} is blocked", f);
     this->current_proxy_assign_prop(ProxyProperty::ProxyBlocked);
     return this->choose_next_proxy();
   }

@@ -376,9 +376,9 @@ socks5_proxy::socks5_proxy(net::io_context &io, NewProxySignal &proxy_signal,
                            std::thread::id id, std::uint32_t web_id)
     : proxy_base{io, proxy_signal, id, web_id, proxy_filename} {
   target_ =
-      R"(/api/ip?app_key=86adb80a7af9ee8d31bf765dd02e1431&pack=210115&num=20&xy=3&type=1&lb=\n&mr=1)";
+      R"(/api/ip?app_key=19ead3cb7a5d477f5d480d850f18de94&pack=210602&num=50&xy=3&type=1&lb=\n&mr=1)";
   host_ = "http://api.wandoudl.com/api/ip";
-  count_path_ = R"(/api/product/list?app_key=86adb80a7af9ee8d31bf765dd02e1431)";
+  count_path_ = R"(/api/product/list?app_key=19ead3cb7a5d477f5d480d850f18de94)";
   load_proxy_file();
 }
 
@@ -386,9 +386,9 @@ http_proxy::http_proxy(net::io_context &context, NewProxySignal &proxy_signal,
                        std::thread::id thread_id, std::uint32_t web_id)
     : proxy_base{context, proxy_signal, thread_id, web_id, proxy_filename} {
   target_ =
-      (R"(/api/ip?app_key=86adb80a7af9ee8d31bf765dd02e1431&pack=210115&num=20&xy=1&type=1&lb=\n&mr=1)");
+      (R"(/api/ip?app_key=86adb80a7af9ee8d31bf765dd02e1431&pack=210602&num=50&xy=1&type=1&lb=\n&mr=1)");
   host_ = "http://api.wandoudl.com/api/ip";
-  count_path_ = R"(/api/product/list?app_key=86adb80a7af9ee8d31bf765dd02e1431)";
+  count_path_ = R"(/api/product/list?app_key=19ead3cb7a5d477f5d480d850f18de94)";
   load_proxy_file();
 }
 
