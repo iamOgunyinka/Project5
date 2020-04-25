@@ -130,19 +130,19 @@ void proxy_base::get_more_proxies() {
   http::request<http::empty_body> http_request_;
   net::ip::tcp::resolver resolver{context_};
 
-  std::vector<endpoint_ptr> new_eps{};
+  std::vector<custom_endpoint> new_eps{};
   new_eps.reserve(100);
   std::lock_guard<std::mutex> lock_g{mutex_};
   try {
     auto resolves = resolver.resolve(uri_.host(), "http");
-    if (verify_extract_) {
+    if (confirm_count_) {
       current_extracted_data_ = get_remain_count(resolves);
       if (!current_extracted_data_.is_available) {
         has_error_ = true;
         return;
       }
     }
-    if (!verify_extract_ || current_extracted_data_.extract_remain > 0) {
+    if (!confirm_count_ || current_extracted_data_.extract_remain > 0) {
       http_tcp_stream.connect(resolves);
       http_request_ = {};
       http_request_.method(http::verb::get);
@@ -165,12 +165,12 @@ void proxy_base::get_more_proxies() {
       std::vector<std::string> ips;
       boost::split(ips, response_body,
                    [](char const ch) { return ch == '\n'; });
-      if (ips.empty()) {
+      if (ips.empty() || response_body.find('{') != std::string::npos) {
         has_error_ = true;
-        return spdlog::error("IPs empty");
+        return spdlog::error("IPs empty: {}", response_body);
       }
       spdlog::info("Grabbed {} proxies", ips.size());
-      for (auto &line : ips) {
+      for (auto const &line : ips) {
         if (line.empty())
           continue;
 
@@ -182,8 +182,7 @@ void proxy_base::get_more_proxies() {
           auto endpoint = net::ip::tcp::endpoint(
               net::ip::make_address(ip_port[0].to_string()),
               std::stoi(ip_port[1].to_string()));
-          new_eps.emplace_back(
-              std::make_shared<custom_endpoint>(std::move(endpoint)));
+          new_eps.emplace_back(custom_endpoint(std::move(endpoint)));
         } catch (std::exception const &except) {
           has_error_ = true;
           spdlog::error("server says: {}", response_body);
@@ -204,27 +203,23 @@ void proxy_base::get_more_proxies() {
     endpoints_.remove(new_eps.size());
   }
   using iter_t = std::vector<endpoint_ptr>::iterator;
-  std::copy(std::move_iterator<iter_t>(new_eps.begin()),
-            std::move_iterator<iter_t>(new_eps.end()),
-            std::back_inserter(endpoints_));
+  for (auto const &ep : new_eps) {
+    endpoints_.push_back(std::make_shared<custom_endpoint>(ep));
+  }
   save_proxies_to_file();
 }
 
 void proxy_base::add_more(std::thread::id const thread_id,
                           std::uint32_t const web_id,
-                          std::vector<endpoint_ptr> const &new_endpoints) {
+                          std::vector<custom_endpoint> const &new_endpoints) {
   if (thread_id == this_thread_id_ || website_id_ == web_id)
     return;
-  while (!is_free_)
-    ;
-  is_free_ = false;
   if (endpoints_.size() >= max_allowed) {
     endpoints_.remove(new_endpoints.size());
   }
-  std::copy(new_endpoints.cbegin(), new_endpoints.cend(),
-            std::back_inserter(endpoints_));
-  first_pass_ = true;
-  is_free_ = true;
+  for (auto const &ep : new_endpoints) {
+    endpoints_.push_back(std::make_shared<custom_endpoint>(ep));
+  }
 }
 
 void proxy_base::save_proxies_to_file() {
@@ -292,83 +287,27 @@ void proxy_base::load_proxy_file() {
 }
 
 endpoint_ptr proxy_base::next_endpoint() {
-  // mutex_.lock();
-  if (has_error_ || endpoints_.empty()) {
-    // mutex_.unlock();
+  if (has_error_ || endpoints_.empty())
     return nullptr;
-  }
-  if (count_ >= endpoints_.size()) {
-    count_ = 0;
-    while (count_ < endpoints_.size()) {
-      if (endpoints_[count_]->property == ProxyProperty::ProxyActive) {
-        // mutex_.unlock();
-        return endpoints_[count_++];
+  {
+    std::lock_guard<std::mutex> lock_g{mutex_};
+    if (count_ >= endpoints_.size()) {
+      count_ = 0;
+      while (count_ < endpoints_.size()) {
+        if (endpoints_[count_]->property == ProxyProperty::ProxyActive) {
+          return endpoints_[count_++];
+        }
+        ++count_;
       }
-      count_++;
-    }
-  } else {
-    while (count_ < endpoints_.size()) {
-      if (endpoints_[count_]->property == ProxyProperty::ProxyActive) {
-        // mutex_.unlock();
-        return endpoints_[count_++];
-      }
-      ++count_;
+    } else {
+      return endpoints_[count_++];
     }
   }
-
-  if (first_pass_) {
-    first_pass_ = false;
-    // let's remove all blocked proxy IPs and see if all non-respsonsive
-    // IP addresses may respond now.
-    endpoints_.remove_if([](auto const &ep) {
-      return ep->property == ProxyProperty::ProxyBlocked;
-    });
-    endpoints_.for_each(
-        [](auto &elem) { elem->property = ProxyProperty::ProxyActive; });
-    count_ = 0;
-    if (endpoints_.empty()) {
-      first_pass_ = true;
-      std::size_t const ep_size = endpoints_.size();
-      // mutex_.unlock();
-      while (!is_free_)
-        ;
-      std::size_t const ep_new_size = endpoints_.size();
-      if (ep_size < ep_new_size) {
-        return endpoints_[count_];
-      }
-      is_free_ = false;
-      get_more_proxies();
-      is_free_ = true;
-      return next_endpoint();
-    }
-    // mutex_.unlock();
-    return endpoints_[count_++];
-  }
-  count_ = 0;
-  first_pass_ = true;
-  endpoints_.clear();
-  // mutex_.unlock();
-  std::size_t const ep_size = endpoints_.size();
-  while (!is_free_)
-    ;
-  // before here, a thread may have obtained new proxies.
-  std::size_t const new_ep_size = endpoints_.size();
-  if (new_ep_size > ep_size)
-    return endpoints_[count_];
   get_more_proxies();
-  if (has_error_) {
-    has_error_ = false;
-    std::size_t retries = 1;
-    while (retries < 5) {
-      has_error_ = false;
-      get_more_proxies();
-      if (!has_error_ || !endpoints_.empty()) {
-        count_ = 0;
-        break;
-      }
-      ++retries;
-    }
-  }
+  endpoints_.remove_if([](auto const &ep) {
+    return ep->property == ProxyProperty::ProxyBlocked;
+  });
+  count_ = 0;
   return next_endpoint();
 }
 
@@ -376,9 +315,12 @@ socks5_proxy::socks5_proxy(net::io_context &io, NewProxySignal &proxy_signal,
                            std::thread::id id, std::uint32_t web_id)
     : proxy_base{io, proxy_signal, id, web_id, proxy_filename} {
   target_ =
-      R"(/api/ip?app_key=19ead3cb7a5d477f5d480d850f18de94&pack=210602&num=50&xy=3&type=1&lb=\n&mr=1)";
-  host_ = "http://api.wandoudl.com/api/ip";
-  count_path_ = R"(/api/product/list?app_key=19ead3cb7a5d477f5d480d850f18de94)";
+      // R"(/api/ip?app_key=19ead3cb7a5d477f5d480d850f18de94&pack=210602&num=100&xy=3&type=1&lb=\n&mr=1)";
+      R"(/index.php/api/entry?method=proxyServer.tiqu_api_url&packid=1&fa=0&fetch_key=&groupid=0&qty=100&time=1&port=2&format=txt&ss=3&css=&pro=&city=&dt=0&usertype=20)";
+  host_ = "http://120.79.85.144";
+  // count_path_ =
+  // R"(/api/product/list?app_key=19ead3cb7a5d477f5d480d850f18de94)";
+  confirm_count_ = false;
   load_proxy_file();
 }
 
@@ -386,9 +328,11 @@ http_proxy::http_proxy(net::io_context &context, NewProxySignal &proxy_signal,
                        std::thread::id thread_id, std::uint32_t web_id)
     : proxy_base{context, proxy_signal, thread_id, web_id, proxy_filename} {
   target_ =
-      (R"(/api/ip?app_key=86adb80a7af9ee8d31bf765dd02e1431&pack=210602&num=50&xy=1&type=1&lb=\n&mr=1)");
-  host_ = "http://api.wandoudl.com/api/ip";
-  count_path_ = R"(/api/product/list?app_key=19ead3cb7a5d477f5d480d850f18de94)";
+      (R"(/index.php/api/entry?method=proxyServer.tiqu_api_url&packid=1&fa=0&fetch_key=&groupid=0&qty=100&time=1&port=1&format=txt&ss=3&css=&pro=&city=&dt=0&usertype=20)");
+  host_ = "http://120.79.85.144";
+  // count_path_ =
+  // R"(/api/product/list?app_key=19ead3cb7a5d477f5d480d850f18de94)";
+  confirm_count_ = false;
   load_proxy_file();
 }
 

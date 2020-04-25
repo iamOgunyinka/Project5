@@ -97,7 +97,7 @@ using endpoint_ptr = std::shared_ptr<custom_endpoint>;
 using endpoint_ptr_list = vector_wrapper<endpoint_ptr>;
 
 using NewProxySignal = signals2::signal<void(
-    std::thread::id, std::uint32_t, std::vector<endpoint_ptr> const &)>;
+    std::thread::id, std::uint32_t, std::vector<custom_endpoint> const &)>;
 void swap(custom_endpoint &a, custom_endpoint &b);
 
 class global_proxy_repo_t {
@@ -124,10 +124,8 @@ protected:
   std::mutex mutex_{};
   std::size_t count_{};
   endpoint_ptr_list endpoints_;
-  std::atomic_bool verify_extract_ = false;
   std::atomic_bool has_error_ = false;
-  std::atomic_bool first_pass_ = true;
-  std::atomic_bool is_free_ = true;
+  std::atomic_bool confirm_count_ = true;
 
 protected:
   void load_proxy_file();
@@ -137,12 +135,13 @@ protected:
   virtual void get_more_proxies();
 
 public:
+  using Property = ProxyProperty;
   proxy_base(net::io_context &, NewProxySignal &, std::thread::id,
              std::uint32_t, std::string const &filename);
   virtual ~proxy_base() {}
   endpoint_ptr next_endpoint();
   void add_more(std::thread::id const, std::uint32_t const,
-                std::vector<endpoint_ptr> const &);
+                std::vector<custom_endpoint> const &);
 };
 
 class http_proxy final : public proxy_base {

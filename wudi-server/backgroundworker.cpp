@@ -7,7 +7,7 @@
 
 namespace wudi_server {
 enum constant_e {
-  MaxOpenSockets = 10,
+  MaxOpenSockets = 5,
 };
 
 background_worker_t::~background_worker_t() {
@@ -179,14 +179,27 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
   // we delayed construction of safe_proxy/io_context until now
   auto thread_id = std::this_thread::get_id();
   io_context_.emplace();
-  proxy_provider_.reset(new socks5_proxy(*io_context_, *new_proxy_signal_,
+  switch (website_type_) {
+  case website_type_e::PPSports:
+    proxy_provider_.reset(new http_proxy(*io_context_, *new_proxy_signal_,
                                          thread_id,
                                          task_result_ptr_->website_id));
+    break;
+  case website_type_e::JJGames:
+  case website_type_e::AutoHomeRegister:
+    proxy_provider_.reset(new socks5_proxy(*io_context_, *new_proxy_signal_,
+                                           thread_id,
+                                           task_result_ptr_->website_id));
+    break;
+  case website_type_e::Unknown:
+  case website_type_e::WatchHome:
+    return task_status_e::Erred;
+  }
   // here, when this signal is emitted, all workers subscribe to it so they
   // can have copies of the new proxies obtained
-  signal_connector_ = new_proxy_signal_->connect([this](auto &&... args) {
-    proxy_provider_->add_more(std::forward<decltype(args)>(args)...);
-  });
+  // signal_connector_ = new_proxy_signal_->connect([this](auto &&... args) {
+  //  proxy_provider_->add_more(std::forward<decltype(args)>(args)...);
+  //});
 
   {
     sockets_.reserve(MaxOpenSockets);

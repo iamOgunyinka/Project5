@@ -1,3 +1,4 @@
+/*
 #pragma once
 
 #include "http_socket_base.hpp"
@@ -19,3 +20,4 @@ public:
   ~watch_home_t();
 };
 } // namespace wudi_server
+*/

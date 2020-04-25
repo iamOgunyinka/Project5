@@ -32,7 +32,7 @@ public:
   ~jjgames_socket() {}
   void send_next() override;
   void prepare_request_data(bool use_auth = false);
-  void on_data_received(beast::error_code, std::size_t const);
+  void data_received(beast::error_code, std::size_t const);
   std::string hostname() const;
 };
 
@@ -171,8 +171,8 @@ template <typename Proxy> void jjgames_socket<Proxy>::send_next() {
 }
 
 template <typename Proxy>
-void jjgames_socket<Proxy>::on_data_received(beast::error_code ec,
-                                             std::size_t const) {
+void jjgames_socket<Proxy>::data_received(beast::error_code ec,
+                                          std::size_t const) {
   if (ec) {
     if (ec != http::error::end_of_stream) {
       this->current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);

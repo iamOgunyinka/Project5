@@ -44,7 +44,7 @@ int main(int argc, char *argv[]) {
 
   wudi_server::global_proxy_repo_t global_proxy_provider{};
   boost::asio::ssl::context ssl_context(
-      boost::asio::ssl::context::sslv23_client);
+      boost::asio::ssl::context::tlsv11_client);
   ssl_context.set_default_verify_paths();
   ssl_context.set_verify_mode(boost::asio::ssl::verify_none);
 

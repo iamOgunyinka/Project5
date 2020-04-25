@@ -169,6 +169,7 @@ void socks5_https_socket_base_t<Derived, Proxy>::on_handshake_received(
     beast::error_code ec, std::size_t const sz, bool const is_first_handshake) {
   if (ec && (ec != http::error::partial_message || sz < 2)) {
     if (ec == http::error::end_of_stream) {
+      spdlog::error("end of stream");
       current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
       return choose_next_proxy();
     }
@@ -180,15 +181,18 @@ void socks5_https_socket_base_t<Derived, Proxy>::on_handshake_received(
   char const *p1 = reinterpret_cast<char const *>(read_buffer_.data());
   if (is_first_handshake) {
     if (!p1 || p1[0] != 0x05 || p1[1] != 0x00) {
+      spdlog::error("first handshake failed");
       current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
       return choose_next_proxy();
     }
     return perform_sock5_second_handshake();
   }
   if (!p1 || p1[1] == 0x01) {
+    spdlog::error("second handshake failed");
     current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
     return choose_next_proxy();
   }
+  spdlog::info("performing ssl handshake");
   return perform_ssl_handshake();
 }
 
@@ -208,6 +212,7 @@ void socks5_https_socket_base_t<Derived, Proxy>::on_ssl_handshake(
     return send_https_data();
   }
   if (ec) {
+    spdlog::error("SSL handshake: {}", ec.message());
     current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
     return choose_next_proxy();
   }
@@ -347,7 +352,8 @@ void socks5_https_socket_base_t<Derived, Proxy>::start_connect() {
 template <typename Derived, typename Proxy>
 void socks5_https_socket_base_t<Derived, Proxy>::send_https_data() {
   beast::get_lowest_layer(ssl_stream_)
-      .expires_after(std::chrono::milliseconds(utilities::TimeoutMilliseconds));
+      .expires_after(
+          std::chrono::milliseconds(utilities::TimeoutMilliseconds * 3));
   http::async_write(ssl_stream_, request_,
                     beast::bind_front_handler(
                         &socks5_https_socket_base_t::on_data_sent, this));
@@ -356,10 +362,13 @@ void socks5_https_socket_base_t<Derived, Proxy>::send_https_data() {
 template <typename Derived, typename Proxy>
 void socks5_https_socket_base_t<Derived, Proxy>::on_data_sent(
     beast::error_code ec, std::size_t const s) {
+  spdlog::info("Sending HTTPS data");
   if (ec) {
+    spdlog::error(ec.message());
     resend_http_request();
-  } else
+  } else {
     receive_data();
+  }
 }
 
 template <typename Derived, typename Proxy>
@@ -407,7 +416,8 @@ void socks5_https_socket_base_t<Derived, Proxy>::set_authentication_header() {
 template <typename Derived, typename Proxy>
 void socks5_https_socket_base_t<Derived, Proxy>::on_data_received(
     beast::error_code ec, std::size_t const s) {
-  static_cast<Derived *>(this)->on_data_received(ec, s);
+  spdlog::info("Here");
+  static_cast<Derived *>(this)->data_received(ec, s);
 }
 
 } // namespace wudi_server

@@ -1,3 +1,5 @@
+/*
+
 #include "watch_home.hpp"
 #include <spdlog/spdlog.h>
 
@@ -33,7 +35,7 @@ void watch_home_t::prepare_request_data(bool use_authentication_header) {
                utilities::uri{watch_home_address}.host() + ":80");
   request_.set(beast::http::field::cache_control, "no-cache");
   request_.set(beast::http::field::user_agent, utilities::get_random_agent());
-  request_.set(beast::http::field::accept, "*/*");
+  request_.set(beast::http::field::accept, "/*");
   request_.set(beast::http::field::referer, "http://www.xbiao.com/user/login");
   request_.set(beast::http::field::content_type,
                "application/x-www-form-urlencoded");
@@ -44,25 +46,26 @@ void watch_home_t::prepare_request_data(bool use_authentication_header) {
 void watch_home_t::on_data_received(beast::error_code ec, std::size_t const) {
   if (ec) {
     if (ec != http::error::end_of_stream) {
-      current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
+        this->current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
       // tcp_stream_.close();
     }
-    choose_next_proxy();
-    return connect();
+    this->choose_next_proxy();
+    return this->connect();
   }
 
   std::size_t const status_code = response_.result_int();
   if (status_code == PROXY_REQUIRES_AUTHENTICATION) {
-    set_authentication_header();
-    return connect();
+      this->set_authentication_header();
+    return this->connect();
   }
 
   auto iterator_pair = response_.equal_range(http::field::set_cookie);
   if (iterator_pair.first == iterator_pair.second) {
     signal_(search_result_type_e::Unknown, current_number_);
     current_number_.clear();
-    return send_next();
+    return this->send_next();
   }
-  return send_next();
+  return this->send_next();
 }
 } // namespace wudi_server
+*/

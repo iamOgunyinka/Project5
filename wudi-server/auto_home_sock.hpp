@@ -2,6 +2,7 @@
 
 #include "socks5_https_socket_base.hpp"
 #include <boost/lexical_cast.hpp>
+#include <iostream>
 #include <spdlog/spdlog.h>
 
 namespace wudi_server {
@@ -21,7 +22,7 @@ class auto_home_socket_t
                                    Proxy>::current_number_;
 
 public:
-  void on_data_received(beast::error_code, std::size_t const);
+  void data_received(beast::error_code, std::size_t const);
   void prepare_request_data(bool use_authentication_header);
   auto_home_socket_t(bool &stopped, net::io_context &io, Proxy &proxy_provider,
                      utilities::number_stream_t &numbers, ssl::context &);
@@ -35,7 +36,7 @@ std::string const auto_home_socket_t<Proxy>::auto_home_hostname_ =
 
 template <typename Proxy>
 std::string const auto_home_socket_t<Proxy>::password_base64_hash{
-    "bGFueHVhbjM2OUBnbWFpbC5jb206TGFueHVhbjk2Mw=="};
+    "MTgzNzE1NTU1NDE6d2F6ZzIwMjA="};
 
 template <typename Proxy>
 auto_home_socket_t<Proxy>::auto_home_socket_t(
@@ -63,7 +64,7 @@ void auto_home_socket_t<Proxy>::prepare_request_data(
                  "Basic " + password_base64_hash);
   }
   request_.set(http::field::connection, "keep-alive");
-  request_.set(http::field::host, "account.autohome.com.cn");
+  request_.set(http::field::host, "account.autohome.com.cn:443");
   request_.set(http::field::cache_control, "no-cache");
   request_.set(http::field::accept_language, "en-US,en;q=0.5");
   request_.set(http::field::accept_encoding, "gzip, deflate, br");
@@ -81,13 +82,14 @@ void auto_home_socket_t<Proxy>::prepare_request_data(
 }
 
 template <typename Proxy>
-void auto_home_socket_t<Proxy>::on_data_received(beast::error_code ec,
-                                                 std::size_t const) {
+void auto_home_socket_t<Proxy>::data_received(beast::error_code ec,
+                                              std::size_t const) {
 
   static std::array<std::size_t, 10> redirect_codes{300, 301, 302, 303, 304,
                                                     305, 306, 307, 308};
   if (ec) {
-    if (ec != ssl::error::stream_errors::stream_truncated) {
+    spdlog::error(ec.message());
+    if (ec != http::error::partial_message) {
       this->current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
     }
     return this->choose_next_proxy();

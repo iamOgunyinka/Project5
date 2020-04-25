@@ -1,6 +1,5 @@
 #pragma once
 
-#include "safe_proxy.hpp"
 #include "utilities.hpp"
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
@@ -16,12 +15,12 @@ using utilities::search_result_type_e;
 using tcp = boost::asio::ip::tcp;
 using utilities::search_result_type_e;
 
-template <typename DerivedClass> class http_proxy_web_base {
+template <typename DerivedClass, typename Proxy> class http_socket_base_t {
 protected:
   net::io_context &io_;
   beast::tcp_stream tcp_stream_;
   utilities::number_stream_t &numbers_;
-  proxy_provider_t &proxy_provider_;
+  Proxy &proxy_provider_;
   bool &stopped_;
 
   beast::flat_buffer buffer_{};
@@ -44,7 +43,7 @@ protected:
   void send_http_data();
   void set_authentication_header();
   void on_data_sent(beast::error_code, std::size_t const);
-  void current_proxy_assign_prop(ProxyProperty);
+  void current_proxy_assign_prop(typename Proxy::Property);
   void prepare_request_data(bool use_auth = false);
   void on_data_received(beast::error_code, std::size_t const);
   void send_first_request();
@@ -53,22 +52,22 @@ protected:
   virtual void send_next();
 
 public:
-  http_proxy_web_base(bool &stopped, net::io_context &, proxy_provider_t &,
-                      utilities::number_stream_t &);
+  http_socket_base_t(bool &stopped, net::io_context &, Proxy &,
+                     utilities::number_stream_t &);
   void start_connect();
   auto &signal() { return signal_; }
 
 public:
-  virtual ~http_proxy_web_base();
+  virtual ~http_socket_base_t();
 };
 
-template <typename DerivedClass>
-http_proxy_web_base<DerivedClass>::~http_proxy_web_base() {
+template <typename DerivedClass, typename Proxy>
+http_socket_base_t<DerivedClass, Proxy>::~http_socket_base_t() {
   close_socket();
 }
 
-template <typename DerivedClass>
-void http_proxy_web_base<DerivedClass>::close_socket() {
+template <typename DerivedClass, typename Proxy>
+void http_socket_base_t<DerivedClass, Proxy>::close_socket() {
   tcp_stream_.cancel();
   signal_.disconnect_all_slots();
   beast::error_code ec{};
@@ -79,8 +78,8 @@ void http_proxy_web_base<DerivedClass>::close_socket() {
   beast::get_lowest_layer(tcp_stream_).socket().close(ec);
 }
 
-template <typename DerivedClass>
-void http_proxy_web_base<DerivedClass>::resend_http_request() {
+template <typename DerivedClass, typename Proxy>
+void http_socket_base_t<DerivedClass, Proxy>::resend_http_request() {
   if (++send_count_ >= utilities::MaxRetries) {
     current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
     return choose_next_proxy();
@@ -89,44 +88,44 @@ void http_proxy_web_base<DerivedClass>::resend_http_request() {
   }
 }
 
-template <typename DerivedClass>
-void http_proxy_web_base<DerivedClass>::send_http_data() {
+template <typename DerivedClass, typename Proxy>
+void http_socket_base_t<DerivedClass, Proxy>::send_http_data() {
   tcp_stream_.expires_after(
       std::chrono::milliseconds(utilities::TimeoutMilliseconds));
   http::async_write(
       tcp_stream_, request_,
-      beast::bind_front_handler(&http_proxy_web_base::on_data_sent, this));
+      beast::bind_front_handler(&http_socket_base_t::on_data_sent, this));
 }
 
-template <typename DerivedClass>
-void http_proxy_web_base<DerivedClass>::on_data_sent(beast::error_code ec,
-                                                     std::size_t const s) {
+template <typename DerivedClass, typename Proxy>
+void http_socket_base_t<DerivedClass, Proxy>::on_data_sent(
+    beast::error_code ec, std::size_t const s) {
   if (ec) {
     resend_http_request();
   } else
     receive_data();
 }
 
-template <typename DerivedClass>
-void http_proxy_web_base<DerivedClass>::receive_data() {
+template <typename DerivedClass, typename Proxy>
+void http_socket_base_t<DerivedClass, Proxy>::receive_data() {
   tcp_stream_.expires_after(
       std::chrono::milliseconds(utilities::TimeoutMilliseconds * 4)); // 4*3secs
   response_ = {};
   buffer_ = {};
   http::async_read(
       tcp_stream_, buffer_, response_,
-      beast::bind_front_handler(&http_proxy_web_base::on_data_received, this));
+      beast::bind_front_handler(&http_socket_base_t::on_data_received, this));
 }
 
-template <typename DerivedClass>
-void http_proxy_web_base<DerivedClass>::start_connect() {
+template <typename DerivedClass, typename Proxy>
+void http_socket_base_t<DerivedClass, Proxy>::start_connect() {
   choose_next_proxy(true);
   if (current_proxy_)
     send_first_request();
 }
 
-template <typename DerivedClass>
-void http_proxy_web_base<DerivedClass>::send_first_request() {
+template <typename DerivedClass, typename Proxy>
+void http_socket_base_t<DerivedClass, Proxy>::send_first_request() {
   if (stopped_) {
     if (!current_number_.empty()) {
       numbers_.push_back(current_number_);
@@ -142,8 +141,8 @@ void http_proxy_web_base<DerivedClass>::send_first_request() {
   }
 }
 
-template <typename DerivedClass>
-void http_proxy_web_base<DerivedClass>::send_next() {
+template <typename DerivedClass, typename Proxy>
+void http_socket_base_t<DerivedClass, Proxy>::send_next() {
   if (stopped_) {
     if (!current_number_.empty()) {
       numbers_.push_back(current_number_);
@@ -159,8 +158,8 @@ void http_proxy_web_base<DerivedClass>::send_next() {
   }
 }
 
-template <typename DerivedClass>
-void http_proxy_web_base<DerivedClass>::reconnect() {
+template <typename DerivedClass, typename Proxy>
+void http_socket_base_t<DerivedClass, Proxy>::reconnect() {
   ++connect_count_;
   if (connect_count_ >= utilities::MaxRetries) {
     current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
@@ -169,8 +168,8 @@ void http_proxy_web_base<DerivedClass>::reconnect() {
   connect();
 }
 
-template <typename DerivedClass>
-void http_proxy_web_base<DerivedClass>::connect() {
+template <typename DerivedClass, typename Proxy>
+void http_socket_base_t<DerivedClass, Proxy>::connect() {
   if (!current_proxy_ || stopped_) {
     if (stopped_ && !current_number_.empty())
       numbers_.push_back(current_number_);
@@ -182,19 +181,19 @@ void http_proxy_web_base<DerivedClass>::connect() {
   temp_list_ = {*current_proxy_};
   tcp_stream_.async_connect(
       temp_list_,
-      beast::bind_front_handler(&http_proxy_web_base::on_connected, this));
+      beast::bind_front_handler(&http_socket_base_t::on_connected, this));
 }
 
-template <typename DerivedClass>
-void http_proxy_web_base<DerivedClass>::on_connected(
+template <typename DerivedClass, typename Proxy>
+void http_socket_base_t<DerivedClass, Proxy>::on_connected(
     beast::error_code ec, tcp::resolver::results_type::endpoint_type) {
   if (ec)
     return reconnect();
   send_http_data();
 }
 
-template <typename DerivedClass>
-void http_proxy_web_base<DerivedClass>::choose_next_proxy(
+template <typename DerivedClass, typename Proxy>
+void http_socket_base_t<DerivedClass, Proxy>::choose_next_proxy(
     bool const is_first_request) {
   send_count_ = 0;
   connect_count_ = 0;
@@ -211,34 +210,34 @@ void http_proxy_web_base<DerivedClass>::choose_next_proxy(
   }
 }
 
-template <typename DerivedClass>
-void http_proxy_web_base<DerivedClass>::current_proxy_assign_prop(
-    ProxyProperty property) {
+template <typename DerivedClass, typename Proxy>
+void http_socket_base_t<DerivedClass, Proxy>::current_proxy_assign_prop(
+    typename Proxy::Property property) {
   if (current_proxy_)
     current_proxy_->property = property;
 }
 
-template <typename DerivedClass>
-inline void
-http_proxy_web_base<DerivedClass>::prepare_request_data(bool const use_auth) {
+template <typename DerivedClass, typename Proxy>
+void http_socket_base_t<DerivedClass, Proxy>::prepare_request_data(
+    bool const use_auth) {
   static_cast<DerivedClass *>(this)->prepare_request_data(use_auth);
 }
 
-template <typename DerivedClass>
-inline void http_proxy_web_base<DerivedClass>::on_data_received(
+template <typename DerivedClass, typename Proxy>
+void http_socket_base_t<DerivedClass, Proxy>::on_data_received(
     beast::error_code ec, std::size_t const bytes_received) {
-  static_cast<DerivedClass *>(this)->on_data_received(ec, bytes_received);
+  static_cast<DerivedClass *>(this)->data_received(ec, bytes_received);
 }
 
-template <typename DerivedClass>
-http_proxy_web_base<DerivedClass>::http_proxy_web_base(
-    bool &stopped, net::io_context &io_context,
-    proxy_provider_t &proxy_provider, utilities::number_stream_t &numbers)
+template <typename DerivedClass, typename Proxy>
+http_socket_base_t<DerivedClass, Proxy>::http_socket_base_t(
+    bool &stopped, net::io_context &io_context, Proxy &proxy_provider,
+    utilities::number_stream_t &numbers)
     : io_{io_context}, tcp_stream_{net::make_strand(io_)}, numbers_{numbers},
       proxy_provider_{proxy_provider}, stopped_{stopped} {}
 
-template <typename DerivedClass>
-void http_proxy_web_base<DerivedClass>::set_authentication_header() {
+template <typename DerivedClass, typename Proxy>
+void http_socket_base_t<DerivedClass, Proxy>::set_authentication_header() {
   prepare_request_data(true);
 }
 } // namespace wudi_server
