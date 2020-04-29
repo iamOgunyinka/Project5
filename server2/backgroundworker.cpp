@@ -201,9 +201,9 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
   {
     sockets_.reserve(MaxOpenSockets);
     for (int i = 0; i != MaxOpenSockets; ++i) {
-      sockets_.emplace_back(get_socket(proxy_type_e::http_https_proxy, stopped,
-                                       *io_context_, *proxy_provider_,
-                                       *number_stream_));
+      auto socket = get_socket(proxy_type_e::http_https_proxy, stopped,
+                               *io_context_, *proxy_provider_, *number_stream_);
+      sockets_.push_back(std::move(socket));
     }
     for (auto &socket : sockets_) {
       std::visit(
@@ -211,8 +211,9 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
             sock.signal().connect(callback);
             sock.start_connect();
           },
-          socket);
+          *socket);
     }
+
     io_context_->run();
   }
 

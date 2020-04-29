@@ -28,8 +28,7 @@ public:
   void prepare_request_data(bool use_authentication_header);
 
   template <typename... Args>
-  auto_home_socks5_socket_t<Proxy>::auto_home_socks5_socket_t(
-      ssl::context &ssl_context, Args &&... args)
+  auto_home_socks5_socket_t<Proxy>(ssl::context &ssl_context, Args &&... args)
       : socks5_https_socket_base_t<auto_home_socks5_socket_t<Proxy>, Proxy>(
             ssl_context, std::forward<Args>(args)...) {}
   ~auto_home_socks5_socket_t() {}

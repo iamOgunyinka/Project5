@@ -18,20 +18,20 @@ public:
   pp_sports_http_socket_t(Args &&... args)
       : http_socket_base_t<pp_sports_http_socket_t<Proxy>, Proxy>(
             std::forward<Args>(args)...) {}
-  ~pp_sports_http_socket_t {}
+  ~pp_sports_http_socket_t() {}
   std::string hostname() const { return "api.passport.pptv.com"; }
 };
 
 template <typename Proxy>
 class pp_sports_socks5_socket_t
-    : public socks5_http_socket_base_t<pp_sports_http_socket_t<Proxy>, Proxy> {
+    : public socks5_http_socket_base_t<pp_sports_socks5_socket_t<Proxy>, Proxy> {
 public:
   void data_received(beast::error_code, std::size_t const);
   void prepare_request_data(bool use_authentication_header);
 
   template <typename... Args>
   pp_sports_socks5_socket_t(Args &&... args)
-      : socks5_http_socket_base_t<pp_sports_http_socket_t<Proxy>, Proxy>(
+      : socks5_http_socket_base_t<pp_sports_socks5_socket_t<Proxy>, Proxy>(
             std::forward<Args>(args)...) {}
   ~pp_sports_socks5_socket_t() {}
   std::string hostname() const { return "api.passport.pptv.com"; }
@@ -225,7 +225,7 @@ void pp_sports_socks5_socket_t<Proxy>::prepare_request_data(
     bool use_authentication_header) {
   std::string target =
       "/checkLogin?cb=checklogin&loginid={}&sceneFlag=1&channel=20800010"
-      "3001&format=jsonp"_format(current_number_);
+      "3001&format=jsonp"_format(this->current_number_);
 
   this->request_.clear();
   this->request_.method(beast::http::verb::get);

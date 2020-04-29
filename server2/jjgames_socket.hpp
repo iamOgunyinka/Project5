@@ -7,11 +7,6 @@ namespace wudi_server {
 using utilities::request_handler;
 using namespace fmt::v6::literals;
 
-struct time_data_t {
-  uint64_t current_time{};
-  uint64_t callback_number{};
-};
-
 template <typename Proxy>
 class jjgames_socket
     : public socks5_https_socket_base_t<jjgames_socket<Proxy>, Proxy> {
@@ -50,22 +45,10 @@ template <typename Proxy> std::string jjgames_socket<Proxy>::hostname() const {
   return jjgames_hostname;
 }
 
-time_data_t get_time_data() {
-  static std::random_device rd{};
-  static std::mt19937 gen(rd());
-  static std::uniform_real_distribution<> dis(0.0, 1.0);
-  uint64_t const current_time = std::time(nullptr) * 1'000;
-  std::size_t const random_number =
-      static_cast<std::size_t>(std::round(1e3 * dis(gen)));
-  std::uint64_t const callback_number =
-      static_cast<std::size_t>(current_time + random_number);
-  return time_data_t{current_time, callback_number};
-}
-
 template <typename Proxy>
 void jjgames_socket<Proxy>::prepare_request_data(
     bool use_authentication_header) {
-  auto const time_data = get_time_data();
+  auto const time_data = utilities::get_time_data();
   std::string const target =
       "/reg/check_loginname.php?regtype=2&t={}&n=1&loginname={}&callback="
       "JSONP_{}"_format(time_data.current_time, current_number_,

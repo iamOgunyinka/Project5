@@ -17,7 +17,6 @@ class auto_home_http_socket_t
   using http_socket_base_t<auto_home_http_socket_t<Proxy>, Proxy>::send_next;
   using http_socket_base_t<auto_home_http_socket_t<Proxy>,
                            Proxy>::current_number_;
-
 public:
   void data_received(beast::error_code, std::size_t const);
   void prepare_request_data(bool use_authentication_header);

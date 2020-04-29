@@ -57,6 +57,7 @@ protected:
   void retry_second_handshake();
 
   void close_socket();
+  void close_stream();
   void perform_ssl_ritual();
   void connect();
   void receive_data();
@@ -291,13 +292,9 @@ void socks5_https_socket_base_t<Derived, Proxy>::choose_next_proxy(
     return signal_(search_result_type_e::RequestStop, current_number_);
   }
   if (!is_first_request) {
-    ssl_stream_->async_shutdown([=](beast::error_code) {
-      beast::error_code ec{};
-      beast::get_lowest_layer(*ssl_stream_).close(ec);
-      ssl_stream_.emplace(net::make_strand(io_), ssl_context_);
-      perform_ssl_ritual();
-      connect();
-    });
+    ssl_stream_.emplace(net::make_strand(io_), ssl_context_);
+    perform_ssl_ritual();
+    connect();
   }
 }
 
@@ -402,6 +399,11 @@ void socks5_https_socket_base_t<Derived, Proxy>::close_socket() {
   ssl_stream_->async_shutdown([this](beast::error_code) {
     beast::get_lowest_layer(*ssl_stream_).close();
   });
+}
+
+template <typename Derived, typename Proxy>
+void socks5_https_socket_base_t<Derived, Proxy>::close_stream() {
+  beast::get_lowest_layer(*ssl_stream_).close();
 }
 
 template <typename Derived, typename Proxy>

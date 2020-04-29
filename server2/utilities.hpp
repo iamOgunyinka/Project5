@@ -53,6 +53,11 @@ using nlohmann::json;
 using namespace fmt::v6::literals;
 struct database_connector_t;
 
+struct time_data_t {
+  uint64_t current_time{};
+  uint64_t callback_number{};
+};
+
 namespace utilities {
 enum class task_status_e {
   NotStarted,
@@ -390,6 +395,7 @@ char get_random_char();
 std::string get_random_string(std::size_t);
 std::size_t get_random_integer();
 bool create_file_directory(std::filesystem::path const &path);
+time_data_t get_time_data();
 std::vector<boost::string_view> split_string_view(boost::string_view const &str,
                                                   char const *delimeter);
 bool operator<(internal_task_result_t const &task_1,

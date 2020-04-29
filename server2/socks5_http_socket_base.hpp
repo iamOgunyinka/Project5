@@ -131,8 +131,7 @@ void socks5_http_socket_base_t<Derived,
 
 template <typename Derived, typename ProxyProvider>
 void socks5_http_socket_base_t<Derived, ProxyProvider>::close_stream() {
-  beast::error_code ec{};
-  tcp_stream_->close(ec);
+  tcp_stream_->close();
 }
 
 template <typename Derived, typename Proxy>
@@ -217,7 +216,7 @@ void socks5_http_socket_base_t<
       net::const_buffer(handshake_buffer.data(), handshake_buffer.size()),
       [this](beast::error_code ec, std::size_t const) {
         if (ec) {
-          current_proxy_assign_prop(Proxy::Property::ProxyUnresponsive);
+          current_proxy_assign_prop(ProxyProvider::Property::ProxyUnresponsive);
           return choose_next_proxy();
         }
         return read_socks5_server_response(false);

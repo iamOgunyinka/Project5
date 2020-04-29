@@ -5,10 +5,9 @@
 #include "jjgames_socket.hpp"
 #include "pp_sports.hpp"
 #include "safe_proxy.hpp"
+#include "utilities.hpp"
 #include "watch_home_http.hpp"
 #include "watch_home_socks5.hpp"
-
-#include "utilities.hpp"
 #include <boost/asio/ssl/context.hpp>
 #include <boost/signals2.hpp>
 #include <fstream>
@@ -64,7 +63,6 @@ public:
   auto &number_stream() { return number_stream_; }
   auto task_result() { return task_result_ptr_; }
   std::string filename() { return input_filename; }
-  auto &sockets() { return sockets_; }
 
 private:
   bool open_output_files();
@@ -75,34 +73,43 @@ private:
   utilities::task_status_e continue_old_task();
 
   template <typename... Args>
-  vsocket_type get_socket(proxy_type_e const proxy_type, Args &&... args) {
+  std::unique_ptr<vsocket_type> get_socket(proxy_type_e const proxy_type,
+                                           Args &&... args) {
     if (proxy_type == proxy_type_e::http_https_proxy) {
       switch (website_type_) {
       case website_type_e::AutoHomeRegister:
-          return ah_https{ std::forward<Args>(args)...) };
+        return std::make_unique<vsocket_type>(std::in_place_type<ah_https>,
+                                              std::forward<Args>(args)...);
       case website_type_e::JJGames:
-        return jjgames_sk5(ssl_context_, std::forward<Args>(args)...);
+        return std::make_unique<vsocket_type>(std::in_place_type<jjgames_sk5>,
+                                              ssl_context_,
+                                              std::forward<Args>(args)...);
       case website_type_e::PPSports:
-        return pps_http(std::forward<Args>(args)...);
+        return std::make_unique<vsocket_type>(std::in_place_type<pps_http>,
+                                              std::forward<Args>(args)...);
       case website_type_e::WatchHome:
-        return wh_http(std::forward<Args>(args)...);
-      case website_type_e::Unknown:
-        return {};
+        return std::make_unique<vsocket_type>(std::in_place_type<wh_http>,
+                                              std::forward<Args>(args)...);
       }
     } else {
       switch (website_type_) {
       case website_type_e::AutoHomeRegister:
-        return ah_sk5{ssl_context_, std::forward<Args>(args)...};
+        return std::make_unique<vsocket_type>(std::in_place_type<ah_sk5>,
+                                              ssl_context_,
+                                              std::forward<Args>(args)...);
       case website_type_e::JJGames:
-        return jjgames_sk5{ssl_context_, std::forward<Args>(args)...};
+        return std::make_unique<vsocket_type>(std::in_place_type<jjgames_sk5>,
+                                              ssl_context_,
+                                              std::forward<Args>(args)...);
       case website_type_e::PPSports:
-        return pps_sk5{std::forward<Args>(args)...};
+        return std::make_unique<vsocket_type>(std::in_place_type<pps_sk5>,
+                                              std::forward<Args>(args)...);
       case website_type_e::WatchHome:
-        return wh_sk5{std::forward<Args>(args)...};
-      case website_type_e::Unknown:
-        return {};
+        return std::make_unique<vsocket_type>(std::in_place_type<wh_sk5>,
+                                              std::forward<Args>(args)...);
       }
     }
+    throw std::runtime_error("specified socket type unknown");
   }
 
 private:
@@ -118,7 +125,7 @@ private:
   std::ifstream input_file;
   std::optional<utilities::atomic_task_t> atomic_task_;
   std::optional<net::io_context> io_context_;
-  std::vector<vsocket_type> sockets_{};
+  std::vector<std::unique_ptr<vsocket_type>> sockets_;
   NewProxySignal *new_proxy_signal_{nullptr};
   boost::signals2::connection signal_connector_;
 };

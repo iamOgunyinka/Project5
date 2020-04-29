@@ -125,6 +125,18 @@ bool create_file_directory(std::filesystem::path const &path) {
   return !ec;
 }
 
+time_data_t get_time_data() {
+  static std::random_device rd{};
+  static std::mt19937 gen(rd());
+  static std::uniform_real_distribution<> dis(0.0, 1.0);
+  uint64_t const current_time = std::time(nullptr) * 1'000;
+  std::size_t const random_number =
+      static_cast<std::size_t>(std::round(1e3 * dis(gen)));
+  std::uint64_t const callback_number =
+      static_cast<std::size_t>(current_time + random_number);
+  return time_data_t{current_time, callback_number};
+}
+
 bool is_valid_number(std::string_view const number, std::string &buffer) {
   if (number.size() < 11 || number.size() > 14)
     return false;

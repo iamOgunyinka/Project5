@@ -24,24 +24,26 @@ template <typename Proxy>
 void watch_home_http_socket_t<Proxy>::prepare_request_data(
     bool use_authentication_header) {
   std::string const target = "http://www.xbiao.com/user/login";
-  request_.clear();
-  request_.method(beast::http::verb::get);
-  request_.version(11);
-  request_.target(target);
+  this->request_.clear();
+  this->request_.method(beast::http::verb::get);
+  this->request_.version(11);
+  this->request_.target(target);
   if (use_authentication_header) {
-    request_.set(beast::http::field::proxy_authorization,
-                 "Basic bGFueHVhbjM2OUBnbWFpbC5jb206TGFueHVhbjk2Mw==");
+    this->request_.set(beast::http::field::proxy_authorization,
+                       "Basic bGFueHVhbjM2OUBnbWFpbC5jb206TGFueHVhbjk2Mw==");
   }
-  request_.keep_alive(true);
-  request_.set(beast::http::field::host, "www.xbiao.com:80");
-  request_.set(beast::http::field::cache_control, "no-cache");
-  request_.set(beast::http::field::user_agent, utilities::get_random_agent());
-  request_.set(beast::http::field::accept, "*/*");
-  request_.set(beast::http::field::referer, "http://www.xbiao.com/user/login");
-  request_.set(beast::http::field::content_type,
-               "application/x-www-form-urlencoded");
-  request_.body() = {};
-  request_.prepare_payload();
+  this->request_.keep_alive(true);
+  this->request_.set(beast::http::field::host, "www.xbiao.com:80");
+  this->request_.set(beast::http::field::cache_control, "no-cache");
+  this->request_.set(beast::http::field::user_agent,
+                     utilities::get_random_agent());
+  this->request_.set(beast::http::field::accept, "*/*");
+  this->request_.set(beast::http::field::referer,
+                     "http://www.xbiao.com/user/login");
+  this->request_.set(beast::http::field::content_type,
+                     "application/x-www-form-urlencoded");
+  this->request_.body() = {};
+  this->request_.prepare_payload();
 }
 
 template <typename Proxy>
@@ -49,26 +51,25 @@ void watch_home_http_socket_t<Proxy>::data_received(beast::error_code ec,
                                                     std::size_t const) {
   if (ec) {
     if (ec != http::error::end_of_stream) {
-      current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
-      tcp_stream_.close();
+      this->current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
+      this->close_stream();
     }
-    choose_next_proxy();
-    return connect();
+    return this->choose_next_proxy();
   }
 
-  std::size_t const status_code = response_.result_int();
-  if (status_code == PROXY_REQUIRES_AUTHENTICATION) {
-    set_authentication_header();
-    return connect();
+  std::size_t const status_code = this->response_.result_int();
+  if (status_code == 407) {
+    this->set_authentication_header();
+    return this->connect();
   }
 
-  auto iterator_pair = response_.equal_range(http::field::set_cookie);
+  auto iterator_pair = this->response_.equal_range(http::field::set_cookie);
   if (iterator_pair.first == iterator_pair.second) {
-    signal_(search_result_type_e::Unknown, current_number_);
-    current_number_.clear();
-    return send_next();
+    this->signal_(search_result_type_e::Unknown, this->current_number_);
+    this->current_number_.clear();
+    return this->send_next();
   }
-  return send_next();
+  return this->send_next();
 }
 
 } // namespace wudi_server
