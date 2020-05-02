@@ -30,8 +30,8 @@ protected:
 
   std::vector<char> reply_buffer{};
   std::vector<char> handshake_buffer{};
-  std::optional<beast::flat_buffer> general_buffer_{};
 
+  std::optional<beast::flat_buffer> general_buffer_{};
   http::request<http::string_body> request_{};
   http::response<http::string_body> response_{};
   std::string current_number_{};
@@ -440,7 +440,6 @@ void socks5_https_socket_base_t<Derived, ProxyProvider>::process_ipv4_response(
     current_proxy_assign_prop(ProxyProvider::Property::ProxyUnresponsive);
     return choose_next_proxy();
   }
-  spdlog::info("Performing SSL handshake");
   return perform_ssl_handshake();
 }
 
@@ -594,7 +593,6 @@ void socks5_https_socket_base_t<Derived, Proxy>::on_data_sent(
     spdlog::error(ec.message());
     return resend_http_request();
   }
-  spdlog::info("Data sent. Receiving...");
   receive_data();
 }
 

@@ -248,6 +248,7 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
 
   {
     sockets_.reserve(static_cast<std::size_t>(proxy_config_->max_socket));
+    proxy_config_->max_socket = std::max<int>(1, proxy_config_->max_socket);
     for (int i = 0; i != proxy_config_->max_socket; ++i) {
       auto socket = get_socket(proxy_provider_->type(), stopped, *io_context_,
                                *proxy_provider_, *number_stream_);
@@ -275,7 +276,7 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
     }
   }
   return task_result_ptr_->operation_status;
-} // namespace wudi_server
+}
 
 utilities::task_status_e background_worker_t::continue_old_task() {
   using utilities::atomic_task_t;

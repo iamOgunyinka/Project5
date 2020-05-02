@@ -215,9 +215,9 @@ void proxy_base::get_more_proxies() {
 void proxy_base::add_more(std::thread::id const thread_id,
                           std::uint32_t const web_id, proxy_type_e proxy_type,
                           std::vector<custom_endpoint> const &new_endpoints) {
-  bool const compatible = thread_id != this_thread_id_ &&
+  bool const can_share = thread_id != this_thread_id_ &&
                           website_id_ != web_id && (type() == proxy_type);
-  if (!compatible)
+  if (!can_share)
     return;
   if (endpoints_.size() >= max_allowed) {
     endpoints_.remove(new_endpoints.size());
