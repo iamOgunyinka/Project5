@@ -13,7 +13,6 @@ namespace net = boost::asio;
 namespace http = beast::http;
 namespace ssl = net::ssl;
 
-using utilities::proxy_address_t;
 using utilities::search_result_type_e;
 using tcp = boost::asio::ip::tcp;
 using beast::error_code;

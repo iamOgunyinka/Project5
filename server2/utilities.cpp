@@ -282,6 +282,8 @@ std::string uri::path() const { return path_; }
 
 std::string uri::host() const { return host_; }
 
+std::string uri::protocol() const { return protocol_; }
+
 void uri::parse(const std::string &url_s) {
   std::string const prot_end{"://"};
   std::string::const_iterator prot_i =

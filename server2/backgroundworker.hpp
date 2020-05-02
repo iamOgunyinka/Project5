@@ -43,8 +43,6 @@ enum class website_type_e {
   WatchHome
 };
 
-enum class proxy_type_e { http_https_proxy = 0, socks5 };
-
 class background_worker_t {
 public:
   background_worker_t(
@@ -65,6 +63,7 @@ public:
   std::string filename() { return input_filename; }
 
 private:
+  bool read_proxy_configuration();
   bool open_output_files();
   void on_data_result_obtained(utilities::search_result_type_e,
                                std::string_view);
@@ -128,5 +127,6 @@ private:
   std::vector<std::unique_ptr<vsocket_type>> sockets_;
   NewProxySignal *new_proxy_signal_{nullptr};
   boost::signals2::connection signal_connector_;
+  std::optional<proxy_configuration_t> proxy_config_;
 };
 } // namespace wudi_server

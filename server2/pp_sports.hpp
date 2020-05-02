@@ -24,7 +24,8 @@ public:
 
 template <typename Proxy>
 class pp_sports_socks5_socket_t
-    : public socks5_http_socket_base_t<pp_sports_socks5_socket_t<Proxy>, Proxy> {
+    : public socks5_http_socket_base_t<pp_sports_socks5_socket_t<Proxy>,
+                                       Proxy> {
 public:
   void data_received(beast::error_code, std::size_t const);
   void prepare_request_data(bool use_authentication_header);
@@ -184,7 +185,6 @@ void pp_sports_socks5_socket_t<Proxy>::data_received(beast::error_code ec,
       }
     }
   }
-
   try {
     json::object_t object = document.get<json::object_t>();
     if (object.find("errorCode") != object.end()) {

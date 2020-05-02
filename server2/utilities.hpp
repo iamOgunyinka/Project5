@@ -177,11 +177,6 @@ struct website_result_t {
   std::string alias{};
 };
 
-struct proxy_address_t {
-  std::string ip{};
-  std::string port{};
-};
-
 struct request_handler {
   static std::array<char const *, constants_e::LenUserAgents> const user_agents;
 };
@@ -190,6 +185,7 @@ struct uri {
   uri(std::string const &url_s);
   std::string path() const;
   std::string host() const;
+  std::string protocol() const;
 
 private:
   void parse(std::string const &);
@@ -346,6 +342,18 @@ bool status_in_codes(std::size_t const code,
 template <typename Container, typename... IterList>
 bool any_of(Container const &container, IterList &&... iter_list) {
   return (... || (std::cend(container) == iter_list));
+}
+
+template <typename type, typename source> type read_byte(source &p) {
+  type ret = 0;
+  for (std::size_t i = 0; i < sizeof(type); i++)
+    ret = (ret << 8) | (static_cast<unsigned char>(*p++));
+  return ret;
+}
+
+template <typename type, typename target> void write_byte(type v, target &p) {
+  for (auto i = (int)sizeof(type) - 1; i >= 0; i--, p++)
+    *p = static_cast<unsigned char>((v >> (i * 8)) & 0xff);
 }
 
 template <typename T> using filter = bool (*)(std::string_view const, T &);

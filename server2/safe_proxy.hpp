@@ -19,6 +19,8 @@ using tcp = ip::tcp;
 net::io_context &get_network_context();
 
 enum class ProxyProperty { ProxyUnresponsive, ProxyBlocked, ProxyActive };
+enum class proxy_type_e : int { socks5 = 0, http_https_proxy = 1 };
+
 struct extraction_data {
   std::time_t expire_time{};
   int product_remain{};
@@ -27,12 +29,31 @@ struct extraction_data {
   bool is_available{false};
 };
 
+struct proxy_configuration_t {
+  std::string proxy_username{};
+  std::string proxy_password{};
+  std::string hostname{};
+  std::string proxy_target{};
+  std::string count_target{};
+  proxy_type_e proxy_protocol;
+  int share_proxy{};
+  int max_socket{};
+  int fetch_once{};
+};
+
 struct custom_endpoint {
-  tcp::endpoint endpoint{};
+  tcp::endpoint endpoint_{};
+  std::string user_name_{};
+  std::string password_{};
   ProxyProperty property{ProxyProperty::ProxyActive};
 
-  custom_endpoint(tcp::endpoint &&ep) : endpoint(std::move(ep)) {}
-  operator tcp::endpoint() const { return endpoint; }
+  custom_endpoint(tcp::endpoint &&ep, std::string const &username,
+                  std::string const &password)
+      : endpoint_(std::move(ep)), user_name_{username}, password_{password} {}
+  operator tcp::endpoint() const { return endpoint_; }
+
+  std::string &username() { return user_name_; }
+  std::string &password() { return password_; }
   void swap(custom_endpoint &);
 };
 
@@ -96,8 +117,9 @@ public:
 using endpoint_ptr = std::shared_ptr<custom_endpoint>;
 using endpoint_ptr_list = vector_wrapper<endpoint_ptr>;
 
-using NewProxySignal = signals2::signal<void(
-    std::thread::id, std::uint32_t, std::vector<custom_endpoint> const &)>;
+using NewProxySignal =
+    signals2::signal<void(std::thread::id, std::uint32_t, proxy_type_e,
+                          std::vector<custom_endpoint> const &)>;
 void swap(custom_endpoint &a, custom_endpoint &b);
 
 class global_proxy_repo_t {
@@ -111,13 +133,11 @@ class proxy_base {
 protected:
   net::io_context &context_;
   NewProxySignal &broadcast_proxy_signal_;
+  proxy_configuration_t &proxy_config_;
   std::thread::id const this_thread_id_;
   std::uint32_t const website_id_;
   std::time_t last_fetch_time_{};
 
-  std::string host_;
-  std::string target_;
-  std::string count_path_;
   std::string filename_;
 
   extraction_data current_extracted_data_;
@@ -125,7 +145,7 @@ protected:
   std::size_t count_{};
   endpoint_ptr_list endpoints_;
   std::atomic_bool has_error_ = false;
-  std::atomic_bool confirm_count_ = true;
+  std::atomic_bool confirm_count_ = !proxy_config_.count_target.empty();
 
 protected:
   void load_proxy_file();
@@ -137,29 +157,28 @@ protected:
 public:
   using Property = ProxyProperty;
   using value_type = endpoint_ptr;
-  proxy_base(net::io_context &, NewProxySignal &, std::thread::id,
-             std::uint32_t, std::string const &filename);
+  proxy_base(net::io_context &, NewProxySignal &, proxy_configuration_t &,
+             std::thread::id, std::uint32_t, std::string const &filename);
   virtual ~proxy_base() {}
   endpoint_ptr next_endpoint();
-  void add_more(std::thread::id const, std::uint32_t const,
+  proxy_type_e type() const;
+  void add_more(std::thread::id const, std::uint32_t const, proxy_type_e,
                 std::vector<custom_endpoint> const &);
 };
 
 class http_proxy final : public proxy_base {
-  static std::string const proxy_filename;
 
 public:
-  http_proxy(net::io_context &, NewProxySignal &, std::thread::id,
-             std::uint32_t);
+  http_proxy(net::io_context &, NewProxySignal &, proxy_configuration_t &,
+             std::thread::id, std::uint32_t);
   ~http_proxy() {}
 };
 
 class socks5_proxy final : public proxy_base {
-  static std::string const proxy_filename;
 
 public:
-  socks5_proxy(net::io_context &, NewProxySignal &, std::thread::id,
-               std::uint32_t);
+  socks5_proxy(net::io_context &, NewProxySignal &, proxy_configuration_t &,
+               std::thread::id, std::uint32_t);
   ~socks5_proxy() {}
 };
 
