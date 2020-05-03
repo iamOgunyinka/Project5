@@ -22,17 +22,19 @@ proxy_base::proxy_base(net::io_context &context, NewProxySignal &proxy_signal,
       broadcast_proxy_signal_(proxy_signal), proxy_config_{proxy_config},
       this_thread_id_{id}, website_id_{web_id}, filename_{filename} {}
 
-extraction_data proxy_base::get_remain_count(
-    net::ip::basic_resolver_results<net::ip::tcp> &resolves) {
+extraction_data proxy_base::get_remain_count() {
   beast::tcp_stream http_tcp_stream(net::make_strand(context_));
+  auto const count_url_ = utilities::uri{proxy_config_.count_target};
+  net::ip::tcp::resolver resolver{context_};
+
   try {
+    auto resolves = resolver.resolve(count_url_.host(), count_url_.protocol());
     http_tcp_stream.connect(resolves);
     beast::http::request<http::empty_body> http_request{};
     http_request.method(http::verb::get);
-    http_request.target(proxy_config_.count_target);
+    http_request.target(count_url_.path());
     http_request.version(11);
-    http_request.set(http::field::host,
-                     utilities::uri{proxy_config_.hostname}.host());
+    http_request.set(http::field::host, count_url_.host());
     http_request.set(http::field::user_agent, utilities::get_random_agent());
     http::write(http_tcp_stream, http_request);
     beast::flat_buffer buffer{};
@@ -122,19 +124,20 @@ void proxy_base::get_more_proxies() {
       last_fetch_time_ = current_time;
     }
   }
-  utilities::uri uri_{proxy_config_.hostname};
+  utilities::uri const more_ip_uri_{proxy_config_.proxy_target};
 
   beast::tcp_stream http_tcp_stream(net::make_strand(context_));
   http::request<http::empty_body> http_request_;
-  net::ip::tcp::resolver resolver{context_};
 
   std::vector<custom_endpoint> new_eps{};
   new_eps.reserve(proxy_config_.fetch_once);
   std::lock_guard<std::mutex> lock_g{mutex_};
+  net::ip::tcp::resolver resolver{context_};
   try {
-    auto resolves = resolver.resolve(uri_.host(), uri_.protocol());
+    auto resolves =
+        resolver.resolve(more_ip_uri_.host(), more_ip_uri_.protocol());
     if (confirm_count_) {
-      current_extracted_data_ = get_remain_count(resolves);
+      current_extracted_data_ = get_remain_count();
       if (!current_extracted_data_.is_available) {
         has_error_ = true;
         return;
@@ -144,9 +147,9 @@ void proxy_base::get_more_proxies() {
       http_tcp_stream.connect(resolves);
       http_request_ = {};
       http_request_.method(http::verb::get);
-      http_request_.target(proxy_config_.proxy_target);
+      http_request_.target(more_ip_uri_.path());
       http_request_.version(11);
-      http_request_.set(http::field::host, uri_.host());
+      http_request_.set(http::field::host, more_ip_uri_.host());
       http_request_.set(http::field::user_agent, utilities::get_random_agent());
       http::write(http_tcp_stream, http_request_);
       beast::flat_buffer buffer{};
@@ -216,7 +219,7 @@ void proxy_base::add_more(std::thread::id const thread_id,
                           std::uint32_t const web_id, proxy_type_e proxy_type,
                           std::vector<custom_endpoint> const &new_endpoints) {
   bool const can_share = thread_id != this_thread_id_ &&
-                          website_id_ != web_id && (type() == proxy_type);
+                         website_id_ != web_id && (type() == proxy_type);
   if (!can_share)
     return;
   if (endpoints_.size() >= max_allowed) {

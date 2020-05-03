@@ -6,6 +6,10 @@
 #include <spdlog/spdlog.h>
 #include <zip_file.hpp>
 
+#ifndef WUDI_SOFTWARE_VERSION
+#define WUDI_SOFTWARE_VERSION 21
+#endif // !WUDI_SOFTWARE_VERSION
+
 namespace wudi_server {
 std::filesystem::path const download_path =
     std::filesystem::current_path() / "downloads" / "zip_files";
@@ -59,8 +63,7 @@ void session::on_header_read(beast::error_code ec, std::size_t const) {
     return shutdown_socket();
   if (ec) {
     return error_handler(
-        server_error(ec.message(), error_type_e::ServerError, string_request{}),
-        true);
+        server_error(ec.message(), error_type_e::ServerError, {}), true);
   } else {
     content_type_ = empty_body_parser_->get()[http::field::content_type];
     if (content_type_ == "application/json") {
@@ -151,10 +154,24 @@ void session::on_data_written(beast::error_code ec,
 
 void session::login_handler(string_request const &request,
                             url_query const &optional_query) {
-  spdlog::info("[login_handler] {}", request.target());
   if (request.method() == http::verb::get) {
     return error_handler(bad_request("POST username && password", request));
   }
+
+  try {
+    auto const software_version = request["version_num"].to_string();
+    if (software_version.empty()) {
+      return error_handler(
+          bad_request("you need to upgrade your software version", {}));
+    }
+    int const version_number = std::stoi(software_version);
+    if (version_number < WUDI_SOFTWARE_VERSION) {
+      return error_handler(bad_request("upgrade your software", {}));
+    }
+  } catch (std::exception const &) {
+    return error_handler(bad_request("incorrect software version", {}));
+  }
+
   // respond to POST request
   try {
     json json_body = json::parse(request.body());
@@ -198,7 +215,6 @@ void session::upload_handler(string_request const &request,
       std::error_code ec{};
       std::filesystem::create_directory(uploads_directory, ec);
     }
-    spdlog::info("[/upload_handler(type)] -> {}", content_type_);
     boost::string_view filename_view = parser["filename"];
     auto total_iter = optional_query.find("total");
     auto uploader_iter = optional_query.find("uploader");
@@ -312,6 +328,7 @@ void session::handle_requests(string_request const &request) {
   std::string const request_target{utilities::decode_url(request.target())};
   if (request_target.empty())
     return index_page_handler(request, {});
+
   auto const method = request.method();
   boost::string_view request_target_view = request_target;
   auto split = utilities::split_string_view(request_target_view, "?");
@@ -340,48 +357,64 @@ void session::add_endpoint_interfaces() {
   using http::verb;
   endpoint_apis_.add_endpoint(
       "/", {verb::get},
-      std::bind(&session::index_page_handler, shared_from_this(),
-                std::placeholders::_1, std::placeholders::_2));
+      [=](string_request const &request, url_query const &optional_query) {
+        index_page_handler(request, optional_query);
+      });
   endpoint_apis_.add_endpoint(
       "/login", {verb::get, verb::post},
-      std::bind(&session::login_handler, shared_from_this(),
-                std::placeholders::_1, std::placeholders::_2));
+      [=](string_request const &request, url_query const &optional_query) {
+        login_handler(request, optional_query);
+      });
   endpoint_apis_.add_endpoint(
       "/upload", {verb::post, verb::delete_, verb::get},
-      std::bind(&session::upload_handler, shared_from_this(),
-                std::placeholders::_1, std::placeholders::_2));
+      [=](string_request const &request, url_query const &optional_query) {
+        upload_handler(request, optional_query);
+      });
   endpoint_apis_.add_endpoint(
       "/website", {verb::post, verb::get, verb::post},
-      std::bind(&session::website_handler, shared_from_this(),
-                std::placeholders::_1, std::placeholders::_2));
+      [=](string_request const &request, url_query const &optional_query) {
+        website_handler(request, optional_query);
+      });
   endpoint_apis_.add_endpoint(
       "/schedule_task", {verb::post, verb::get, verb::delete_},
-      std::bind(&session::schedule_task_handler, shared_from_this(),
-                std::placeholders::_1, std::placeholders::_2));
+      [=](string_request const &request, url_query const &optional_query) {
+        schedule_task_handler(request, optional_query);
+      });
+
   endpoint_apis_.add_endpoint(
       "/task", {verb::post, verb::get, verb::delete_},
-      std::bind(&session::schedule_task_handler, shared_from_this(),
-                std::placeholders::_1, std::placeholders::_2));
+      [=](string_request const &request, url_query const &optional_query) {
+        schedule_task_handler(request, optional_query);
+      });
   endpoint_apis_.add_endpoint(
       "/download", {verb::post},
-      std::bind(&session::download_handler, shared_from_this(),
-                std::placeholders::_1, std::placeholders::_2));
+      [=](string_request const &request, url_query const &optional_query) {
+        download_handler(request, optional_query);
+      });
   endpoint_apis_.add_endpoint(
       "/stop", {verb::post},
-      std::bind(&session::stop_tasks_handler, shared_from_this(),
-                std::placeholders::_1, std::placeholders::_2));
+      [=](string_request const &request, url_query const &optional_query) {
+        stop_tasks_handler(request, optional_query);
+      });
   endpoint_apis_.add_endpoint(
       "/start", {verb::post},
-      std::bind(&session::restart_tasks_handler, shared_from_this(),
-                std::placeholders::_1, std::placeholders::_2));
+      [=](string_request const &request, url_query const &optional_query) {
+        restart_tasks_handler(request, optional_query);
+      });
   endpoint_apis_.add_endpoint(
       "/remove", {verb::post},
-      std::bind(&session::remove_tasks_handler, shared_from_this(),
-                std::placeholders::_1, std::placeholders::_2));
+      [=](string_request const &request, url_query const &optional_query) {
+        remove_tasks_handler(request, optional_query);
+      });
   endpoint_apis_.add_endpoint(
       "/get_file", {verb::get},
-      std::bind(&session::get_file_handler, shared_from_this(),
-                std::placeholders::_1, std::placeholders::_2));
+      beast::bind_front_handler(&session::get_file_handler,
+                                shared_from_this()));
+  endpoint_apis_.add_endpoint(
+      "/get_config", {verb::get, verb::post},
+      [=](string_request const &request, url_query const &optional_query) {
+        proxy_config_handler(request, optional_query);
+      });
 }
 
 std::filesystem::path session::copy_file_n(
@@ -583,6 +616,64 @@ void session::remove_tasks_handler(string_request const &req,
     spdlog::error("exception in remove_tasks_handler: {}", e.what());
     return error_handler(bad_request("unable to remove tasks", req));
   }
+}
+
+void session::proxy_config_handler(string_request const &request,
+                                   url_query const &query) {
+  if (content_type_ != "application/json") {
+    return error_handler(bad_request("invalid content-type", request));
+  }
+  if (request.method() == http::verb::get) {
+    std::filesystem::path const file_path = "./proxy_config.json";
+    std::error_code ec_{};
+    if (!std::filesystem::exists(file_path, ec_)) {
+      return error_handler(bad_request("file does not exist", request));
+    }
+    http::file_body::value_type file;
+    beast::error_code ec{};
+    file.open(file_path.string().c_str(), beast::file_mode::read, ec);
+    if (ec) {
+      return error_handler(server_error("unable to open file specified",
+                                        error_type_e::ServerError, request));
+    }
+    file_response_.emplace(std::piecewise_construct, std::make_tuple(),
+                           std::make_tuple(alloc_));
+    file_response_->result(http::status::ok);
+    file_response_->keep_alive(request.keep_alive());
+    file_response_->set(http::field::server, "wudi-server");
+    file_response_->set(http::field::content_type, "application/json");
+    file_response_->body() = std::move(file);
+    file_response_->prepare_payload();
+    file_serializer_.emplace(*file_response_);
+    return http::async_write(
+        tcp_stream_, *file_serializer_,
+        [self = shared_from_this(), file_path](beast::error_code ec,
+                                               std::size_t const size_written) {
+          self->file_serializer_.reset();
+          self->file_response_.reset();
+          std::error_code temp_ec{};
+          self->on_data_written(ec, size_written);
+        });
+  }
+
+  try {
+    {
+      // if this throws, the JSON file is not valid.
+      json::object_t const root =
+          json::parse(request.body()).get<json::object_t>();
+    }
+    std::ofstream out_file{"./proxy_config.json",
+                           std::ios::out | std::ios::trunc};
+    if (!out_file) {
+      return error_handler(server_error("unable to open config file for write",
+                                        error_type_e::ServerError, request));
+    }
+    out_file << request.body() << "\n";
+  } catch (std::exception const &e) {
+    spdlog::error("[get_config] {}", e.what());
+    return error_handler(bad_request("unable to save config file", request));
+  }
+  return send_response(success("ok", request));
 }
 
 void session::delete_stopped_tasks_impl(

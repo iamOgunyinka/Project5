@@ -116,6 +116,7 @@ private:
   void stop_tasks_handler(string_request const &, url_query const &);
   void restart_tasks_handler(string_request const &, url_query const &);
   void remove_tasks_handler(string_request const &, url_query const &);
+  void proxy_config_handler(string_request const &, url_query const &);
 
   static string_response json_success(json const &body,
                                       string_request const &req);

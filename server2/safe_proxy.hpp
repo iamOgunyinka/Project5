@@ -150,8 +150,7 @@ protected:
 protected:
   void load_proxy_file();
   void save_proxies_to_file();
-  virtual extraction_data
-  get_remain_count(ip::basic_resolver_results<ip::tcp> &);
+  virtual extraction_data get_remain_count();
   virtual void get_more_proxies();
 
 public:
