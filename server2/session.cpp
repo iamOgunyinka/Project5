@@ -47,6 +47,77 @@ endpoint_t::get_rules(boost::string_view const &target) {
   return get_rules(std::string(target.data(), target.size()));
 }
 
+session::session(asio::io_context &io, asio::ip::tcp::socket &&socket)
+    : io_context_{io}, tcp_stream_{std::move(socket)} {
+  add_endpoint_interfaces();
+}
+
+void session::add_endpoint_interfaces() {
+  using http::verb;
+  endpoint_apis_.add_endpoint(
+      "/", {verb::get},
+      [=](string_request const &request, url_query const &optional_query) {
+        index_page_handler(request, optional_query);
+      });
+  endpoint_apis_.add_endpoint(
+      "/login", {verb::get, verb::post},
+      [=](string_request const &request, url_query const &optional_query) {
+        login_handler(request, optional_query);
+      });
+  endpoint_apis_.add_endpoint(
+      "/upload", {verb::post, verb::delete_, verb::get},
+      [=](string_request const &request, url_query const &optional_query) {
+        upload_handler(request, optional_query);
+      });
+  endpoint_apis_.add_endpoint(
+      "/website", {verb::post, verb::get, verb::post},
+      [=](string_request const &request, url_query const &optional_query) {
+        website_handler(request, optional_query);
+      });
+  endpoint_apis_.add_endpoint(
+      "/schedule_task", {verb::post, verb::get, verb::delete_},
+      [=](string_request const &request, url_query const &optional_query) {
+        schedule_task_handler(request, optional_query);
+      });
+
+  endpoint_apis_.add_endpoint(
+      "/task", {verb::post, verb::get, verb::delete_},
+      [=](string_request const &request, url_query const &optional_query) {
+        schedule_task_handler(request, optional_query);
+      });
+  endpoint_apis_.add_endpoint(
+      "/download", {verb::post},
+      [=](string_request const &request, url_query const &optional_query) {
+        download_handler(request, optional_query);
+      });
+  endpoint_apis_.add_endpoint(
+      "/stop", {verb::post},
+      [=](string_request const &request, url_query const &optional_query) {
+        stop_tasks_handler(request, optional_query);
+      });
+  endpoint_apis_.add_endpoint(
+      "/start", {verb::post},
+      [=](string_request const &request, url_query const &optional_query) {
+        restart_tasks_handler(request, optional_query);
+      });
+  endpoint_apis_.add_endpoint(
+      "/remove", {verb::post},
+      [=](string_request const &request, url_query const &optional_query) {
+        remove_tasks_handler(request, optional_query);
+      });
+  endpoint_apis_.add_endpoint(
+      "/get_file", {verb::get},
+      beast::bind_front_handler(&session::get_file_handler,
+                                shared_from_this()));
+  endpoint_apis_.add_endpoint(
+      "/get_config", {verb::get, verb::post},
+      [=](string_request const &request, url_query const &optional_query) {
+        proxy_config_handler(request, optional_query);
+      });
+}
+
+void session::run() { http_read_data(); }
+
 void session::http_read_data() {
   buffer_.clear();
   empty_body_parser_.emplace();
@@ -84,6 +155,30 @@ void session::on_header_read(beast::error_code ec, std::size_t const) {
       return error_handler(bad_request(
           "contact your admin for proper request format", string_request{}));
     }
+  }
+}
+
+void session::handle_requests(string_request const &request) {
+  std::string const request_target{utilities::decode_url(request.target())};
+  if (request_target.empty())
+    return index_page_handler(request, {});
+
+  auto const method = request.method();
+  boost::string_view request_target_view = request_target;
+  auto split = utilities::split_string_view(request_target_view, "?");
+  if (auto iter = endpoint_apis_.get_rules(split[0]); iter.has_value()) {
+    auto iter_end =
+        iter.value()->second.verbs_.cbegin() + iter.value()->second.num_verbs_;
+    auto found_iter =
+        std::find(iter.value()->second.verbs_.cbegin(), iter_end, method);
+    if (found_iter == iter_end) {
+      return error_handler(method_not_allowed(request));
+    }
+    boost::string_view const query_string = split.size() > 1 ? split[1] : "";
+    auto url_query_{split_optional_queries(query_string)};
+    return iter.value()->second.route_callback_(request, url_query_);
+  } else {
+    return error_handler(not_found(request));
   }
 }
 
@@ -322,99 +417,6 @@ void session::upload_handler(string_request const &request,
       return send_response(success("ok", request));
     }
   }
-}
-
-void session::handle_requests(string_request const &request) {
-  std::string const request_target{utilities::decode_url(request.target())};
-  if (request_target.empty())
-    return index_page_handler(request, {});
-
-  auto const method = request.method();
-  boost::string_view request_target_view = request_target;
-  auto split = utilities::split_string_view(request_target_view, "?");
-  if (auto iter = endpoint_apis_.get_rules(split[0]); iter.has_value()) {
-    auto iter_end =
-        iter.value()->second.verbs_.cbegin() + iter.value()->second.num_verbs_;
-    auto found_iter =
-        std::find(iter.value()->second.verbs_.cbegin(), iter_end, method);
-    if (found_iter == iter_end) {
-      return error_handler(method_not_allowed(request));
-    }
-    boost::string_view const query_string = split.size() > 1 ? split[1] : "";
-    auto url_query_{split_optional_queries(query_string)};
-    return iter.value()->second.route_callback_(request, url_query_);
-  } else {
-    return error_handler(not_found(request));
-  }
-}
-
-session::session(asio::io_context &io, asio::ip::tcp::socket &&socket)
-    : io_context_{io}, tcp_stream_{std::move(socket)} {
-  add_endpoint_interfaces();
-}
-
-void session::add_endpoint_interfaces() {
-  using http::verb;
-  endpoint_apis_.add_endpoint(
-      "/", {verb::get},
-      [=](string_request const &request, url_query const &optional_query) {
-        index_page_handler(request, optional_query);
-      });
-  endpoint_apis_.add_endpoint(
-      "/login", {verb::get, verb::post},
-      [=](string_request const &request, url_query const &optional_query) {
-        login_handler(request, optional_query);
-      });
-  endpoint_apis_.add_endpoint(
-      "/upload", {verb::post, verb::delete_, verb::get},
-      [=](string_request const &request, url_query const &optional_query) {
-        upload_handler(request, optional_query);
-      });
-  endpoint_apis_.add_endpoint(
-      "/website", {verb::post, verb::get, verb::post},
-      [=](string_request const &request, url_query const &optional_query) {
-        website_handler(request, optional_query);
-      });
-  endpoint_apis_.add_endpoint(
-      "/schedule_task", {verb::post, verb::get, verb::delete_},
-      [=](string_request const &request, url_query const &optional_query) {
-        schedule_task_handler(request, optional_query);
-      });
-
-  endpoint_apis_.add_endpoint(
-      "/task", {verb::post, verb::get, verb::delete_},
-      [=](string_request const &request, url_query const &optional_query) {
-        schedule_task_handler(request, optional_query);
-      });
-  endpoint_apis_.add_endpoint(
-      "/download", {verb::post},
-      [=](string_request const &request, url_query const &optional_query) {
-        download_handler(request, optional_query);
-      });
-  endpoint_apis_.add_endpoint(
-      "/stop", {verb::post},
-      [=](string_request const &request, url_query const &optional_query) {
-        stop_tasks_handler(request, optional_query);
-      });
-  endpoint_apis_.add_endpoint(
-      "/start", {verb::post},
-      [=](string_request const &request, url_query const &optional_query) {
-        restart_tasks_handler(request, optional_query);
-      });
-  endpoint_apis_.add_endpoint(
-      "/remove", {verb::post},
-      [=](string_request const &request, url_query const &optional_query) {
-        remove_tasks_handler(request, optional_query);
-      });
-  endpoint_apis_.add_endpoint(
-      "/get_file", {verb::get},
-      beast::bind_front_handler(&session::get_file_handler,
-                                shared_from_this()));
-  endpoint_apis_.add_endpoint(
-      "/get_config", {verb::get, verb::post},
-      [=](string_request const &request, url_query const &optional_query) {
-        proxy_config_handler(request, optional_query);
-      });
 }
 
 std::filesystem::path session::copy_file_n(
@@ -958,8 +960,6 @@ void session::website_handler(string_request const &request,
     return error_handler(bad_request("cannot parse body", request));
   }
 }
-
-void session::run() { http_read_data(); }
 
 string_response session::not_found(string_request const &request) {
   return get_error("url not found", error_type_e::ResourceNotFound,

@@ -303,19 +303,16 @@ void proxy_base::load_proxy_file() {
 endpoint_ptr proxy_base::next_endpoint() {
   if (has_error_ || endpoints_.empty())
     return nullptr;
-  {
-    std::lock_guard<std::mutex> lock_g{mutex_};
-    if (count_ >= endpoints_.size()) {
-      count_ = 0;
-      while (count_ < endpoints_.size()) {
-        if (endpoints_[count_]->property == ProxyProperty::ProxyActive) {
-          return endpoints_[count_++];
-        }
-        ++count_;
+  if (count_ >= endpoints_.size()) {
+    count_ = 0;
+    while (count_ < endpoints_.size()) {
+      if (endpoints_[count_]->property == ProxyProperty::ProxyActive) {
+        return endpoints_[count_++];
       }
-    } else {
-      return endpoints_[count_++];
+      ++count_;
     }
+  } else {
+    return endpoints_[count_++];
   }
   get_more_proxies();
   endpoints_.remove_if([](auto const &ep) {

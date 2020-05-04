@@ -32,7 +32,6 @@ struct extraction_data {
 struct proxy_configuration_t {
   std::string proxy_username{};
   std::string proxy_password{};
-  std::string hostname{};
   std::string proxy_target{};
   std::string count_target{};
   proxy_type_e proxy_protocol;

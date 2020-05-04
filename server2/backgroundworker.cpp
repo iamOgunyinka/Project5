@@ -86,7 +86,6 @@ bool background_worker_t::read_proxy_configuration() {
     std::size_t const highest_index = available_protocols.size();
     std::size_t const protocol_index =
         proxy_field["protocol"].get<json::number_integer_t>();
-    proxy_config_->hostname = proxy_field["host"].get<json::string_t>();
     proxy_config_->proxy_target = proxy_field["target"].get<json::string_t>();
     proxy_config_->count_target =
         proxy_field["count_target"].get<json::string_t>();
