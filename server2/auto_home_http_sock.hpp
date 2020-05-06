@@ -17,21 +17,17 @@ class auto_home_http_socket_t
   using http_socket_base_t<auto_home_http_socket_t<Proxy>, Proxy>::send_next;
   using http_socket_base_t<auto_home_http_socket_t<Proxy>,
                            Proxy>::current_number_;
+
 public:
   void data_received(beast::error_code, std::size_t const);
   void prepare_request_data(bool use_authentication_header);
-  auto_home_http_socket_t(bool &stopped, net::io_context &io,
-                          Proxy &proxy_provider,
-                          utilities::number_stream_t &numbers);
+
+  template <typename... Args>
+  auto_home_http_socket_t(Args &&... args)
+      : http_socket_base_t<auto_home_http_socket_t<Proxy>, Proxy>(
+            std::forward<Args>(args)...) {}
   ~auto_home_http_socket_t() {}
 };
-
-template <typename Proxy>
-auto_home_http_socket_t<Proxy>::auto_home_http_socket_t(
-    bool &stopped, net::io_context &io_context, Proxy &proxy_provider,
-    utilities::number_stream_t &numbers)
-    : http_socket_base_t<auto_home_http_socket_t<Proxy>, Proxy>(
-          stopped, io_context, proxy_provider, numbers) {}
 
 template <typename Proxy>
 void auto_home_http_socket_t<Proxy>::prepare_request_data(

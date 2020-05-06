@@ -85,6 +85,7 @@ enum constants_e {
 
 struct scheduled_task_t {
   uint32_t task_id{};
+  uint32_t scans_per_ip{};
   uint32_t progress{};
   uint32_t scheduler_id{};
   uint32_t scheduled_dt{};
@@ -102,6 +103,8 @@ struct task_result_t {
   uint32_t unknown{};
   uint32_t processed{};
   uint32_t website_id{};
+  uint32_t scans_per_ip{};
+  uint32_t ip_used{};
   std::string data_ids{};
   std::string scheduled_date{};
 };
@@ -111,6 +114,8 @@ struct atomic_task_t {
 
   int type_ = task_type::fresh;
   uint32_t task_id{};
+  uint32_t scans_per_ip{};
+  uint32_t ip_used{};
   uint32_t website_id{};
   uint32_t processed{};
   uint32_t total{};
@@ -156,6 +161,8 @@ public:
   uint32_t unknown_count{};
   uint32_t processed{};
   uint32_t total_numbers{};
+  uint32_t scans_per_ip{};
+  uint32_t ip_used{};
 
   std::filesystem::path ok_filename;
   std::filesystem::path ok2_filename;

@@ -1,21 +1,19 @@
 {
     "proxy": {
         "#available_protocols": [
-            "socks",
-            "http/https"
         ],
         "#explanation": "`protocol`= 1 to use http/https, `protocol`=0 to use socks",
         "count_target": "",
-        "password": "damilola",
-        "per_fetch": 50,
-        "protocol": 0,
+        "password": "",
+        "per_fetch": 0,
+        "protocol": -1,
         "share": false,
-        "socket_count": 10,
-        "target": "http://api.wandoudl.com/api/ip?app_key=19ead3cb7a5d477f5d480d850f18de94&pack=210602&num=20&xy=3&type=1&lb=\\n&mr=1&",
-        "username": "iamOgunyinka"
+        "socket_count": 0,
+        "target": "",
+        "username": ""
     },
     "socket": {
-        "per_ip": -1
+        "per_ip": 0
     }
 }
 

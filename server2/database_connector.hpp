@@ -71,8 +71,10 @@ public:
   bool add_task(utilities::scheduled_task_t &task);
   bool save_stopped_task(utilities::atomic_task_t const &);
   bool change_task_status(uint32_t const task_id, uint32_t const processed,
+                          uint32_t const ip_used,
                           utilities::task_status_e const);
-  bool update_task_progress(utilities::internal_task_result_t const &);
+  bool update_task_progress(utilities::internal_task_result_t const &,
+                            uint32_t);
   bool add_erred_task(utilities::atomic_task_t &);
   void delete_stopped_tasks(std::vector<uint32_t> const &task_ids);
   std::vector<utilities::task_result_t>

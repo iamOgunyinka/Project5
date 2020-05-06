@@ -32,6 +32,7 @@ protected:
   std::vector<tcp::endpoint> temp_list_;
   std::size_t send_count_{};
   typename Proxy::value_type current_proxy_{nullptr};
+  int const scans_per_ip_;
 
 protected:
   void close_socket();
@@ -54,7 +55,7 @@ protected:
 
 public:
   http_socket_base_t(bool &stopped, net::io_context &, Proxy &,
-                     utilities::number_stream_t &);
+                     utilities::number_stream_t &, int);
   void start_connect();
   auto &signal() { return signal_; }
 
@@ -154,7 +155,13 @@ void http_socket_base_t<DerivedClass, Proxy>::send_next() {
   try {
     current_number_ = numbers_.get();
     prepare_request_data();
-    send_http_data();
+
+    if (scans_per_ip_ != 0 && current_proxy_->number_scanned >= scans_per_ip_) {
+      current_proxy_assign_prop(Proxy::Property::ProxyMaxedOut);
+      return choose_next_proxy();
+    }
+    ++current_proxy_->number_scanned;
+    return send_http_data();
   } catch (utilities::empty_container_exception_t &) {
   }
 }
@@ -239,9 +246,10 @@ void http_socket_base_t<DerivedClass, Proxy>::on_data_received(
 template <typename DerivedClass, typename Proxy>
 http_socket_base_t<DerivedClass, Proxy>::http_socket_base_t(
     bool &stopped, net::io_context &io_context, Proxy &proxy_provider,
-    utilities::number_stream_t &numbers)
+    utilities::number_stream_t &numbers, int const per_ip)
     : io_{io_context}, tcp_stream_{std::in_place, net::make_strand(io_)},
-      numbers_{numbers}, proxy_provider_{proxy_provider}, stopped_{stopped} {}
+      numbers_{numbers}, proxy_provider_{proxy_provider}, stopped_{stopped},
+      scans_per_ip_{per_ip} {}
 
 template <typename DerivedClass, typename Proxy>
 void http_socket_base_t<DerivedClass, Proxy>::set_authentication_header() {

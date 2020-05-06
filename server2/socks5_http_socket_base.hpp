@@ -33,7 +33,7 @@ protected:
   std::vector<tcp::endpoint> temp_list_;
   std::size_t send_count_{};
   typename Proxy::value_type current_proxy_{nullptr};
-
+  int const scans_per_ip_;
   std::size_t success_sent_count_{};
   std::vector<uint8_t> handshake_buffer{};
   std::vector<uint8_t> reply_buffer{};
@@ -71,7 +71,7 @@ protected:
 
 public:
   socks5_http_socket_base_t(bool &, net::io_context &, Proxy &,
-                            utilities::number_stream_t &);
+                            utilities::number_stream_t &, int);
   void start_connect();
   ~socks5_http_socket_base_t() {
     signal_.disconnect_all_slots();
@@ -83,9 +83,10 @@ public:
 template <typename Derived, typename Proxy>
 socks5_http_socket_base_t<Derived, Proxy>::socks5_http_socket_base_t(
     bool &stopped, net::io_context &io_context, Proxy &proxy_provider,
-    utilities::number_stream_t &numbers)
+    utilities::number_stream_t &numbers, int const scans_per_ip)
     : io_{io_context}, tcp_stream_{net::make_strand(io_)}, numbers_{numbers},
-      proxy_provider_{proxy_provider}, stopped_{stopped} {}
+      proxy_provider_{proxy_provider}, stopped_{stopped}, scans_per_ip_{
+                                                              scans_per_ip} {}
 
 template <typename Derived, typename ProxyProvider>
 std::string
@@ -564,7 +565,12 @@ void socks5_http_socket_base_t<Derived, ProxyProvider>::send_next() {
   try {
     current_number_ = numbers_.get();
     prepare_request_data();
-    send_http_data();
+    if (scans_per_ip_ != 0 && current_proxy_->number_scanned >= scans_per_ip_) {
+      current_proxy_assign_prop(ProxyProvider::Property::ProxyMaxedOut);
+      return choose_next_proxy();
+    }
+    ++current_proxy_->number_scanned;
+    return send_http_data();
   } catch (utilities::empty_container_exception_t &) {
   }
 }

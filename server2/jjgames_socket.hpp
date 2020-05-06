@@ -21,8 +21,11 @@ class jjgames_socket
                                    Proxy>::current_number_;
 
 public:
-  jjgames_socket(ssl::context &ssl_context, bool &, net::io_context &, Proxy &,
-                 utilities::number_stream_t &);
+  template <typename... Args>
+  jjgames_socket(ssl::context &ssl_context, Args &&... args)
+      : socks5_https_socket_base_t<jjgames_socket<Proxy>, Proxy>{
+            ssl_context, std::forward<Args>(args)...} {}
+
   ~jjgames_socket() {}
   void send_next() override;
   void prepare_request_data(bool use_auth = false);
@@ -32,14 +35,6 @@ public:
 
 template <typename Proxy>
 std::string jjgames_socket<Proxy>::jjgames_hostname{"a4.srv.jj.cn"};
-
-template <typename Proxy>
-jjgames_socket<Proxy>::jjgames_socket(ssl::context &ssl_context, bool &stopped,
-                                      net::io_context &io_context,
-                                      Proxy &proxy_provider,
-                                      utilities::number_stream_t &numbers)
-    : socks5_https_socket_base_t<jjgames_socket<Proxy>, Proxy>{
-          ssl_context, stopped, io_context, proxy_provider, numbers} {}
 
 template <typename Proxy> std::string jjgames_socket<Proxy>::hostname() const {
   return jjgames_hostname;

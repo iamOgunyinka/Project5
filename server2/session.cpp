@@ -864,14 +864,15 @@ void session::schedule_task_handler(string_request const &request,
     try {
       json json_root = json::parse(request.body());
       json::object_t task_object = json_root.get<json::object_t>();
-      json::array_t websites_ids = task_object["websites"].get<json::array_t>();
-      json::array_t number_ids = task_object["numbers"].get<json::array_t>();
-      json::number_integer_t total =
-          task_object["total"].get<json::number_integer_t>();
+      auto const websites_ids = task_object["websites"].get<json::array_t>();
+      auto const number_ids = task_object["numbers"].get<json::array_t>();
+      auto const total = task_object["total"].get<json::number_integer_t>();
+      auto const per_ip = task_object["per_ip"].get<json::number_integer_t>();
       auto &tasks{get_scheduled_tasks()};
       using utilities::atomic_task_t;
       utilities::scheduled_task_t task{};
       task.total_numbers = total;
+      task.scans_per_ip = per_ip;
       task.scheduled_dt =
           static_cast<int>(task_object["date"].get<json::number_integer_t>());
       task.scheduler_id = static_cast<int>(
@@ -895,6 +896,7 @@ void session::schedule_task_handler(string_request const &request,
         atom_task.total = task.total_numbers;
         atom_task.website_id = task.website_id;
         atom_task.number_ids = task.number_ids;
+        atom_task.scans_per_ip = task.scans_per_ip;
         task_ids.push_back(task.task_id);
         tasks.push_back(std::move(atom_task));
       }

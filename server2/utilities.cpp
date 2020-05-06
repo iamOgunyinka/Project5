@@ -39,6 +39,8 @@ void to_json(json &j, task_result_t const &item) {
   j = json{{"id", item.id},
            {"status", item.task_status},
            {"processed", item.processed},
+           {"per_ip", item.scans_per_ip},
+           {"ip_used", item.ip_used},
            {"web", item.website_id},
            {"numbers", item.data_ids},
            {"total", item.total},

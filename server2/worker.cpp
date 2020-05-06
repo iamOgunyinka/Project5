@@ -56,6 +56,7 @@ start_new_task(atomic_task_t &scheduled_task, net::ssl::context &ssl_context) {
   auto task_result = std::make_shared<internal_task_result_t>();
   task_result->task_id = scheduled_task.task_id;
   task_result->website_id = scheduled_task.website_id;
+  task_result->scans_per_ip = scheduled_task.scans_per_ip;
   scheduled_task.website_address = website->address;
   response_queue.emplace(scheduled_task.task_id, task_result);
   return std::make_unique<background_worker_t>(
@@ -103,6 +104,8 @@ continue_recent_task(atomic_task_t &scheduled_task,
     task_result->ok_filename = scheduled_task.ok_filename;
     task_result->ok2_filename = scheduled_task.ok2_filename;
     task_result->unknown_filename = scheduled_task.unknown_filename;
+    task_result->scans_per_ip = scheduled_task.scans_per_ip;
+    task_result->ip_used = scheduled_task.ip_used;
     scheduled_task.website_address = website->address;
     response_queue.emplace(scheduled_task.task_id, task_result);
   } else {
@@ -145,6 +148,7 @@ resume_unstarted_task(utilities::atomic_task_t &scheduled_task,
   auto task_result = std::make_shared<internal_task_result_t>();
   task_result->task_id = scheduled_task.task_id;
   task_result->website_id = scheduled_task.website_id;
+  task_result->scans_per_ip = scheduled_task.scans_per_ip;
   response_queue.emplace(scheduled_task.task_id, task_result);
   return std::make_unique<background_worker_t>(
       std::move(*website), std::move(numbers), task_result, ssl_context);
@@ -167,9 +171,9 @@ void background_task_executor(std::atomic_bool &stopped, std::mutex &mutex,
       replace_special_chars(scheduled_task.unknown_filename);
       db_connector->save_stopped_task(scheduled_task);
     }
-    db_connector->change_task_status(scheduled_task.task_id,
-                                     scheduled_task.processed,
-                                     utilities::task_status_e::Erred);
+    db_connector->change_task_status(
+        scheduled_task.task_id, scheduled_task.processed,
+        scheduled_task.ip_used, utilities::task_status_e::Erred);
   };
 
   while (!stopped) {
@@ -185,9 +189,9 @@ void background_task_executor(std::atomic_bool &stopped, std::mutex &mutex,
       }
     }
     if (worker) {
-      db_connector->change_task_status(scheduled_task.task_id,
-                                       worker->task_result()->processed,
-                                       utilities::task_status_e::Ongoing);
+      db_connector->change_task_status(
+          scheduled_task.task_id, scheduled_task.ip_used,
+          worker->task_result()->processed, utilities::task_status_e::Ongoing);
       auto handle = [&scheduled_task, &db_connector, worker_ptr = worker.get()](
                         utilities::task_status_e status) {
         on_task_ran(status, scheduled_task, db_connector, worker_ptr);
@@ -225,7 +229,7 @@ void run_completion_op(std::shared_ptr<database_connector_t> &db_connector,
   auto task_result_ptr = bg_worker.task_result();
   bool const status_changed = db_connector->change_task_status(
       task_result_ptr->task_id, task_result_ptr->total_numbers,
-      task_result_ptr->operation_status);
+      task_result_ptr->ip_used, task_result_ptr->operation_status);
   if (status_changed) {
     if (std::filesystem::exists(bg_worker.filename())) {
       if (bg_worker.number_stream()->is_open()) {
@@ -363,9 +367,9 @@ bool save_status_to_persistent_storage(
     spdlog::error("Unable to remove file because: {}", ec.message());
   }
   return db_connector->save_stopped_task(stopped_task) &&
-         db_connector->change_task_status(stopped_task.task_id,
-                                          task_result_ptr->processed,
-                                          task_result_ptr->operation_status);
+         db_connector->change_task_status(
+             stopped_task.task_id, task_result_ptr->processed,
+             task_result_ptr->ip_used, task_result_ptr->operation_status);
 }
 
 std::string get_shangai_time(net::io_context &context) {

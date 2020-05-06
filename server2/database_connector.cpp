@@ -7,7 +7,8 @@ using utilities::task_result_t;
 otl_stream &operator>>(otl_stream &os, task_result_t &item) {
   return os >> item.id >> item.total >> item.task_status >>
          item.scheduled_date >> item.website_id >> item.data_ids >>
-         item.processed >> item.not_ok >> item.unknown;
+         item.processed >> item.not_ok >> item.unknown >> item.scans_per_ip >>
+         item.ip_used;
 }
 
 otl_stream &operator>>(otl_stream &os, utilities::upload_result_t &item) {
@@ -193,11 +194,12 @@ bool database_connector_t::add_task(utilities::scheduled_task_t &task) {
   std::string sql_statement{
       "INSERT INTO tb_tasks (scheduler_id, date_scheduled, website_id, "
       "uploads, processed, total_numbers, ok_count, not_ok_count, "
-      "unknown_count, status) VALUES( {}, \"{}\", {},"
-      "\"{}\", 0, {}, 0, 0, 0, {} )"_format(
+      "unknown_count, status, per_ip, ip_used) VALUES( {}, \"{}\", {},"
+      "\"{}\", 0, {}, 0, 0, 0, {}, {}, 0)"_format(
           task.scheduler_id, time_str, task.website_id,
           intlist_to_string(task.number_ids), task.total_numbers,
-          static_cast<int>(utilities::task_status_e::NotStarted))};
+          static_cast<int>(utilities::task_status_e::NotStarted),
+          task.scans_per_ip)};
   try {
     {
       std::lock_guard<std::mutex> lock_g{db_mutex_};
@@ -214,12 +216,14 @@ bool database_connector_t::add_task(utilities::scheduled_task_t &task) {
 }
 
 bool database_connector_t::update_task_progress(
-    utilities::internal_task_result_t const &task) {
+    utilities::internal_task_result_t const &task,
+    uint32_t const total_ip_used) {
   std::string const sql_statement =
       "UPDATE tb_tasks SET status={}, processed={}, ok_count={}, "
-      "not_ok_count={}, unknown_count={} WHERE id={}"_format(
-          static_cast<uint32_t>(task.operation_status), task.processed,
-          task.ok_count, task.not_ok_count, task.unknown_count, task.task_id);
+      "not_ok_count={}, unknown_count={}, ip_used={} WHERE "
+      "id={}"_format(static_cast<uint32_t>(task.operation_status),
+                     task.processed, task.ok_count, task.not_ok_count,
+                     task.unknown_count, total_ip_used, task.task_id);
   try {
     std::lock_guard<std::mutex> lock_g{db_mutex_};
     int const status = otl_cursor::direct_exec(
@@ -235,7 +239,7 @@ bool database_connector_t::save_stopped_task(atomic_task_t const &task) {
   std::string const sql_statement =
       "UPDATE tb_tasks SET ok_file='{}', ok2_file='{}', not_ok_file='{}', "
       "unknown_file='{}', input_filename='{}', ok_count={}, not_ok_count={},"
-      "unknown_count={} WHERE id={}"_format(
+      "unknown_count={}, WHERE id={}"_format(
           task.ok_filename, task.ok2_filename, task.not_ok_filename,
           task.unknown_filename, task.input_filename, task.ok_count,
           task.not_ok_count, task.unknown_count, task.task_id);
@@ -252,12 +256,13 @@ bool database_connector_t::save_stopped_task(atomic_task_t const &task) {
   }
 }
 
-bool database_connector_t::change_task_status(uint32_t task_id,
+bool database_connector_t::change_task_status(uint32_t const task_id,
                                               uint32_t const processed,
+                                              uint32_t const ip_used,
                                               utilities::task_status_e status) {
   std::string const sql_statement =
-      "UPDATE tb_tasks SET status={}, processed={} WHERE id = {}"_format(
-          static_cast<uint32_t>(status), processed, task_id);
+      "UPDATE tb_tasks SET status={}, processed={}, ip_used={} WHERE "
+      "id={}"_format(status, processed, ip_used, task_id);
   try {
     std::lock_guard<std::mutex> lock_g{db_mutex_};
     int const status = otl_cursor::direct_exec(
@@ -295,13 +300,13 @@ std::vector<utilities::task_result_t> database_connector_t::get_all_tasks(
   if (task_ids.empty()) {
     sql_statement =
         "SELECT id, total_numbers, status, date_scheduled, website_id, "
-        "uploads, processed, not_ok_count, unknown_count FROM tb_tasks "
-        "WHERE scheduler_id={}"_format(user_id.to_string());
+        "uploads, processed, not_ok_count, unknown_count, per_ip, ip_used"
+        " FROM tb_tasks WHERE scheduler_id={}"_format(user_id.to_string());
   } else {
     sql_statement =
         "SELECT id, total_numbers, status, date_scheduled, website_id, "
-        "uploads, processed, not_ok_count, unknown_count FROM tb_tasks "
-        "WHERE scheduler_id ={} AND id IN ({})"_format(
+        "uploads, processed, not_ok_count, unknown_count, per_ip, ip_used, "
+        "FROM tb_tasks WHERE scheduler_id ={} AND id IN ({})"_format(
             user_id.to_string(), utilities::svector_to_string(task_ids));
   }
   std::lock_guard<std::mutex> lock_g{db_mutex_};
@@ -386,7 +391,7 @@ bool database_connector_t::get_stopped_tasks(
   std::string const sql_statement =
       "SELECT id, website_id, processed, total_numbers, input_filename, "
       "ok_file, not_ok_file, unknown_file, ok2_file, ok_count, not_ok_count, "
-      "unknown_count FROM tb_tasks WHERE id IN ({})"_format(
+      "unknown_count, per_ip, ip_used FROM tb_tasks WHERE id IN ({})"_format(
           utilities::intlist_to_string(tasks));
   try {
     std::lock_guard<std::mutex> lock_g{db_mutex_};
@@ -398,7 +403,8 @@ bool database_connector_t::get_stopped_tasks(
            stopped_task.input_filename >> stopped_task.ok_filename >>
            stopped_task.not_ok_filename >> stopped_task.unknown_filename >>
            stopped_task.ok2_filename >> stopped_task.ok_count >>
-           stopped_task.not_ok_count >> stopped_task.unknown_count) {
+           stopped_task.not_ok_count >> stopped_task.unknown_count >>
+           stopped_task.scans_per_ip >> stopped_task.ip_used) {
       stopped_task.type_ = stopped_task.stopped;
       stopped_tasks.push_back(stopped_task);
     }

@@ -18,7 +18,13 @@ using tcp = ip::tcp;
 
 net::io_context &get_network_context();
 
-enum class ProxyProperty { ProxyUnresponsive, ProxyBlocked, ProxyActive };
+enum class ProxyProperty {
+  ProxyUnresponsive,
+  ProxyBlocked,
+  ProxyActive,
+  ProxyMaxedOut
+};
+
 enum class proxy_type_e : int { socks5 = 0, http_https_proxy = 1 };
 
 struct extraction_data {
@@ -44,6 +50,7 @@ struct custom_endpoint {
   tcp::endpoint endpoint_{};
   std::string user_name_{};
   std::string password_{};
+  int number_scanned{};
   ProxyProperty property{ProxyProperty::ProxyActive};
 
   custom_endpoint(tcp::endpoint &&ep, std::string const &username,
@@ -137,8 +144,8 @@ protected:
   std::uint32_t const website_id_;
   std::time_t last_fetch_time_{};
 
+  std::uint32_t proxies_used_{};
   std::string filename_;
-
   extraction_data current_extracted_data_;
   std::mutex mutex_{};
   std::size_t count_{};
@@ -162,6 +169,7 @@ public:
   proxy_type_e type() const;
   void add_more(std::thread::id const, std::uint32_t const, proxy_type_e,
                 std::vector<custom_endpoint> const &);
+  uint32_t total_used() const { return proxies_used_; }
 };
 
 class http_proxy final : public proxy_base {

@@ -212,7 +212,8 @@ void proxy_base::get_more_proxies() {
   for (auto const &ep : new_eps) {
     endpoints_.push_back(std::make_shared<custom_endpoint>(ep));
   }
-  save_proxies_to_file();
+  proxies_used_ += new_eps.size();
+  // save_proxies_to_file();
 }
 
 void proxy_base::add_more(std::thread::id const thread_id,
@@ -261,9 +262,10 @@ void proxy_base::save_proxies_to_file() {
 }
 
 void proxy_base::load_proxy_file() {
+  return get_more_proxies();
+  /*
   std::filesystem::path const http_filename_path{filename_};
   if (!std::filesystem::exists(http_filename_path)) {
-    return get_more_proxies();
   }
   std::ifstream proxy_file{http_filename_path};
   if (!proxy_file) {
@@ -297,7 +299,7 @@ void proxy_base::load_proxy_file() {
     } catch (std::exception const &e) {
       spdlog::error("Error while converting( {} ), {}", line, e.what());
     }
-  }
+  }*/
 }
 
 endpoint_ptr proxy_base::next_endpoint() {
