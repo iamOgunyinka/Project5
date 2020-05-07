@@ -62,6 +62,8 @@ void background_worker_t::on_data_result_obtained(
 
   bool const signallable = (processed % proxy_config_->max_socket) == 0;
   if (signallable) {
+    spdlog::info("Task({}): Processed {} of {}", task_result_ptr_->task_id,
+                 processed, total);
     db_connector->update_task_progress(*task_result_ptr_,
                                        proxy_provider_->total_used());
   }

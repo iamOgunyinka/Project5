@@ -1,7 +1,4 @@
 #include "safe_proxy.hpp"
-
-#include <spdlog/spdlog.h>
-
 #include "utilities.hpp"
 #include <boost/algorithm/string.hpp>
 #include <boost/lexical_cast.hpp>
@@ -9,6 +6,7 @@
 #include <fstream>
 #include <iomanip>
 #include <set>
+#include <spdlog/spdlog.h>
 #include <sstream>
 
 namespace wudi_server {
@@ -32,7 +30,7 @@ extraction_data proxy_base::get_remain_count() {
     http_tcp_stream.connect(resolves);
     beast::http::request<http::empty_body> http_request{};
     http_request.method(http::verb::get);
-    http_request.target(count_url_.path());
+    http_request.target(count_url_.target());
     http_request.version(11);
     http_request.set(http::field::host, count_url_.host());
     http_request.set(http::field::user_agent, utilities::get_random_agent());
@@ -106,6 +104,26 @@ extraction_data proxy_base::get_remain_count() {
   }
 }
 
+void split_ips(std::vector<std::string> &out, std::string const &str) {
+  std::size_t i = 0;
+  std::size_t last_read_index = i;
+
+  while (i < str.size()) {
+    if (str[i] == '\n' || str[i] == '\\') {
+      out.emplace_back(
+          std::string(str.cbegin() + last_read_index, str.cbegin() + i));
+      i = last_read_index = str.find_first_of("0123456789.", i);
+      if (i == std::string::npos)
+        break;
+    }
+    ++i;
+  }
+  if (last_read_index != i) {
+    out.emplace_back(
+        std::string(str.cbegin() + last_read_index, str.cbegin() + i));
+  }
+}
+
 void proxy_base::get_more_proxies() {
   if (last_fetch_time_ == 0) {
     last_fetch_time_ = std::time(nullptr);
@@ -147,7 +165,7 @@ void proxy_base::get_more_proxies() {
       http_tcp_stream.connect(resolves);
       http_request_ = {};
       http_request_.method(http::verb::get);
-      http_request_.target(more_ip_uri_.path());
+      http_request_.target(more_ip_uri_.target());
       http_request_.version(11);
       http_request_.set(http::field::host, more_ip_uri_.host());
       http_request_.set(http::field::user_agent, utilities::get_random_agent());
@@ -164,8 +182,7 @@ void proxy_base::get_more_proxies() {
         return spdlog::error("Error obtaining proxy servers from server");
       }
       std::vector<std::string> ips;
-      boost::split(ips, response_body,
-                   [](char const ch) { return ch == '\n'; });
+      split_ips(ips, response_body);
       if (ips.empty() || response_body.find('{') != std::string::npos) {
         has_error_ = true;
         return spdlog::error("IPs empty: {}", response_body);
@@ -213,7 +230,7 @@ void proxy_base::get_more_proxies() {
     endpoints_.push_back(std::make_shared<custom_endpoint>(ep));
   }
   proxies_used_ += new_eps.size();
-  // save_proxies_to_file();
+  save_proxies_to_file();
 }
 
 void proxy_base::add_more(std::thread::id const thread_id,
@@ -262,10 +279,9 @@ void proxy_base::save_proxies_to_file() {
 }
 
 void proxy_base::load_proxy_file() {
-  return get_more_proxies();
-  /*
   std::filesystem::path const http_filename_path{filename_};
   if (!std::filesystem::exists(http_filename_path)) {
+    return get_more_proxies();
   }
   std::ifstream proxy_file{http_filename_path};
   if (!proxy_file) {
@@ -299,7 +315,7 @@ void proxy_base::load_proxy_file() {
     } catch (std::exception const &e) {
       spdlog::error("Error while converting( {} ), {}", line, e.what());
     }
-  }*/
+  }
 }
 
 endpoint_ptr proxy_base::next_endpoint() {
@@ -318,7 +334,7 @@ endpoint_ptr proxy_base::next_endpoint() {
   }
   get_more_proxies();
   endpoints_.remove_if([](auto const &ep) {
-    return ep->property == ProxyProperty::ProxyBlocked;
+    return ep->property != ProxyProperty::ProxyActive;
   });
   count_ = 0;
   return next_endpoint();

@@ -280,11 +280,13 @@ std::array<char const *, LenUserAgents> const request_handler::user_agents = {
 
 uri::uri(const std::string &url_s) { parse(url_s); }
 
+std::string uri::target() const { return path_ + "?" + query_; }
+
+std::string uri::protocol() const { return protocol_; }
+
 std::string uri::path() const { return path_; }
 
 std::string uri::host() const { return host_; }
-
-std::string uri::protocol() const { return protocol_; }
 
 void uri::parse(const std::string &url_s) {
   std::string const prot_end{"://"};

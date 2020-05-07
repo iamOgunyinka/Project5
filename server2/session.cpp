@@ -11,11 +11,11 @@
 #endif // !WUDI_SOFTWARE_VERSION
 
 namespace wudi_server {
-std::filesystem::path const download_path =
-    std::filesystem::current_path() / "downloads" / "zip_files";
-
 using namespace fmt::v6::literals;
 enum constant_e { RequestBodySize = 1024 * 1024 * 50 };
+
+std::filesystem::path const download_path =
+    std::filesystem::current_path() / "downloads" / "zip_files";
 
 rule_t::rule_t(std::initializer_list<http::verb> &&verbs, callback_t callback)
     : num_verbs_{verbs.size()}, route_callback_{std::move(callback)} {
@@ -107,8 +107,9 @@ void session::add_endpoint_interfaces() {
       });
   endpoint_apis_.add_endpoint(
       "/get_file", {verb::get},
-      beast::bind_front_handler(&session::get_file_handler,
-                                shared_from_this()));
+      std::bind(&session::get_file_handler, shared_from_this(),
+                std::placeholders::_1, std::placeholders::_2));
+
   endpoint_apis_.add_endpoint(
       "/get_config", {verb::get, verb::post},
       [=](string_request const &request, url_query const &optional_query) {

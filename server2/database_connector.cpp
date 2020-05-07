@@ -239,7 +239,7 @@ bool database_connector_t::save_stopped_task(atomic_task_t const &task) {
   std::string const sql_statement =
       "UPDATE tb_tasks SET ok_file='{}', ok2_file='{}', not_ok_file='{}', "
       "unknown_file='{}', input_filename='{}', ok_count={}, not_ok_count={},"
-      "unknown_count={}, WHERE id={}"_format(
+      "unknown_count={} WHERE id={}"_format(
           task.ok_filename, task.ok2_filename, task.not_ok_filename,
           task.unknown_filename, task.input_filename, task.ok_count,
           task.not_ok_count, task.unknown_count, task.task_id);
@@ -305,7 +305,7 @@ std::vector<utilities::task_result_t> database_connector_t::get_all_tasks(
   } else {
     sql_statement =
         "SELECT id, total_numbers, status, date_scheduled, website_id, "
-        "uploads, processed, not_ok_count, unknown_count, per_ip, ip_used, "
+        "uploads, processed, not_ok_count, unknown_count, per_ip, ip_used "
         "FROM tb_tasks WHERE scheduler_id ={} AND id IN ({})"_format(
             user_id.to_string(), utilities::svector_to_string(task_ids));
   }
