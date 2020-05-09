@@ -142,7 +142,7 @@ template <typename Derived, typename Proxy>
 void socks5_https_socket_base_t<Derived, Proxy>::on_first_handshake_initiated(
     error_code const ec, std::size_t const) {
   if (ec) { // could be timeout
-    spdlog::error("first handshake failed: {}", ec.message());
+    // spdlog::error("first handshake failed: {}", ec.message());
     current_proxy_assign_prop(Proxy::Property::ProxyUnresponsive);
     return choose_next_proxy();
   }
@@ -169,7 +169,7 @@ void socks5_https_socket_base_t<Derived, ProxyProvider>::
                                          std::size_t const sz) {
 
   if (ec) {
-    spdlog::error(ec.message());
+    // spdlog::error(ec.message());
     current_proxy_assign_prop(ProxyProvider::Property::ProxyUnresponsive);
     return choose_next_proxy();
   }
@@ -179,14 +179,16 @@ void socks5_https_socket_base_t<Derived, ProxyProvider>::
   auto const version = p1[0];
   auto const method = p1[1];
   if (version != SOCKS_VERSION_5) {
-    spdlog::error("version used on SOCKS server is not v5 but `{}`", version);
+    // spdlog::error("version used on SOCKS server is not v5 but `{}`",
+    // version);
     current_proxy_assign_prop(ProxyProvider::Property::ProxyUnresponsive);
     return choose_next_proxy();
   }
 
   if (method == SOCKS5_AUTH) {
     if (current_proxy_->username().empty()) {
-      spdlog::error("Proxy demanded username/password, but we don't have it");
+      // spdlog::error("Proxy demanded username/password, but we don't have
+      // it");
       current_proxy_assign_prop(ProxyProvider::Property::ProxyUnresponsive);
       return choose_next_proxy();
     }
@@ -210,7 +212,7 @@ void socks5_https_socket_base_t<Derived, ProxyProvider>::
             net::const_buffer(handshake_buffer.data(), handshake_buffer.size()),
             [this](beast::error_code const ec, std::size_t const) {
               if (ec) {
-                spdlog::error("Unable to write to stream: {}", ec.message());
+                // spdlog::error("Unable to write to stream: {}", ec.message());
                 return choose_next_proxy();
               }
               reply_buffer.clear();
@@ -229,7 +231,7 @@ void socks5_https_socket_base_t<Derived, ProxyProvider>::
   if (method == SOCKS5_AUTH_NONE) {
     return perform_sock5_second_handshake();
   }
-  spdlog::error("unsupported socks version");
+  // spdlog::error("unsupported socks version");
   choose_next_proxy();
 }
 
@@ -238,7 +240,7 @@ void socks5_https_socket_base_t<Derived, ProxyProvider>::
     on_auth_response_received(beast::error_code const ec,
                               std::size_t const sz) {
   if (ec) {
-    spdlog::error("[auth_response_received] {}", ec.message());
+    // spdlog::error("[auth_response_received] {}", ec.message());
     current_proxy_assign_prop(ProxyProvider::Property::ProxyUnresponsive);
     return choose_next_proxy();
   }
@@ -247,12 +249,12 @@ void socks5_https_socket_base_t<Derived, ProxyProvider>::
   auto const version = p1[0];
   auto const status = p1[1];
   if (version != 0x01) {
-    spdlog::error("unsupported authentication type");
+    // spdlog::error("unsupported authentication type");
     current_proxy_assign_prop(ProxyProvider::Property::ProxyUnresponsive);
     return choose_next_proxy();
   }
   if (status != 0x00) {
-    spdlog::error("authentication error");
+    // spdlog::error("authentication error");
     current_proxy_assign_prop(ProxyProvider::Property::ProxyUnresponsive);
     return choose_next_proxy();
   }
@@ -313,7 +315,7 @@ template <typename Derived, typename ProxyProvider>
 void socks5_https_socket_base_t<Derived, ProxyProvider>::
     on_handshake_response_received(beast::error_code ec, std::size_t const sz) {
   if (ec) {
-    spdlog::error("[second_handshake_read_error] {} {}", ec.message(), sz);
+    // spdlog::error("[second_handshake_read_error] {} {}", ec.message(), sz);
     return choose_next_proxy();
   }
   char const *p1 = reinterpret_cast<char const *>(reply_buffer.data());
@@ -326,14 +328,14 @@ void socks5_https_socket_base_t<Derived, ProxyProvider>::
   int const a_type = read_byte<uint8_t>(p1);
 
   if (version != SOCKS_VERSION_5) {
-    spdlog::error("version supported is not sk5");
+    // spdlog::error("version supported is not sk5");
     current_proxy_assign_prop(ProxyProvider::Property::ProxyUnresponsive);
     return choose_next_proxy();
   }
 
   if (a_type != SOCKS5_ATYP_IPV4 && a_type != SOCKS5_ATYP_DOMAINNAME &&
       a_type != SOCKS5_ATYP_IPV6) {
-    spdlog::error("SOCKS5 general failure");
+    // spdlog::error("SOCKS5 general failure");
     current_proxy_assign_prop(ProxyProvider::Property::ProxyUnresponsive);
     return choose_next_proxy();
   }
@@ -372,7 +374,7 @@ template <typename Derived, typename ProxyProvider>
 void socks5_https_socket_base_t<Derived, ProxyProvider>::process_ipv4_response(
     beast::error_code ec, std::size_t const sz) {
   if (ec) {
-    spdlog::error("[process_ipv4_response] {}", ec.message());
+    // spdlog::error("[process_ipv4_response] {}", ec.message());
     current_proxy_assign_prop(ProxyProvider::Property::ProxyUnresponsive);
     return choose_next_proxy();
   }
@@ -394,12 +396,15 @@ void socks5_https_socket_base_t<Derived, ProxyProvider>::process_ipv4_response(
       domain_name.push_back(read_byte<uint8_t>(p1));
     }
     auto const port = read_byte<uint16_t>(p1);
-    spdlog::info("DN: {} and {}", domain_name, port);
+    (void)port;
+    (void)domain_name;
+    // spdlog::info("DN: {} and {}", domain_name, port);
   } else if (a_type == SOCKS5_ATYP_IPV4) {
     tcp::endpoint remote_endp(net::ip::address_v4(read_byte<uint32_t>(p1)),
                               read_byte<uint16_t>(p1));
-    spdlog::info("v4: {} and {}", remote_endp.address().to_string(),
-                 remote_endp.port());
+    // spdlog::info("v4: {} and {}", remote_endp.address().to_string(),
+    //             remote_endp.port());
+    (void)remote_endp;
   } else if (a_type == SOCKS5_ATYP_IPV6) {
     net::ip::address_v6::bytes_type bytes;
     for (auto i = 0; i != 16; ++i) {
@@ -407,8 +412,9 @@ void socks5_https_socket_base_t<Derived, ProxyProvider>::process_ipv4_response(
     }
     tcp::endpoint remote_endp(net::ip::address_v6(bytes),
                               read_byte<uint16_t>(p1));
-    spdlog::info("v6: {} and {}", remote_endp.address().to_string(),
-                 remote_endp.port());
+    // spdlog::info("v6: {} and {}", remote_endp.address().to_string(),
+    //             remote_endp.port());
+    (void)remote_endp;
   } else {
     beast::error_code ec{};
     if (rep != 0) {
@@ -461,11 +467,11 @@ void socks5_https_socket_base_t<Derived, Proxy>::on_ssl_handshake(
     return send_https_data();
   }
   if (ec == http::error::end_of_stream) {
-    spdlog::error("SSL: {}", ec.message());
+    //spdlog::error("SSL: {}", ec.message());
     return choose_next_proxy();
   }
   if (ec) {
-    spdlog::error("SSL handshake: {}", ec.message());
+    //spdlog::error("SSL handshake: {}", ec.message());
     current_proxy_assign_prop(Proxy::Property::ProxyUnresponsive);
     return choose_next_proxy();
   }
@@ -592,7 +598,7 @@ template <typename Derived, typename Proxy>
 void socks5_https_socket_base_t<Derived, Proxy>::on_data_sent(
     beast::error_code ec, std::size_t const s) {
   if (ec) {
-    spdlog::error(ec.message());
+    //spdlog::error(ec.message());
     return resend_http_request();
   }
   receive_data();
