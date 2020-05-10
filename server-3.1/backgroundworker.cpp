@@ -242,35 +242,35 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
 
   // here, when this signal is emitted, all workers subscribe to it so they
   // can have copies of the new proxies obtained
-  /*
   if (proxy_config_->share_proxy) {
     signal_connector_ = new_proxy_signal_->connect([this](auto &&... args) {
       proxy_provider_->add_more(std::forward<decltype(args)>(args)...);
     });
   }
-  */
-  {
-    sockets_.reserve(static_cast<std::size_t>(proxy_config_->max_socket));
-    proxy_config_->max_socket = std::max<int>(1, proxy_config_->max_socket);
-    int const per_ip = task_result_ptr_->scans_per_ip;
-    auto const proxy_type = proxy_provider_->type();
 
-    for (int i = 0; i != proxy_config_->max_socket; ++i) {
-      auto c_socket = get_socket(proxy_type, is_stopped, *io_context_,
-                                 *proxy_provider_, *number_stream_, per_ip);
-      sockets_.push_back(std::move(c_socket));
-    }
-    for (auto &socket : sockets_) {
-      std::visit(
-          [=](auto &&sock) {
-            sock.signal().connect(callback);
-            sock.start_connect();
-          },
-          *socket);
-    }
+  sockets_.reserve(static_cast<std::size_t>(proxy_config_->max_socket));
+  proxy_config_->max_socket = std::max<int>(1, proxy_config_->max_socket);
+  int const per_ip = task_result_ptr_->scans_per_ip;
+  auto const proxy_type = proxy_provider_->type();
 
-    io_context_->run();
+  for (int i = 0; i != proxy_config_->max_socket; ++i) {
+    auto c_socket = get_socket(proxy_type, is_stopped, *io_context_,
+                               *proxy_provider_, *number_stream_, per_ip);
+    if (!c_socket) {
+      return task_status_e::AutoStopped;
+    }
+    sockets_.push_back(std::move(c_socket));
   }
+  for (auto &socket : sockets_) {
+    std::visit(
+        [=](auto &&sock) {
+          sock.signal().connect(callback);
+          sock.start_connect();
+        },
+        *socket);
+  }
+
+  io_context_->run();
 
   if (task_result_ptr_->operation_status == task_status_e::Ongoing) {
     if (number_stream_->empty()) {

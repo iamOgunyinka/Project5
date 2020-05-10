@@ -126,7 +126,6 @@ void auto_home_http_socket_t<Proxy>::data_received(beast::error_code ec,
     } else {
       signal_(search_result_type_e::Unknown, current_number_);
     }
-
   } catch (...) {
     signal_(search_result_type_e::Unknown, current_number_);
   }

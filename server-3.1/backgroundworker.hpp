@@ -80,9 +80,7 @@ private:
         return std::make_unique<vsocket_type>(std::in_place_type<ah_https>,
                                               std::forward<Args>(args)...);
       case website_type_e::JJGames:
-        return std::make_unique<vsocket_type>(std::in_place_type<jjgames_sk5>,
-                                              ssl_context_,
-                                              std::forward<Args>(args)...);
+        return nullptr;
       case website_type_e::PPSports:
         return std::make_unique<vsocket_type>(std::in_place_type<pps_http>,
                                               std::forward<Args>(args)...);
