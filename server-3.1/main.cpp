@@ -3,9 +3,7 @@
 #include "server.hpp"
 #include "worker.hpp"
 #include <CLI11/CLI11.hpp>
-#include <atomic>
 #include <boost/asio/ssl/context.hpp>
-#include <spdlog/spdlog.h>
 #include <thread>
 
 enum constant_e { WorkerThreadCount = 15 };
@@ -47,7 +45,15 @@ int main(int argc, char *argv[]) {
       boost::asio::ssl::context::tlsv11_client);
   ssl_context.set_default_verify_paths();
   ssl_context.set_verify_mode(boost::asio::ssl::verify_none);
-
+  {
+    auto proxy_config = wudi_server::read_proxy_configuration();
+    if (!proxy_config) {
+      std::cerr << "Unable to read proxy configuration file\n";
+      return -1;
+    }
+    wudi_server::utilities::proxy_fetch_interval() =
+        proxy_config->fetch_interval;
+  }
   wudi_server::asio::io_context io_context{static_cast<int>(thread_count)};
   {
     using wudi_server::background_task_executor;

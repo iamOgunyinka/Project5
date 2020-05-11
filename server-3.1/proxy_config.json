@@ -6,13 +6,14 @@
         ],
         "#explanation": "`protocol`= 1 to use http/https, `protocol`=0 to use socks",
         "count_target": "http://api.wandoudl.com/api/product/list?app_key=19ead3cb7a5d477f5d480d850f18de94",
-        "password": "",
+        "fetch_interval": 120,
+        "password": "oluwaseun",
         "per_fetch": 50,
         "protocol": 0,
-        "share": false,
-        "socket_count": 10,
+        "share": true,
+        "socket_count": 7,
         "target": "http://api.wandoudl.com/api/ip?app_key=19ead3cb7a5d477f5d480d850f18de94&pack=210602&num=50&xy=3&type=1&lb=\\n&mr=1&",
-        "username": ""
+        "username": "joshua"
     },
     "socket": {
         "per_ip": 0

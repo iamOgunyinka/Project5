@@ -3,6 +3,57 @@
 #include <filesystem>
 
 namespace wudi_server {
+
+std::optional<proxy_configuration_t> read_proxy_configuration() {
+  std::ifstream in_file{"./proxy_config.json"};
+  if (!in_file)
+    return std::nullopt;
+  std::optional<proxy_configuration_t> proxy_config{};
+  proxy_config.emplace();
+  try {
+    json json_file;
+    in_file >> json_file;
+    json::object_t root_object = json_file.get<json::object_t>();
+    auto proxy_field = root_object["proxy"].get<json::object_t>();
+    auto available_protocols =
+        proxy_field["#available_protocols"].get<json::array_t>();
+    std::size_t const highest_index = available_protocols.size();
+    std::size_t const protocol_index =
+        proxy_field["protocol"].get<json::number_integer_t>();
+    proxy_config->proxy_target = proxy_field["target"].get<json::string_t>();
+    proxy_config->count_target =
+        proxy_field["count_target"].get<json::string_t>();
+    proxy_config->proxy_username =
+        proxy_field["username"].get<json::string_t>();
+    proxy_config->proxy_password =
+        proxy_field["password"].get<json::string_t>();
+    proxy_config->share_proxy = proxy_field["share"].get<json::boolean_t>();
+    proxy_config->max_socket =
+        proxy_field["socket_count"].get<json::number_integer_t>();
+    proxy_config->fetch_once =
+        proxy_field["per_fetch"].get<json::number_integer_t>();
+    proxy_config->fetch_interval =
+        proxy_field["fetch_interval"].get<json::number_integer_t>();
+    if (protocol_index >= highest_index)
+      return std::nullopt;
+    switch (protocol_index) {
+    case 0:
+      proxy_config->proxy_protocol = proxy_type_e::socks5;
+      break;
+    case 1:
+      proxy_config->proxy_protocol = proxy_type_e::http_https_proxy;
+      break;
+    default:
+      spdlog::error("unknown proxy procotol specified");
+      return std::nullopt;
+    }
+  } catch (std::exception const &e) {
+    spdlog::error("[read_proxy_configuration] {}", e.what());
+    return std::nullopt;
+  }
+  return proxy_config;
+}
+
 background_worker_t::~background_worker_t() {
   signal_connector_.disconnect();
   sockets_.clear();
@@ -72,53 +123,6 @@ void background_worker_t::on_data_result_obtained(
     task_result_ptr_->stop();
     task_result_ptr_->operation_status = task_status_e::AutoStopped;
   }
-}
-
-bool background_worker_t::read_proxy_configuration() {
-  proxy_config_.emplace();
-  std::ifstream in_file{"./proxy_config.json"};
-  if (!in_file)
-    return false;
-  try {
-    json json_file;
-    in_file >> json_file;
-    json::object_t root_object = json_file.get<json::object_t>();
-    auto proxy_field = root_object["proxy"].get<json::object_t>();
-    auto available_protocols =
-        proxy_field["#available_protocols"].get<json::array_t>();
-    std::size_t const highest_index = available_protocols.size();
-    std::size_t const protocol_index =
-        proxy_field["protocol"].get<json::number_integer_t>();
-    proxy_config_->proxy_target = proxy_field["target"].get<json::string_t>();
-    proxy_config_->count_target =
-        proxy_field["count_target"].get<json::string_t>();
-    proxy_config_->proxy_username =
-        proxy_field["username"].get<json::string_t>();
-    proxy_config_->proxy_password =
-        proxy_field["password"].get<json::string_t>();
-    proxy_config_->share_proxy = proxy_field["share"].get<json::boolean_t>();
-    proxy_config_->max_socket =
-        proxy_field["socket_count"].get<json::number_integer_t>();
-    proxy_config_->fetch_once =
-        proxy_field["per_fetch"].get<json::number_integer_t>();
-    if (protocol_index >= highest_index)
-      return false;
-    switch (protocol_index) {
-    case 0:
-      proxy_config_->proxy_protocol = proxy_type_e::socks5;
-      break;
-    case 1:
-      proxy_config_->proxy_protocol = proxy_type_e::http_https_proxy;
-      break;
-    default:
-      spdlog::error("unknown proxy procotol specified");
-      return false;
-    }
-  } catch (std::exception const &e) {
-    spdlog::error("[read_proxy_configuration] {}", e.what());
-    return false;
-  }
-  return true;
 }
 
 bool background_worker_t::open_output_files() {
@@ -207,9 +211,6 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
       return task_status_e::Erred;
     }
   }
-
-  auto callback = std::bind(&background_worker_t::on_data_result_obtained, this,
-                            std::placeholders::_1, std::placeholders::_2);
   if (!db_connector->set_input_files(
           input_filename, task_result_ptr_->ok_filename.string(),
           task_result_ptr_->ok2_filename.string(),
@@ -220,7 +221,8 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
     return task_status_e::Erred;
   }
   // we delayed construction of safe_proxy/io_context until now
-  if (!read_proxy_configuration()) {
+  proxy_config_ = read_proxy_configuration();
+  if (!proxy_config_) {
     return task_status_e::Erred;
   }
 
@@ -240,13 +242,14 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
     return task_status_e::Erred;
   }
 
-  // here, when this signal is emitted, all workers subscribe to it so they
+  // when this signal is emitted, all workers subscribe to it so they
   // can have copies of the new proxies obtained
   if (proxy_config_->share_proxy) {
     signal_connector_ = new_proxy_signal_->connect([this](auto &&... args) {
       proxy_provider_->add_more(std::forward<decltype(args)>(args)...);
     });
   }
+  proxy_provider_->total_used(task_result_ptr_->ip_used);
 
   sockets_.reserve(static_cast<std::size_t>(proxy_config_->max_socket));
   proxy_config_->max_socket = std::max<int>(1, proxy_config_->max_socket);
@@ -261,6 +264,9 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
     }
     sockets_.push_back(std::move(c_socket));
   }
+  auto callback = [=](search_result_type_e type, std::string_view number) {
+    on_data_result_obtained(type, number);
+  };
   for (auto &socket : sockets_) {
     std::visit(
         [=](auto &&sock) {

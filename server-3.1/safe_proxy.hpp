@@ -5,6 +5,8 @@
 #include <boost/signals2/signal.hpp>
 #include <ctime>
 #include <memory>
+#include <optional>
+#include <set>
 #include <vector>
 
 namespace wudi_server {
@@ -19,10 +21,10 @@ using tcp = ip::tcp;
 net::io_context &get_network_context();
 
 enum class ProxyProperty {
-  ProxyUnresponsive,
-  ProxyBlocked,
   ProxyActive,
-  ProxyMaxedOut
+  ProxyBlocked,
+  ProxyMaxedOut,
+  ProxyUnresponsive
 };
 
 enum class proxy_type_e : int { socks5 = 0, http_https_proxy = 1 };
@@ -41,10 +43,13 @@ struct proxy_configuration_t {
   std::string proxy_target{};
   std::string count_target{};
   proxy_type_e proxy_protocol;
+  int fetch_interval{};
   int share_proxy{};
   int max_socket{};
   int fetch_once{};
 };
+
+std::optional<proxy_configuration_t> read_proxy_configuration();
 
 struct custom_endpoint {
   tcp::endpoint endpoint_{};
@@ -100,7 +105,7 @@ public:
     std::lock_guard<std::mutex> lock_g{mutex_};
     return container_[index];
   }
-  void remove(std::size_t const count) {
+  void remove_first_n(std::size_t const count) {
     std::lock_guard<std::mutex> lock_g{mutex_};
     if (container_.size() < count) {
       return container_.clear();
@@ -123,9 +128,15 @@ public:
 using endpoint_ptr = std::shared_ptr<custom_endpoint>;
 using endpoint_ptr_list = vector_wrapper<endpoint_ptr>;
 
-using NewProxySignal =
-    signals2::signal<void(std::thread::id, std::uint32_t, proxy_type_e,
-                          std::vector<custom_endpoint> const &)>;
+struct shared_data_t {
+  std::thread::id thread_id{};
+  std::uint32_t web_id{};
+  proxy_type_e proxy_type;
+  mutable std::set<uint32_t> shared_web_ids{};
+  std::vector<custom_endpoint> eps{};
+};
+
+using NewProxySignal = signals2::signal<void(shared_data_t const &)>;
 void swap(custom_endpoint &a, custom_endpoint &b);
 
 class global_proxy_repo_t {
@@ -136,15 +147,17 @@ public:
 };
 
 class proxy_base {
+  static std::time_t last_fetch_time_;
+  static std::mutex fetch_time_mutex_;
+
 protected:
   net::io_context &context_;
   NewProxySignal &broadcast_proxy_signal_;
   proxy_configuration_t &proxy_config_;
   std::thread::id const this_thread_id_;
   std::uint32_t const website_id_;
-  std::time_t last_fetch_time_{};
+  std::size_t proxies_used_{};
 
-  std::uint32_t proxies_used_{};
   std::string filename_;
   extraction_data current_extracted_data_;
   std::mutex mutex_{};
@@ -167,22 +180,18 @@ public:
   virtual ~proxy_base() {}
   endpoint_ptr next_endpoint();
   proxy_type_e type() const;
-  void add_more(std::thread::id const, std::uint32_t const, proxy_type_e,
-                std::vector<custom_endpoint> const &);
-  uint32_t total_used() const { return proxies_used_; }
+  void add_more(shared_data_t const &);
+  auto total_used() const { return proxies_used_; }
+  void total_used(int val) { proxies_used_ += val; }
 };
 
-class http_proxy final : public proxy_base {
-
-public:
+struct http_proxy final : proxy_base {
   http_proxy(net::io_context &, NewProxySignal &, proxy_configuration_t &,
              std::thread::id, std::uint32_t);
   ~http_proxy() {}
 };
 
-class socks5_proxy final : public proxy_base {
-
-public:
+struct socks5_proxy final : proxy_base {
   socks5_proxy(net::io_context &, NewProxySignal &, proxy_configuration_t &,
                std::thread::id, std::uint32_t);
   ~socks5_proxy() {}

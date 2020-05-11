@@ -127,6 +127,11 @@ bool create_file_directory(std::filesystem::path const &path) {
   return !ec;
 }
 
+std::time_t &proxy_fetch_interval() {
+  static std::time_t interval_between_fetches{};
+  return interval_between_fetches;
+}
+
 time_data_t get_time_data() {
   static std::random_device rd{};
   static std::mt19937 gen(rd());

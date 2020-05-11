@@ -16,6 +16,7 @@
 #include <vector>
 
 namespace wudi_server {
+
 class background_worker_t;
 using utilities::task_status_e;
 using utilities::upload_result_t;
@@ -63,7 +64,6 @@ public:
   std::string filename() { return input_filename; }
 
 private:
-  bool read_proxy_configuration();
   bool open_output_files();
   void on_data_result_obtained(utilities::search_result_type_e,
                                std::string_view);

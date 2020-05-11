@@ -411,6 +411,7 @@ char get_random_char();
 std::string get_random_string(std::size_t);
 std::size_t get_random_integer();
 bool create_file_directory(std::filesystem::path const &path);
+std::time_t &proxy_fetch_interval();
 time_data_t get_time_data();
 std::vector<boost::string_view> split_string_view(boost::string_view const &str,
                                                   char const *delimeter);

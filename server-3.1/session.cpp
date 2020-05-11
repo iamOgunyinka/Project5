@@ -54,26 +54,31 @@ session::session(asio::io_context &io, asio::ip::tcp::socket &&socket)
 
 void session::add_endpoint_interfaces() {
   using http::verb;
+
   endpoint_apis_.add_endpoint(
       "/", {verb::get},
       [=](string_request const &request, url_query const &optional_query) {
         index_page_handler(request, optional_query);
       });
+
   endpoint_apis_.add_endpoint(
       "/login", {verb::get, verb::post},
       [=](string_request const &request, url_query const &optional_query) {
         login_handler(request, optional_query);
       });
+
   endpoint_apis_.add_endpoint(
       "/upload", {verb::post, verb::delete_, verb::get},
       [=](string_request const &request, url_query const &optional_query) {
         upload_handler(request, optional_query);
       });
+
   endpoint_apis_.add_endpoint(
       "/website", {verb::post, verb::get, verb::post},
       [=](string_request const &request, url_query const &optional_query) {
         website_handler(request, optional_query);
       });
+
   endpoint_apis_.add_endpoint(
       "/schedule_task", {verb::post, verb::get, verb::delete_},
       [=](string_request const &request, url_query const &optional_query) {
@@ -85,30 +90,35 @@ void session::add_endpoint_interfaces() {
       [=](string_request const &request, url_query const &optional_query) {
         schedule_task_handler(request, optional_query);
       });
+
   endpoint_apis_.add_endpoint(
       "/download", {verb::post},
       [=](string_request const &request, url_query const &optional_query) {
         download_handler(request, optional_query);
       });
+
   endpoint_apis_.add_endpoint(
       "/stop", {verb::post},
       [=](string_request const &request, url_query const &optional_query) {
         stop_tasks_handler(request, optional_query);
       });
+
   endpoint_apis_.add_endpoint(
       "/start", {verb::post},
-      [=](string_request const &request, url_query const &optional_query) {
+      [=](auto const &request, auto const &optional_query) {
         restart_tasks_handler(request, optional_query);
       });
+
   endpoint_apis_.add_endpoint(
       "/remove", {verb::post},
       [=](string_request const &request, url_query const &optional_query) {
         remove_tasks_handler(request, optional_query);
       });
-  endpoint_apis_.add_endpoint(
-      "/get_file", {verb::get},
-      std::bind(&session::get_file_handler, shared_from_this(),
-                std::placeholders::_1, std::placeholders::_2));
+
+  endpoint_apis_.add_endpoint("/get_file", {verb::get},
+                              [this](auto const &req, auto const &query) {
+                                get_file_handler(req, query);
+                              });
 
   endpoint_apis_.add_endpoint(
       "/get_config", {verb::get, verb::post},
@@ -654,16 +664,21 @@ void session::proxy_config_handler(string_request const &request,
                                                std::size_t const size_written) {
           self->file_serializer_.reset();
           self->file_response_.reset();
-          std::error_code temp_ec{};
           self->on_data_written(ec, size_written);
         });
   }
-
+  // POST
   try {
     {
       // if this throws, the JSON file is not valid.
-      json::object_t const root =
-          json::parse(request.body()).get<json::object_t>();
+      json::object_t root = json::parse(request.body()).get<json::object_t>();
+      json::object_t proxy_object = root["proxy"].get<json::object_t>();
+      int const interval_between_fetch =
+          proxy_object["fetch_interval"].get<json::number_integer_t>();
+      auto &current_interval = utilities::proxy_fetch_interval();
+      if (current_interval != interval_between_fetch) {
+        current_interval = interval_between_fetch;
+      }
     }
     std::ofstream out_file{"./proxy_config.json",
                            std::ios::out | std::ios::trunc};

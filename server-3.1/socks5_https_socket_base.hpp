@@ -288,7 +288,7 @@ void socks5_https_socket_base_t<
           net::const_buffer(handshake_buffer.data(), handshake_buffer.size()),
           [this](beast::error_code ec, std::size_t const) {
             if (ec) {
-              spdlog::error("[second_socks_write] {}", ec.message());
+              //spdlog::error("[second_socks_write] {}", ec.message());
               current_proxy_assign_prop(
                   ProxyProvider::Property::ProxyUnresponsive);
               return choose_next_proxy();
