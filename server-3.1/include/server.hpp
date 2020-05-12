@@ -7,11 +7,8 @@
 namespace wudi_server {
 namespace utilities {
 struct command_line_interface {
-  std::size_t thread_count{};
   uint16_t port{3456};
-  uint16_t timeout_mins{15};
   std::string ip_address{"127.0.0.1"};
-  std::string scheduled_snapshot;
   std::string launch_type{"development"};
   std::string database_config_filename{"../scripts/config/database.ini"};
 };

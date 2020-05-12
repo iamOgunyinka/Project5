@@ -13,16 +13,11 @@ int main(int argc, char *argv[]) {
       "Wu-di: an asynchronous web server for Kiaowa Trading LLC"};
   wudi_server::command_line_interface args{};
   auto const thread_count = std::thread::hardware_concurrency();
-  args.thread_count = thread_count;
-
+  
   cli_parser.add_option("-p", args.port, "port to bind server to", true);
   cli_parser.add_option("-a", args.ip_address, "IP address to use", true);
-  cli_parser.add_option("-t", args.thread_count, "Number of threads to use",
-                        true);
   cli_parser.add_option("-d", args.database_config_filename,
                         "Database config filename", true);
-  cli_parser.add_option("--tL", args.scheduled_snapshot,
-                        "Scheduled task snapshot");
   cli_parser.add_option("-y", args.launch_type,
                         "Launch type(production, development)", true);
   CLI11_PARSE(cli_parser, argc, argv);
@@ -79,8 +74,8 @@ int main(int argc, char *argv[]) {
   server_instance->run();
 
   std::vector<std::thread> threads{};
-  threads.reserve(args.thread_count);
-  for (std::size_t counter = 0; counter < args.thread_count; ++counter) {
+  threads.reserve(thread_count);
+  for (std::size_t counter = 0; counter < thread_count; ++counter) {
     threads.emplace_back([&] { io_context.run(); });
   }
   io_context.run();

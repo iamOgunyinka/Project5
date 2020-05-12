@@ -97,8 +97,7 @@ void database_connector_t::keep_sql_server_busy() {
   std::thread sql_thread{[this] {
     while (true) {
       try {
-        auto dir = otl_cursor::direct_exec(otl_connector_, "select 1", true);
-        spdlog::info("OTL Busy server says: {}", dir);
+        otl_cursor::direct_exec(otl_connector_, "select 1", true);
       } catch (otl_exception const &exception) {
         log_sql_error(exception);
         otl_connector_.logoff();
@@ -140,8 +139,8 @@ std::pair<int, int>
 database_connector_t::get_login_role(std::string_view const username,
                                      std::string_view const password) {
   std::string const sql_statement{
-      "select id, role from tb_users where "
-      "username = '{}' and password = '{}'"_format(username, password)};
+      "select id, role from tb_users where username='{}' and "
+      "password='{}'"_format(username, password)};
   std::pair<int, int> id_role_pair = {-1, -1};
   try {
     {
@@ -226,8 +225,8 @@ bool database_connector_t::update_task_progress(
                      task.unknown_count, total_ip_used, task.task_id);
   try {
     std::lock_guard<std::mutex> lock_g{db_mutex_};
-    int const status = otl_cursor::direct_exec(
-        otl_connector_, sql_statement.c_str(), otl_exception::enabled);
+    otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
+                            otl_exception::enabled);
     return true;
   } catch (otl_exception const &e) {
     log_sql_error(e);
@@ -246,8 +245,8 @@ bool database_connector_t::save_stopped_task(atomic_task_t const &task) {
   try {
     {
       std::lock_guard<std::mutex> lock_g{db_mutex_};
-      int const status = otl_cursor::direct_exec(
-          otl_connector_, sql_statement.c_str(), otl_exception::enabled);
+      otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
+                              otl_exception::enabled);
       return true;
     }
   } catch (otl_exception const &e) {
@@ -265,8 +264,8 @@ bool database_connector_t::change_task_status(uint32_t const task_id,
       "id={}"_format(status, processed, ip_used, task_id);
   try {
     std::lock_guard<std::mutex> lock_g{db_mutex_};
-    int const status = otl_cursor::direct_exec(
-        otl_connector_, sql_statement.c_str(), otl_exception::enabled);
+    otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
+                            otl_exception::enabled);
     return true;
   } catch (otl_exception const &e) {
     log_sql_error(e);
