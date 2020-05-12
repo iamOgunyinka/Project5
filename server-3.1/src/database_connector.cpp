@@ -97,8 +97,7 @@ void database_connector_t::keep_sql_server_busy() {
   std::thread sql_thread{[this] {
     while (true) {
       try {
-        auto dir = otl_cursor::direct_exec(otl_connector_, "select 1", true);
-        spdlog::info("OTL Busy server says: {}", dir);
+        otl_cursor::direct_exec(otl_connector_, "select 1", true);
       } catch (otl_exception const &exception) {
         log_sql_error(exception);
         otl_connector_.logoff();
@@ -140,8 +139,8 @@ std::pair<int, int>
 database_connector_t::get_login_role(std::string_view const username,
                                      std::string_view const password) {
   std::string const sql_statement{
-      "select id, role from tb_users where "
-      "username = '{}' and password = '{}'"_format(username, password)};
+      "select id, role from tb_users where username='{}' and "
+      "password='{}'"_format(username, password)};
   std::pair<int, int> id_role_pair = {-1, -1};
   try {
     {

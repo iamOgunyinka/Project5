@@ -230,6 +230,7 @@ void proxy_base::get_more_proxies() {
   } catch (std::exception const &e) {
     last_fetch_time_ = std::time(nullptr);
     has_error_ = true;
+    fetch_time_mutex_.unlock();
     return spdlog::error("safe_proxy exception: {}", e.what());
   }
 
@@ -319,9 +320,12 @@ void proxy_base::load_proxy_file() {
   std::error_code ec{};
   auto const last_write_time =
       std::filesystem::last_write_time(http_filename_path, ec);
-  auto const lwt_time = last_write_time.time_since_epoch().count();
-  auto const current_time = std::time(nullptr);
-  bool const past_an_hour = current_time > (lwt_time + 3'600);
+  auto const since_epoch = last_write_time.time_since_epoch();
+  auto const lwt_time =
+      std::chrono::duration_cast<std::chrono::seconds>(since_epoch);
+  auto const current_time = std::chrono::duration_cast<std::chrono::seconds>(
+      decltype(last_write_time)::clock::now().time_since_epoch());
+  bool const past_an_hour = current_time > (lwt_time + std::chrono::hours(1));
   if (past_an_hour) {
     ec = {};
     std::filesystem::remove(http_filename_path, ec);

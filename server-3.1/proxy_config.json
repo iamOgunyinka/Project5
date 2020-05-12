@@ -5,15 +5,15 @@
             "HTTP/HTTPS"
         ],
         "#explanation": "`protocol`= 1 to use http/https, `protocol`=0 to use socks",
-        "count_target": "http://api.wandoudl.com/api/product/list?app_key=19ead3cb7a5d477f5d480d850f18de94",
-        "fetch_interval": 120,
-        "password": "oluwaseun",
-        "per_fetch": 50,
+        "count_target": "",
+        "fetch_interval": 15,
+        "password": "",
+        "per_fetch": 10,
         "protocol": 0,
         "share": true,
-        "socket_count": 7,
-        "target": "http://api.wandoudl.com/api/ip?app_key=19ead3cb7a5d477f5d480d850f18de94&pack=210602&num=50&xy=3&type=1&lb=\\n&mr=1&",
-        "username": "joshua"
+        "socket_count": 2,
+        "target": "http://pandavip.xiongmaodaili.com/xiongmao-web/vip/gbip?secret=c35dabf4395e947d4693ebd3a51f02f2&orderNo=VGB20200422181215QHG1s1vF&count=10&isTxt=1&proxyType=2",
+        "username": ""
     },
     "socket": {
         "per_ip": 0
