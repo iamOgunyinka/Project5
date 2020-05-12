@@ -128,26 +128,21 @@ void split_ips(std::vector<std::string> &out, std::string const &str) {
 
 void proxy_base::get_more_proxies() {
   auto const prev_size = endpoints_.size();
-  fetch_time_mutex_.lock();
+  std::lock_guard<std::mutex> lock_g{fetch_time_mutex_};
   if (prev_size != endpoints_.size()) {
-    fetch_time_mutex_.unlock();
     return;
   }
   if (last_fetch_time_ != 0) {
     std::time_t const current_time = std::time(nullptr);
     auto time_difference = current_time - last_fetch_time_;
     auto const interval = utilities::proxy_fetch_interval();
-    while (time_difference < interval) {
-      fetch_time_mutex_.unlock();
+    if (time_difference < interval) {
       std::this_thread::sleep_for(
           std::chrono::seconds(interval - time_difference));
-      fetch_time_mutex_.lock();
       // while this is sleeping, has a new thread fetched new EPs?
       if (endpoints_.size() != prev_size) {
-        fetch_time_mutex_.unlock();
         return;
       }
-      time_difference = std::time(nullptr) - last_fetch_time_;
     }
   }
 
@@ -155,7 +150,6 @@ void proxy_base::get_more_proxies() {
 
   std::vector<custom_endpoint> new_eps{};
   new_eps.reserve(proxy_config_.fetch_once);
-  std::lock_guard<std::mutex> lock_g{mutex_};
   net::ip::tcp::resolver resolver{context_};
   utilities::uri const more_ip_uri_{proxy_config_.proxy_target};
   try {
@@ -165,7 +159,6 @@ void proxy_base::get_more_proxies() {
       current_extracted_data_ = get_remain_count();
       if (!current_extracted_data_.is_available) {
         has_error_ = true;
-        fetch_time_mutex_.unlock();
         return;
       }
     }
@@ -187,7 +180,6 @@ void proxy_base::get_more_proxies() {
       if (server_response.result_int() != 200 || ec) {
         has_error_ = true;
         last_fetch_time_ = std::time(nullptr);
-        fetch_time_mutex_.unlock();
         return spdlog::error("server was kind enough to say: {}",
                              response_body);
       }
@@ -196,7 +188,6 @@ void proxy_base::get_more_proxies() {
       if (ips.empty() || response_body.find('{') != std::string::npos) {
         has_error_ = true;
         last_fetch_time_ = std::time(nullptr);
-        fetch_time_mutex_.unlock();
         return spdlog::error("IPs empty: {}", response_body);
       }
       spdlog::info("Grabbed {} proxies", ips.size());
@@ -221,7 +212,6 @@ void proxy_base::get_more_proxies() {
         } catch (std::exception const &except) {
           has_error_ = true;
           last_fetch_time_ = std::time(nullptr);
-          fetch_time_mutex_.unlock();
           spdlog::error("server says: {}", response_body);
           return spdlog::error("[get_more_proxies] {}", except.what());
         }
@@ -230,28 +220,36 @@ void proxy_base::get_more_proxies() {
   } catch (std::exception const &e) {
     last_fetch_time_ = std::time(nullptr);
     has_error_ = true;
-    fetch_time_mutex_.unlock();
     return spdlog::error("safe_proxy exception: {}", e.what());
   }
 
-  shared_data_t shared_data{};
-  shared_data.eps = std::move(new_eps);
-  shared_data.proxy_type = type();
-  shared_data.thread_id = this_thread_id_;
-  shared_data.web_id = website_id_;
-  shared_data.shared_web_ids.insert(website_id_);
+  if (proxy_config_.share_proxy) {
+    shared_data_t shared_data{};
+    shared_data.eps = std::move(new_eps);
+    shared_data.proxy_type = type();
+    shared_data.thread_id = this_thread_id_;
+    shared_data.web_id = website_id_;
+    shared_data.shared_web_ids.insert(website_id_);
+    broadcast_proxy_signal_(shared_data);
 
-  broadcast_proxy_signal_(shared_data);
-  if (endpoints_.size() >= max_capacity) {
-    endpoints_.remove_first_n(shared_data.eps.size());
+    if (endpoints_.size() >= max_capacity) {
+      endpoints_.remove_first_n(shared_data.eps.size());
+    }
+    for (auto const &ep : shared_data.eps) {
+      endpoints_.push_back(std::make_shared<custom_endpoint>(ep));
+    }
+    proxies_used_ += shared_data.eps.size();
+  } else {
+    if (endpoints_.size() >= max_capacity) {
+      endpoints_.remove_first_n(new_eps.size());
+    }
+    for (auto const &ep : new_eps) {
+      endpoints_.push_back(std::make_shared<custom_endpoint>(ep));
+    }
+    proxies_used_ += new_eps.size();
   }
-  for (auto const &ep : shared_data.eps) {
-    endpoints_.push_back(std::make_shared<custom_endpoint>(ep));
-  }
-  proxies_used_ += shared_data.eps.size();
   last_fetch_time_ = std::time(nullptr);
-  fetch_time_mutex_.unlock();
-  save_proxies_to_file();
+  // save_proxies_to_file();
 }
 
 void proxy_base::add_more(shared_data_t const &shared_data) {
@@ -364,20 +362,6 @@ void proxy_base::load_proxy_file() {
       spdlog::error("Error while converting( {} ), {}", line, e.what());
     }
   }
-  /*
-  std::error_code ec{};
-  auto const last_write_time =
-      std::filesystem::last_write_time(http_filename_path, ec);
-  if (ec) {
-    return;
-  }
-  auto const lwt_time = last_write_time.time_since_epoch().count();
-  auto const current_time = std::time(nullptr);
-  bool const past_an_hour = current_time > (lwt_time + 3'600);
-  if (past_an_hour) {
-    std::filesystem::remove(http_filename_path, ec);
-  }
-  */
 }
 
 endpoint_ptr proxy_base::next_endpoint() {
@@ -399,6 +383,26 @@ endpoint_ptr proxy_base::next_endpoint() {
   });
   get_more_proxies();
   count_ = 0;
+  if (has_error_ || endpoints_.empty()) {
+    int const max_retries = 3;
+    int n = 1;
+    auto const sleep_time =
+        std::chrono::seconds(utilities::proxy_fetch_interval());
+    std::this_thread::sleep_for(sleep_time);
+    std::size_t prev_size = endpoints_.size();
+    while (n < max_retries) {
+      get_more_proxies();
+      if (has_error_ || endpoints_.empty()) {
+        has_error_ = false;
+        std::this_thread::sleep_for(sleep_time);
+        if (prev_size != endpoints_.size())
+          break;
+        continue;
+      }
+      break;
+      ++n;
+    }
+  }
   return next_endpoint();
 }
 
