@@ -154,7 +154,7 @@ resume_unstarted_task(utilities::atomic_task_t &scheduled_task,
       std::move(*website), std::move(numbers), task_result, ssl_context);
 }
 
-void background_task_executor(std::atomic_bool &stopped, std::mutex &mutex,
+void background_task_executor(std::atomic_bool &stopped,
                               boost::asio::ssl::context &ssl_context,
                               global_proxy_repo_t &r) {
 
@@ -292,8 +292,7 @@ void run_stopped_op(std::shared_ptr<database_connector_t> &db_connector,
                     background_worker_t &bg_worker) {
   using utilities::get_random_integer;
   using utilities::get_random_string;
-  using utilities::task_status_e;
-
+  
   auto task_result_ptr = bg_worker.task_result();
   if (task_result_ptr->saving_state()) {
     std::filesystem::path filename =

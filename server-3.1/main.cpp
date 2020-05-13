@@ -13,7 +13,7 @@ int main(int argc, char *argv[]) {
       "Wu-di: an asynchronous web server for Kiaowa Trading LLC"};
   wudi_server::command_line_interface args{};
   auto const thread_count = std::thread::hardware_concurrency();
-  
+
   cli_parser.add_option("-p", args.port, "port to bind server to", true);
   cli_parser.add_option("-a", args.ip_address, "IP address to use", true);
   cli_parser.add_option("-d", args.database_config_filename,
@@ -32,9 +32,6 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  std::atomic_bool stop = false;
-  std::mutex task_mutex{};
-
   wudi_server::global_proxy_repo_t global_proxy_provider{};
   boost::asio::ssl::context ssl_context(
       boost::asio::ssl::context::tlsv11_client);
@@ -50,12 +47,11 @@ int main(int argc, char *argv[]) {
         proxy_config->fetch_interval;
   }
   wudi_server::asio::io_context io_context{static_cast<int>(thread_count)};
+  std::atomic_bool stop = false;
   {
     using wudi_server::background_task_executor;
-    using namespace wudi_server::utilities;
     auto thread_callback = [&] {
-      background_task_executor(stop, task_mutex, ssl_context,
-                               global_proxy_provider);
+      background_task_executor(stop, ssl_context, global_proxy_provider);
     };
     for (int i = 0; i != WorkerThreadCount; ++i) {
       std::thread t{thread_callback};

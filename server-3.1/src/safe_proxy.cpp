@@ -385,12 +385,15 @@ endpoint_ptr proxy_base::next_endpoint() {
   count_ = 0;
   if (has_error_ || endpoints_.empty()) {
     int const max_retries = 3;
-    int n = 1;
+    int n = 0;
     auto const sleep_time =
         std::chrono::seconds(utilities::proxy_fetch_interval());
+    std::size_t const prev_size = endpoints_.size();
     std::this_thread::sleep_for(sleep_time);
-    std::size_t prev_size = endpoints_.size();
+    if (endpoints_.size() != prev_size)
+      return next_endpoint();
     while (n < max_retries) {
+      ++n;
       get_more_proxies();
       if (has_error_ || endpoints_.empty()) {
         has_error_ = false;
@@ -400,7 +403,6 @@ endpoint_ptr proxy_base::next_endpoint() {
         continue;
       }
       break;
-      ++n;
     }
   }
   return next_endpoint();
