@@ -220,9 +220,9 @@ bool database_connector_t::update_task_progress(
   std::string const sql_statement =
       "UPDATE tb_tasks SET status={}, processed={}, ok_count={}, "
       "not_ok_count={}, unknown_count={}, ip_used={} WHERE "
-      "id={}"_format(static_cast<uint32_t>(task.operation_status),
-                     task.processed, task.ok_count, task.not_ok_count,
-                     task.unknown_count, total_ip_used, task.task_id);
+      "id={}"_format(task.operation_status, task.processed, task.ok_count,
+                     task.not_ok_count, task.unknown_count, total_ip_used,
+                     task.task_id);
   try {
     std::lock_guard<std::mutex> lock_g{db_mutex_};
     otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
