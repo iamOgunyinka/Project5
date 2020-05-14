@@ -1,7 +1,6 @@
 #include "backgroundworker.hpp"
 #include "database_connector.hpp"
 #include <filesystem>
-#include <spdlog/spdlog.h>
 
 namespace wudi_server {
 

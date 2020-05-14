@@ -1,5 +1,4 @@
 #include "database_connector.hpp"
-#include <spdlog/spdlog.h>
 
 namespace wudi_server {
 
