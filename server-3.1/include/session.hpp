@@ -101,11 +101,10 @@ private:
   void send_response(string_response &&response);
   void error_handler(string_response &&response, bool close_socket = false);
   void on_data_written(beast::error_code ec, std::size_t const bytes_written);
-  void login_handler(string_request const &request, url_query const &query);
-  void index_page_handler(string_request const &request,
-                          url_query const &query);
-  void upload_handler(string_request const &request,
-                      url_query const &optional_query);
+  void login_handler(string_request const &, url_query const &);
+  void index_page_handler(string_request const &, url_query const &);
+  void upload_handler(string_request const &, url_query const &);
+  void software_update_handler(string_request const &, url_query const &);
   void handle_requests(string_request const &request);
   void download_handler(string_request const &request,
                         url_query const &optional_query);
@@ -124,6 +123,7 @@ private:
   static string_response bad_request(std::string const &message,
                                      string_request const &);
   static string_response not_found(string_request const &);
+  static string_response upgrade_required(string_request const &);
   static string_response method_not_allowed(string_request const &request);
   static string_response successful_login(int const id, int const role,
                                           string_request const &req);
@@ -132,10 +132,47 @@ private:
   static string_response get_error(std::string const &, error_type_e,
                                    http::status, string_request const &);
   static url_query split_optional_queries(boost::string_view const &args);
+  template <typename Func>
+  void send_file(std::filesystem::path const &, std::string_view,
+                 string_request const &, Func &&func);
 
 public:
   session(asio::io_context &io, asio::ip::tcp::socket &&socket);
   bool is_closed();
   void run();
 };
+
+template <typename Func>
+void session::send_file(std::filesystem::path const &file_path,
+                        std::string_view const content_type,
+                        string_request const &request, Func &&func) {
+  std::error_code ec_{};
+  if (!std::filesystem::exists(file_path, ec_)) {
+    return error_handler(bad_request("file does not exist", request));
+  }
+  http::file_body::value_type file;
+  beast::error_code ec{};
+  file.open(file_path.string().c_str(), beast::file_mode::read, ec);
+  if (ec) {
+    return error_handler(server_error("unable to open file specified",
+                                      error_type_e::ServerError, request));
+  }
+  file_response_.emplace(std::piecewise_construct, std::make_tuple(),
+                         std::make_tuple(alloc_));
+  file_response_->result(http::status::ok);
+  file_response_->keep_alive(request.keep_alive());
+  file_response_->set(http::field::server, "wudi-server");
+  file_response_->set(http::field::content_type, content_type);
+  file_response_->body() = std::move(file);
+  file_response_->prepare_payload();
+  file_serializer_.emplace(*file_response_);
+  http::async_write(tcp_stream_, *file_serializer_,
+                    [func, self = shared_from_this()](
+                        beast::error_code ec, std::size_t const size_written) {
+                      self->file_serializer_.reset();
+                      self->file_response_.reset();
+                      func();
+                      self->on_data_written(ec, size_written);
+                    });
+}
 } // namespace wudi_server

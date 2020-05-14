@@ -6,9 +6,7 @@
 #include <spdlog/spdlog.h>
 #include <zip_file.hpp>
 
-#ifndef WUDI_SOFTWARE_VERSION
-#define WUDI_SOFTWARE_VERSION 31
-#endif // !WUDI_SOFTWARE_VERSION
+extern int WUDI_SOFTWARE_VERSION;
 
 namespace wudi_server {
 using namespace fmt::v6::literals;
@@ -125,6 +123,11 @@ void session::add_endpoint_interfaces() {
       [=](string_request const &request, url_query const &optional_query) {
         proxy_config_handler(request, optional_query);
       });
+
+  endpoint_apis_.add_endpoint("/upgrade", {verb::get, verb::post},
+                              [=](auto const &req, auto const &query) {
+                                return software_update_handler(req, query);
+                              });
 }
 
 void session::run() { http_read_data(); }
@@ -267,15 +270,14 @@ void session::login_handler(string_request const &request,
   try {
     auto const software_version = request["X-Version-Number"].to_string();
     if (software_version.empty()) {
-      return error_handler(
-          bad_request("you need to upgrade your software version", {}));
+      return error_handler(upgrade_required(request));
     }
     int const version_number = std::stoi(software_version);
     if (version_number < WUDI_SOFTWARE_VERSION) {
-      return error_handler(bad_request("upgrade your software", {}));
+      return error_handler(upgrade_required(request));
     }
   } catch (std::exception const &) {
-    return error_handler(bad_request("incorrect software version", {}));
+    return error_handler(bad_request("incorrect software version", request));
   }
 
   // respond to POST request
@@ -633,41 +635,15 @@ void session::remove_tasks_handler(string_request const &req,
 
 void session::proxy_config_handler(string_request const &request,
                                    url_query const &query) {
-  if (content_type_ != "application/json") {
+  char const *json_content_type = "application/json";
+  if (content_type_ != json_content_type) {
     return error_handler(bad_request("invalid content-type", request));
   }
   if (request.method() == http::verb::get) {
     std::filesystem::path const file_path = "./proxy_config.json";
-    std::error_code ec_{};
-    if (!std::filesystem::exists(file_path, ec_)) {
-      return error_handler(bad_request("file does not exist", request));
-    }
-    http::file_body::value_type file;
-    beast::error_code ec{};
-    file.open(file_path.string().c_str(), beast::file_mode::read, ec);
-    if (ec) {
-      return error_handler(server_error("unable to open file specified",
-                                        error_type_e::ServerError, request));
-    }
-    file_response_.emplace(std::piecewise_construct, std::make_tuple(),
-                           std::make_tuple(alloc_));
-    file_response_->result(http::status::ok);
-    file_response_->keep_alive(request.keep_alive());
-    file_response_->set(http::field::server, "wudi-server");
-    file_response_->set(http::field::content_type, "application/json");
-    file_response_->body() = std::move(file);
-    file_response_->prepare_payload();
-    file_serializer_.emplace(*file_response_);
-    return http::async_write(
-        tcp_stream_, *file_serializer_,
-        [self = shared_from_this(), file_path](beast::error_code ec,
-                                               std::size_t const size_written) {
-          self->file_serializer_.reset();
-          self->file_response_.reset();
-          self->on_data_written(ec, size_written);
-        });
+    return send_file(file_path, json_content_type, request, [] {});
   }
-  // POST
+
   try {
     {
       // if this throws, the JSON file is not valid.
@@ -675,9 +651,14 @@ void session::proxy_config_handler(string_request const &request,
       json::object_t proxy_object = root["proxy"].get<json::object_t>();
       int const interval_between_fetch =
           proxy_object["fetch_interval"].get<json::number_integer_t>();
+      int const software_version =
+          root["client_version"].get<json::number_integer_t>();
       auto &current_interval = utilities::proxy_fetch_interval();
       if (current_interval != interval_between_fetch) {
         current_interval = interval_between_fetch;
+      }
+      if (software_version < WUDI_SOFTWARE_VERSION) {
+        return error_handler(upgrade_required(request));
       }
     }
     std::ofstream out_file{"./proxy_config.json",
@@ -756,37 +737,32 @@ void session::get_file_handler(string_request const &request,
   }
   std::filesystem::path const file_path =
       download_path / iter->second.to_string();
-  std::error_code ec_{};
-  if (!std::filesystem::exists(file_path, ec_)) {
-    return error_handler(bad_request("file does not exist", request));
+  char const *content_type = "application/zip, application/octet-stream, "
+                             "application/x-zip-compressed, multipart/x-zip";
+  auto callback = [=] {
+    std::error_code temp_ec{};
+    std::filesystem::remove(file_path, temp_ec);
+  };
+  return send_file(file_path, content_type, request, callback);
+}
+
+void session::software_update_handler(string_request const &request,
+                                      url_query const &optional_query) {
+  if (content_type_ != "application/json") {
+    return error_handler(bad_request("invalid content-type", request));
   }
-  http::file_body::value_type file;
-  beast::error_code ec{};
-  file.open(file_path.string().c_str(), beast::file_mode::read, ec);
-  if (ec) {
-    return error_handler(server_error("unable to open file specified",
-                                      error_type_e::ServerError, request));
+  char const *content_type = "application/zip, application/octet-stream, "
+                             "application/x-zip-compressed, multipart/x-zip";
+  if (!std::filesystem::exists(download_path)) {
+    std::error_code ec{};
+    std::filesystem::create_directories(download_path, ec);
+    if (ec) {
+      return error_handler(server_error("server encountered an error",
+                                        error_type_e::RequiresUpdate, request));
+    }
   }
-  file_response_.emplace(std::piecewise_construct, std::make_tuple(),
-                         std::make_tuple(alloc_));
-  file_response_->result(http::status::ok);
-  file_response_->keep_alive(request.keep_alive());
-  file_response_->set(http::field::server, "wudi-server");
-  file_response_->set(http::field::content_type,
-                      "application/zip, application/octet-stream, "
-                      "application/x-zip-compressed, multipart/x-zip");
-  file_response_->body() = std::move(file);
-  file_response_->prepare_payload();
-  file_serializer_.emplace(*file_response_);
-  http::async_write(tcp_stream_, *file_serializer_,
-                    [self = shared_from_this(), file_path](
-                        beast::error_code ec, std::size_t const size_written) {
-                      self->file_serializer_.reset();
-                      self->file_response_.reset();
-                      std::error_code temp_ec{};
-                      std::filesystem::remove(file_path, temp_ec);
-                      self->on_data_written(ec, size_written);
-                    });
+  std::filesystem::path const file_path = download_path / "woody_latest.zip";
+  return send_file(file_path, content_type, request, [] {});
 }
 
 void session::stop_tasks_handler(string_request const &request,
@@ -982,6 +958,12 @@ void session::website_handler(string_request const &request,
 string_response session::not_found(string_request const &request) {
   return get_error("url not found", error_type_e::ResourceNotFound,
                    http::status::not_found, request);
+}
+
+string_response session::upgrade_required(string_request const &request) {
+  return get_error("you need to upgrade your client software",
+                   error_type_e::ResourceNotFound,
+                   http::status::upgrade_required, request);
 }
 
 string_response session::server_error(std::string const &message,

@@ -85,7 +85,6 @@ void auto_home_socks5_socket_t<Proxy>::data_received(beast::error_code ec,
     return this->choose_next_proxy();
   }
   if (status_code == 400) {
-    spdlog::error(response_.body());
     return signal_(search_result_type_e::RequestStop, current_number_);
   }
   if (status_code == 407) {

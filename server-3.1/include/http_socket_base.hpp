@@ -212,7 +212,6 @@ void http_socket_base_t<DerivedClass, Proxy>::choose_next_proxy(
   connect_count_ = 0;
   current_proxy_ = proxy_provider_.next_endpoint();
   if (!current_proxy_) {
-    spdlog::error("error getting next endpoint");
     numbers_.push_back(current_number_);
     current_number_.clear();
     return signal_(search_result_type_e::RequestStop, current_number_);

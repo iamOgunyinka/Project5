@@ -437,4 +437,57 @@ void custom_endpoint::swap(custom_endpoint &other) {
 }
 
 void swap(custom_endpoint &a, custom_endpoint &b) { a.swap(b); }
+
+std::optional<proxy_configuration_t> read_proxy_configuration() {
+  std::ifstream in_file{"./proxy_config.json"};
+  if (!in_file)
+    return std::nullopt;
+  std::optional<proxy_configuration_t> proxy_config{};
+  proxy_config.emplace();
+  try {
+    json json_file;
+    in_file >> json_file;
+    json::object_t root_object = json_file.get<json::object_t>();
+    auto proxy_field = root_object["proxy"].get<json::object_t>();
+    auto available_protocols =
+        proxy_field["#available_protocols"].get<json::array_t>();
+
+    proxy_config->software_version =
+        root_object["client_version"].get<json::number_integer_t>();
+    std::size_t const highest_index = available_protocols.size();
+    std::size_t const protocol_index =
+        proxy_field["protocol"].get<json::number_integer_t>();
+    proxy_config->proxy_target = proxy_field["target"].get<json::string_t>();
+    proxy_config->count_target =
+        proxy_field["count_target"].get<json::string_t>();
+    proxy_config->proxy_username =
+        proxy_field["username"].get<json::string_t>();
+    proxy_config->proxy_password =
+        proxy_field["password"].get<json::string_t>();
+    proxy_config->share_proxy = proxy_field["share"].get<json::boolean_t>();
+    proxy_config->max_socket =
+        proxy_field["socket_count"].get<json::number_integer_t>();
+    proxy_config->fetch_once =
+        proxy_field["per_fetch"].get<json::number_integer_t>();
+    proxy_config->fetch_interval =
+        proxy_field["fetch_interval"].get<json::number_integer_t>();
+    if (protocol_index >= highest_index)
+      return std::nullopt;
+    switch (protocol_index) {
+    case 0:
+      proxy_config->proxy_protocol = proxy_type_e::socks5;
+      break;
+    case 1:
+      proxy_config->proxy_protocol = proxy_type_e::http_https_proxy;
+      break;
+    default:
+      spdlog::error("unknown proxy procotol specified");
+      return std::nullopt;
+    }
+  } catch (std::exception const &e) {
+    spdlog::error("[read_proxy_configuration] {}", e.what());
+    return std::nullopt;
+  }
+  return proxy_config;
+}
 } // namespace wudi_server

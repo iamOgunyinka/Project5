@@ -3,6 +3,7 @@
 #include "database_connector.hpp"
 #include "utilities.hpp"
 #include <boost/algorithm/string.hpp>
+#include <spdlog/spdlog.h>
 
 namespace wudi_server {
 using utilities::atomic_task_t;
@@ -292,7 +293,7 @@ void run_stopped_op(std::shared_ptr<database_connector_t> &db_connector,
                     background_worker_t &bg_worker) {
   using utilities::get_random_integer;
   using utilities::get_random_string;
-  
+
   auto task_result_ptr = bg_worker.task_result();
   if (task_result_ptr->saving_state()) {
     std::filesystem::path filename =

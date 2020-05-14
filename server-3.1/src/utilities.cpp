@@ -5,15 +5,12 @@
 #include <fstream>
 #include <openssl/md5.h>
 #include <random>
-#include <vector>
 
 #if _MSC_VER && !__INTEL_COMPILER
 #pragma warning(disable : 4996)
 #endif
 
 namespace wudi_server {
-using namespace fmt::v6::literals;
-
 namespace utilities {
 
 bool operator<(internal_task_result_t const &task_1,
@@ -322,13 +319,6 @@ std::string get_random_agent() {
   static std::mt19937 gen{rd()};
   static std::uniform_int_distribution<> uid(0, LenUserAgents - 1);
   return request_handler::user_agents[uid(gen)];
-}
-
-std::string get_random_ip_address() {
-  static std::random_device rd{};
-  static std::mt19937 gen{rd()};
-  static std::uniform_int_distribution<> uid(2, 253);
-  return "{}:{}:{}:{}"_format(uid(gen), uid(gen), uid(gen), uid(gen));
 }
 
 std::size_t get_random_integer() {

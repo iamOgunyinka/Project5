@@ -47,6 +47,7 @@ struct proxy_configuration_t {
   int share_proxy{};
   int max_socket{};
   int fetch_once{};
+  int software_version{};
 };
 
 std::optional<proxy_configuration_t> read_proxy_configuration();

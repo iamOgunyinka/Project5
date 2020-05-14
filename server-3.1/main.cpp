@@ -8,6 +8,8 @@
 
 enum constant_e { WorkerThreadCount = 15 };
 
+int WUDI_SOFTWARE_VERSION = 313;
+
 int main(int argc, char *argv[]) {
   CLI::App cli_parser{
       "Wu-di: an asynchronous web server for Kiaowa Trading LLC"};
@@ -45,6 +47,7 @@ int main(int argc, char *argv[]) {
     }
     wudi_server::utilities::proxy_fetch_interval() =
         proxy_config->fetch_interval;
+    WUDI_SOFTWARE_VERSION = proxy_config->software_version;
   }
   wudi_server::asio::io_context io_context{static_cast<int>(thread_count)};
   std::atomic_bool stop = false;
