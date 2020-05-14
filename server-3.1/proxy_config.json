@@ -15,6 +15,7 @@
         "target": "http://pandavip.xiongmaodaili.com/xiongmao-web/vip/gbip?secret=c35dabf4395e947d4693ebd3a51f02f2&orderNo=VGB20200422181215QHG1s1vF&count=10&isTxt=1&proxyType=2",
         "username": ""
     },
+    "client_version": 313,
     "socket": {
         "per_ip": 0
     }

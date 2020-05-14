@@ -6,7 +6,6 @@
 #include <boost/asio/ssl/context.hpp>
 #include <boost/beast.hpp>
 #include <boost/beast/ssl.hpp>
-#include <optional>
 
 namespace wudi_server {
 namespace beast = boost::beast;
@@ -416,35 +415,6 @@ void socks5_https_socket_base_t<Derived, ProxyProvider>::process_ipv4_response(
     //             remote_endp.port());
     (void)remote_endp;
   } else {
-    beast::error_code ec{};
-    if (rep != 0) {
-      switch (rep) {
-      case SOCKS5_GENERAL_SOCKS_SERVER_FAILURE:
-        spdlog::error("socks_general_failure");
-        break;
-      case SOCKS5_CONNECTION_NOT_ALLOWED_BY_RULESET:
-        spdlog::error("socks_connection_not_allowed_by_ruleset");
-        break;
-      case SOCKS5_NETWORK_UNREACHABLE:
-        spdlog::error("socks_network_unreachable");
-        break;
-      case SOCKS5_CONNECTION_REFUSED:
-        spdlog::error("socks_connection_refused");
-        break;
-      case SOCKS5_TTL_EXPIRED:
-        spdlog::error("socks_ttl_expired");
-        break;
-      case SOCKS5_COMMAND_NOT_SUPPORTED:
-        spdlog::error("socks_command_not_supported");
-        break;
-      case SOCKS5_ADDRESS_TYPE_NOT_SUPPORTED:
-        spdlog::error("socks_address_type_not_supported");
-        break;
-      default:
-        spdlog::error("socks_unassigned");
-        break;
-      }
-    }
     current_proxy_assign_prop(ProxyProvider::Property::ProxyUnresponsive);
     return choose_next_proxy();
   }
@@ -485,7 +455,8 @@ void socks5_https_socket_base_t<Derived, Proxy>::perform_ssl_ritual() {
                                 host_name.c_str())) {
     beast::error_code ec{static_cast<int>(::ERR_get_error()),
                          net::error::get_ssl_category()};
-    return spdlog::error("Unable to set TLS because: {}", ec.message());
+    //spdlog::error("Unable to set TLS because: {}", ec.message());
+    return;
   }
 }
 

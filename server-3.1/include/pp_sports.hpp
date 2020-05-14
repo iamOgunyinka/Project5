@@ -5,8 +5,6 @@
 
 namespace wudi_server {
 
-using namespace fmt::v6::literals;
-
 template <typename Proxy>
 class pp_sports_http_socket_t
     : public http_socket_base_t<pp_sports_http_socket_t<Proxy>, Proxy> {
@@ -42,9 +40,8 @@ template <typename Proxy>
 void pp_sports_http_socket_t<Proxy>::prepare_request_data(
     bool use_authentication_header) {
   std::string const target =
-      "http://api.passport.pptv.com/checkLogin?cb=checklogin&loginid={}"
-      "&sceneFlag=1&channel=208000103001&format=jsonp"_format(
-          this->current_number_);
+      "http://api.passport.pptv.com/checkLogin?cb=checklogin&loginid=" +
+      this->current_number_ + "&sceneFlag=1&channel=208000103001&format=jsonp";
   this->request_.clear();
   this->request_.method(beast::http::verb::get);
   this->request_.version(11);
@@ -224,8 +221,8 @@ template <typename Proxy>
 void pp_sports_socks5_socket_t<Proxy>::prepare_request_data(
     bool use_authentication_header) {
   std::string target =
-      "/checkLogin?cb=checklogin&loginid={}&sceneFlag=1&channel=20800010"
-      "3001&format=jsonp"_format(this->current_number_);
+      "/checkLogin?cb=checklogin&loginid=" + this->current_number_ +
+      "&sceneFlag=1&channel=208000103001&format=jsonp";
 
   this->request_.clear();
   this->request_.method(beast::http::verb::get);

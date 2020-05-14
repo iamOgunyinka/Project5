@@ -1,18 +1,17 @@
 #pragma once
 #include <array>
-#include <atomic>
 #include <boost/algorithm/string.hpp>
 #include <boost/signals2.hpp>
 #include <boost/utility/string_view.hpp>
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <set>
-#include <spdlog/spdlog.h>
+#include <spdlog/formatter.h>
 #include <sstream>
-#include <variant>
 #include <vector>
 
 namespace fmt {
@@ -50,7 +49,6 @@ template <> struct formatter<std::vector<int32_t>> {
 
 namespace wudi_server {
 using nlohmann::json;
-using namespace fmt::v6::literals;
 struct database_connector_t;
 
 struct time_data_t {
@@ -387,7 +385,6 @@ using threadsafe_cv_container = threadsafe_container<T, std::deque<T>, true>;
 std::vector<atomic_task_t> restart_tasks(std::vector<uint32_t> const &task_ids);
 std::string md5(std::string const &);
 std::string get_random_agent();
-std::string get_random_ip_address();
 void normalize_paths(std::string &str);
 void replace_special_chars(std::string &str);
 void remove_file(std::string &filename);

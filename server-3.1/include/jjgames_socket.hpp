@@ -1,8 +1,10 @@
 #pragma once
 
 #include "socks5_https_socket_base.hpp"
+#include <spdlog/fmt/fmt.h>
 
 namespace wudi_server {
+using namespace fmt::v6::literals;
 
 using utilities::request_handler;
 using namespace fmt::v6::literals;
@@ -117,7 +119,6 @@ void jjgames_socket<Proxy>::process_response(std::string const &message_body) {
       }
     }
   } catch (std::exception const &e) {
-    spdlog::error("exception in process_normal_response: {}", e.what());
     return this->choose_next_proxy();
   }
 

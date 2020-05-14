@@ -1,6 +1,9 @@
 #include "database_connector.hpp"
+#include <spdlog/spdlog.h>
 
 namespace wudi_server {
+
+using namespace fmt::v6::literals;
 using utilities::atomic_task_t;
 using utilities::task_result_t;
 
