@@ -6,7 +6,6 @@
 #include <fstream>
 #include <iomanip>
 #include <set>
-#include <spdlog/spdlog.h>
 #include <sstream>
 
 namespace wudi_server {

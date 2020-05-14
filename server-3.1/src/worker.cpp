@@ -3,7 +3,6 @@
 #include "database_connector.hpp"
 #include "utilities.hpp"
 #include <boost/algorithm/string.hpp>
-#include <spdlog/spdlog.h>
 
 namespace wudi_server {
 using utilities::atomic_task_t;

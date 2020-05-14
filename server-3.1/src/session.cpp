@@ -3,7 +3,6 @@
 #include <boost/algorithm/string.hpp>
 #include <fstream>
 #include <gzip/decompress.hpp>
-#include <spdlog/spdlog.h>
 #include <zip_file.hpp>
 
 extern int WUDI_SOFTWARE_VERSION;
@@ -935,7 +934,6 @@ void session::website_handler(string_request const &request,
     return send_response(json_success(j, request));
   }
   if (content_type_ != "application/json") {
-    spdlog::error("[website.POST] Wrong content-type: {}", content_type_);
     return error_handler(bad_request("expects a JSON body", request));
   }
   try {

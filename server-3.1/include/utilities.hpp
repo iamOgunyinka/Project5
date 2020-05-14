@@ -3,6 +3,7 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/signals2.hpp>
 #include <boost/utility/string_view.hpp>
+#include <condition_variable>
 #include <deque>
 #include <filesystem>
 #include <fstream>
@@ -10,42 +11,9 @@
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <set>
-#include <spdlog/formatter.h>
+#include <spdlog/spdlog.h>
 #include <sstream>
 #include <vector>
-
-namespace fmt {
-template <> struct formatter<boost::string_view> {
-  template <typename ParseContext> constexpr auto parse(ParseContext &ctxt) {
-    return ctxt.begin();
-  }
-
-  template <typename FormatContext>
-  auto format(boost::string_view const &view, FormatContext &ctxt) {
-    return format_to(ctxt.out(), "{}",
-                     std::string_view{view.data(), view.size()});
-  }
-};
-
-template <> struct formatter<std::vector<int32_t>> {
-  template <typename ParseContext> constexpr auto parse(ParseContext &ctxt) {
-    return ctxt.begin();
-  }
-
-  template <typename FormatContext>
-  auto format(std::vector<int32_t> const &integer_list, FormatContext &ctx) {
-    if (integer_list.empty()) {
-      return format_to(ctx.out(), "");
-    }
-    std::ostringstream stream{};
-    for (std::size_t i = 0; i < integer_list.size() - 1; ++i) {
-      stream << integer_list[i] << ", ";
-    }
-    stream << integer_list.back();
-    return format_to(ctx.out(), "{}", stream.str());
-  }
-};
-} // namespace fmt
 
 namespace wudi_server {
 using nlohmann::json;
