@@ -1076,7 +1076,6 @@ restart_tasks(std::vector<uint32_t> const &task_ids) {
   }
   return {};
 }
-
 } // namespace utilities
 } // namespace wudi_server
 
