@@ -377,11 +377,17 @@ endpoint_ptr proxy_base::next_endpoint() {
   } else {
     return endpoints_[count_++];
   }
+
   endpoints_.remove_if([](auto const &ep) {
-    return ep->property != ProxyProperty::ProxyActive;
+    return ep->property == ProxyProperty::ProxyMaxedOut ||
+           ep->property == ProxyProperty::ProxyBlocked;
   });
-  get_more_proxies();
   count_ = 0;
+  if (!endpoints_.empty()) {
+    endpoints_.for_each([](auto &e) { e->property = Property::ProxyActive; });
+    return endpoints_[count_++];
+  }
+  get_more_proxies();
   if (has_error_ || endpoints_.empty()) {
     int const max_retries = 3;
     int n = 0;
