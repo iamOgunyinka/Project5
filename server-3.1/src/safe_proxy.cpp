@@ -379,8 +379,7 @@ endpoint_ptr proxy_base::next_endpoint() {
   }
 
   endpoints_.remove_if([](auto const &ep) {
-    return ep->property == ProxyProperty::ProxyMaxedOut ||
-           ep->property == ProxyProperty::ProxyBlocked;
+    return ep->property != ProxyProperty::ProxyActive;
   });
   count_ = 0;
   if (!endpoints_.empty()) {
