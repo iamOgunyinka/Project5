@@ -190,8 +190,8 @@ void background_task_executor(std::atomic_bool &stopped,
     }
     if (worker) {
       db_connector->change_task_status(
-          scheduled_task.task_id, scheduled_task.ip_used,
-          worker->task_result()->processed, utilities::task_status_e::Ongoing);
+          scheduled_task.task_id, worker->task_result()->processed,
+          scheduled_task.ip_used, utilities::task_status_e::Ongoing);
       auto handle = [&scheduled_task, &db_connector, worker_ptr = worker.get()](
                         utilities::task_status_e status) {
         on_task_ran(status, scheduled_task, db_connector, worker_ptr);
