@@ -48,6 +48,8 @@ void fix_database_problem(std::vector<int> const &task_ids) {
 
     auto processed = count_file_lines(task.not_ok_filename, task.ok2_filename,
                                       task.ok_filename, task.unknown_filename);
+    std::cout << "Total processed for task " << task.task_id << " = "
+              << processed << "\n";
     auto const needed = task.total - processed;
     std::string const command =
         "tail -n " + std::to_string(needed) + " " + task.input_filename;
@@ -61,8 +63,10 @@ void fix_database_problem(std::vector<int> const &task_ids) {
     std::error_code ec{};
     std::filesystem::remove(task.input_filename, ec);
     if (ec) {
+      std::cerr << ec.message() << std::endl;
       continue;
     }
+    ec = {};
     std::filesystem::rename(output_filename, task.input_filename, ec);
     if (ec) {
       std::cerr << ec.message() << std::endl;
@@ -77,7 +81,7 @@ void fix_database_problem(std::vector<int> const &task_ids) {
 int main(int argc, char *argv[]) {
   CLI::App cli_parser{
       "header: a utility program for healing corrupted tasks in woody server"};
-  std::string db_config_filename{"../scripts/config/database.ini"};
+  std::string db_config_filename{"/root/woody/scripts/config/database.ini"};
   std::string launch_type{"development"};
   std::string task_ids{};
   cli_parser.add_option("-d", db_config_filename, "Database config filename",
@@ -124,12 +128,14 @@ int main(int argc, char *argv[]) {
     }
     auto start = std::stoi(boost::trim_copy(std::string(result[0])));
     auto end = std::stoi(boost::trim_copy(std::string(result[1])));
-    if (start > end) {
-      for (int i = 0; i <= end; ++i)
+    if (end > start) {
+      for (int i = start; i <= end; ++i) {
         ids.push_back(i);
+      }
     } else {
-      for (int i = end; i >= start; --i)
+      for (int i = end; i >= start; --i) {
         ids.push_back(i);
+      }
     }
   } else {
     ids.push_back(std::stoi(task_ids));
