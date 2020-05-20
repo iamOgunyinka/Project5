@@ -147,25 +147,31 @@ public:
   NewProxySignal *new_ep_signal() { return &new_endpoints_signal_; }
 };
 
+struct proxy_base_params {
+  net::io_context &io_;
+  NewProxySignal &signal_;
+  proxy_configuration_t &config_;
+  bool &stopped_;
+  std::thread::id thread_id;
+  std::uint32_t web_id;
+  std::string filename{};
+};
+
 class proxy_base {
   static std::time_t last_fetch_time_;
   static std::mutex fetch_time_mutex_;
+  ip::basic_resolver_results<ip::tcp> resolves_;
 
 protected:
-  net::io_context &context_;
-  NewProxySignal &broadcast_proxy_signal_;
-  proxy_configuration_t &proxy_config_;
-  std::thread::id const this_thread_id_;
-  std::uint32_t const website_id_;
+  proxy_base_params &param_;
   std::size_t proxies_used_{};
 
-  std::string filename_;
   extraction_data current_extracted_data_;
   std::mutex mutex_{};
   std::size_t count_{};
   endpoint_ptr_list endpoints_;
   std::atomic_bool has_error_ = false;
-  std::atomic_bool confirm_count_ = !proxy_config_.count_target.empty();
+  std::atomic_bool confirm_count_ = !param_.config_.count_target.empty();
 
 protected:
   void load_proxy_file();
@@ -176,9 +182,10 @@ protected:
 public:
   using Property = ProxyProperty;
   using value_type = endpoint_ptr;
-  proxy_base(net::io_context &, NewProxySignal &, proxy_configuration_t &,
-             std::thread::id, std::uint32_t, std::string const &filename);
+
+  proxy_base(proxy_base_params &, std::string const &);
   virtual ~proxy_base() {}
+
   endpoint_ptr next_endpoint();
   proxy_type_e type() const;
   void add_more(shared_data_t const &);
@@ -187,14 +194,12 @@ public:
 };
 
 struct http_proxy final : proxy_base {
-  http_proxy(net::io_context &, NewProxySignal &, proxy_configuration_t &,
-             std::thread::id, std::uint32_t);
+  http_proxy(proxy_base_params &);
   ~http_proxy() {}
 };
 
 struct socks5_proxy final : proxy_base {
-  socks5_proxy(net::io_context &, NewProxySignal &, proxy_configuration_t &,
-               std::thread::id, std::uint32_t);
+  socks5_proxy(proxy_base_params &);
   ~socks5_proxy() {}
 };
 

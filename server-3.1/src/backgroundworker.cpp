@@ -145,8 +145,6 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
 
   db_connector = database_connector_t::s_get_db_connector();
   task_result_ptr_->operation_status = task_status_e::Ongoing;
-  bool &is_stopped = task_result_ptr_->stopped();
-  is_stopped = false;
   if (website_type_ == website_type_e::Unknown) {
     if (website_info_.address.find("jjgames") != std::string::npos) {
       website_type_ = website_type_e::JJGames;
@@ -176,17 +174,21 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
     return task_status_e::Erred;
   }
 
+  bool &is_stopped = task_result_ptr_->stopped();
+  is_stopped = false;
   auto const thread_id = std::this_thread::get_id();
   auto const web_id = task_result_ptr_->website_id;
   io_context_.emplace();
+  proxy_base_params proxy_param{*io_context_,   *new_proxy_signal_,
+                                *proxy_config_, is_stopped,
+                                thread_id,      web_id};
+
   switch (proxy_config_->proxy_protocol) {
   case proxy_type_e::http_https_proxy:
-    proxy_provider_.reset(new http_proxy(*io_context_, *new_proxy_signal_,
-                                         *proxy_config_, thread_id, web_id));
+    proxy_provider_.reset(new http_proxy(proxy_param));
     break;
   case proxy_type_e::socks5:
-    proxy_provider_.reset(new socks5_proxy(*io_context_, *new_proxy_signal_,
-                                           *proxy_config_, thread_id, web_id));
+    proxy_provider_.reset(new socks5_proxy(proxy_param));
     break;
   default:
     return task_status_e::Erred;

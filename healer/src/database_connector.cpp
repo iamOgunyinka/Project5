@@ -89,7 +89,6 @@ bool database_connector_t::connect() {
 
   std::string const login_str{"{}/{}@{}"_format(
       db_config.username, db_config.password, db_config.db_dns)};
-  spdlog::info(login_str);
   try {
     this->otl_connector_.rlogon(login_str.c_str());
     is_running = true;
