@@ -7,35 +7,25 @@
 namespace wudi_server {
 using utilities::atomic_task_t;
 using utilities::internal_task_result_t;
+using utilities::task_status_e;
 
-utilities::threadsafe_container<uint32_t, std::vector<uint32_t>> &
-get_stopped_tasks() {
-  static utilities::threadsafe_container<uint32_t, std::vector<uint32_t>>
-      stopped_tasks{};
-  return stopped_tasks;
-}
-
-void on_task_ran(utilities::task_status_e status,
-                 utilities::atomic_task_t &scheduled_task,
+void on_task_ran(task_status_e status, atomic_task_t &scheduled_task,
                  std::shared_ptr<database_connector_t> &db_connector,
                  background_worker_t *worker_ptr) {
   switch (status) {
-  case utilities::task_status_e::Stopped:
+  case task_status_e::Stopped:
+  case task_status_e::AutoStopped:
     return run_stopped_op(db_connector, *worker_ptr);
-  case utilities::task_status_e::Completed:
+  case task_status_e::Completed:
     return run_completion_op(db_connector, *worker_ptr);
-  case utilities::task_status_e::Erred:
+  case task_status_e::Erred:
     return run_error_occurred_op(db_connector, *worker_ptr);
-  case utilities::task_status_e::AutoStopped:
-    run_stopped_op(db_connector, *worker_ptr);
-    return get_stopped_tasks().push_back(scheduled_task.task_id);
   }
 }
 
 std::unique_ptr<background_worker_t>
 start_new_task(atomic_task_t &scheduled_task, net::ssl::context &ssl_context) {
   using utilities::intlist_to_string;
-  using utilities::task_status_e;
 
   auto db_connector = wudi_server::database_connector_t::s_get_db_connector();
   std::optional<website_result_t> website =
@@ -67,7 +57,6 @@ std::unique_ptr<background_worker_t>
 continue_recent_task(atomic_task_t &scheduled_task,
                      net::ssl::context &ssl_context) {
   using utilities::normalize_paths;
-  using utilities::task_status_e;
 
   normalize_paths(scheduled_task.input_filename);
   normalize_paths(scheduled_task.ok_filename);
@@ -117,7 +106,7 @@ continue_recent_task(atomic_task_t &scheduled_task,
 }
 
 std::unique_ptr<background_worker_t>
-resume_unstarted_task(utilities::atomic_task_t &scheduled_task,
+resume_unstarted_task(atomic_task_t &scheduled_task,
                       net::ssl::context &ssl_context) {
   auto string_to_intlist = [](std::string const &str, char const *delim = ",") {
     std::vector<uint32_t> list{};
@@ -191,9 +180,9 @@ void background_task_executor(std::atomic_bool &stopped,
     if (worker) {
       db_connector->change_task_status(
           scheduled_task.task_id, worker->task_result()->processed,
-          scheduled_task.ip_used, utilities::task_status_e::Ongoing);
-      auto handle = [&scheduled_task, &db_connector, worker_ptr = worker.get()](
-                        utilities::task_status_e status) {
+          scheduled_task.ip_used, task_status_e::Ongoing);
+      auto handle = [&scheduled_task, &db_connector,
+                     worker_ptr = worker.get()](task_status_e status) {
         on_task_ran(status, scheduled_task, db_connector, worker_ptr);
       };
       worker->proxy_callback_signal(r.new_ep_signal());
@@ -266,7 +255,6 @@ void run_completion_op(std::shared_ptr<database_connector_t> &db_connector,
 void run_error_occurred_op(std::shared_ptr<database_connector_t> &db_connector,
                            background_worker_t &bg_worker) {
   using utilities::replace_special_chars;
-  using utilities::task_status_e;
 
   auto task_result_ptr = bg_worker.task_result();
   task_result_ptr->operation_status = task_status_e::Erred;
@@ -321,7 +309,6 @@ void run_stopped_op(std::shared_ptr<database_connector_t> &db_connector,
 bool save_status_to_persistent_storage(
     std::string const &filename, background_worker_t &bg_worker,
     std::shared_ptr<database_connector_t> db_connector) {
-  using utilities::atomic_task_t;
   auto task_result_ptr = bg_worker.task_result();
   atomic_task_t stopped_task{};
   stopped_task.type_ = atomic_task_t::task_type::stopped;

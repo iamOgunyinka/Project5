@@ -1,7 +1,6 @@
 #pragma once
 
 #include <boost/asio.hpp>
-#include <boost/beast.hpp>
 #include <boost/signals2/signal.hpp>
 #include <ctime>
 #include <memory>
@@ -11,8 +10,6 @@
 
 namespace wudi_server {
 namespace net = boost::asio;
-namespace beast = boost::beast;
-namespace http = beast::http;
 namespace ip = net::ip;
 namespace signals2 = boost::signals2;
 
