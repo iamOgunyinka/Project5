@@ -1,4 +1,5 @@
 #include "safe_proxy.hpp"
+#include "custom_timed_socket.hpp"
 #include "utilities.hpp"
 #include <boost/algorithm/string.hpp>
 #include <boost/lexical_cast.hpp>
@@ -146,32 +147,7 @@ void proxy_base::get_more_proxies() {
 
   std::vector<custom_endpoint> new_eps{};
   new_eps.reserve(param_.config_.fetch_once);
-  utilities::uri const more_ip_uri_{param_.config_.proxy_target};
   try {
-    decltype(resolves_)::iterator resolver_iter{};
-    bool is_ipv4 = true;
-    if (resolves_.empty()) {
-      net::ip::tcp::resolver resolver{param_.io_};
-      resolves_ =
-          resolver.resolve(more_ip_uri_.host(), more_ip_uri_.protocol());
-    }
-    resolver_iter =
-        std::find_if(resolves_.begin(), resolves_.end(),
-                     [](net::ip::basic_resolver_entry<net::ip::tcp> const &ep) {
-                       return ep.endpoint().address().is_v4();
-                     });
-    is_ipv4 = resolver_iter != resolves_.end();
-    if (!is_ipv4) {
-      resolver_iter = std::find_if(
-          resolves_.begin(), resolves_.end(),
-          [](net::ip::basic_resolver_entry<net::ip::tcp> const &ep) {
-            return ep.endpoint().address().is_v6();
-          });
-      if (resolver_iter == resolves_.end()) {
-        has_error_ = true;
-        return;
-      }
-    }
     if (confirm_count_) {
       current_extracted_data_ = get_remain_count();
       if (!current_extracted_data_.is_available) {
@@ -181,100 +157,33 @@ void proxy_base::get_more_proxies() {
     }
 
     if (!confirm_count_ || current_extracted_data_.extract_remain > 0) {
-      net::ip::tcp::socket http_tcp_stream(net::make_strand(param_.io_));
-      {
-        boost::system::error_code ec{};
-        if (is_ipv4) {
-          http_tcp_stream.open(net::ip::tcp::v4(), ec);
-        } else {
-          http_tcp_stream.open(net::ip::tcp::v6(), ec);
+      int const read_timeout_seconds = 30;
+      int const connect_timeout_seconds = 15;
+      boost::system::error_code ec{};
+      custom_timed_socket_t custom_socket{param_.io_, resolves_};
+      auto response_body =
+          custom_socket.get(param_.config_.proxy_target,
+                            connect_timeout_seconds, read_timeout_seconds, ec);
+      if (!response_body) {
+        if (custom_socket.data_read()) {
+          last_fetch_time_ = std::time(nullptr);
         }
-        if (ec) {
-          has_error_ = true;
-          return;
-        }
-        ec = {};
-        auto &underlying_socket = http_tcp_stream;
-        if (!underlying_socket.native_non_blocking())
-          underlying_socket.native_non_blocking(true, ec);
-
-        // underlying_socket.native_non_blocking(true, ec);
-        if (ec) {
-          has_error_ = true;
-          return;
-        }
-        http_tcp_stream.connect(*resolver_iter);
-        // http_tcp_stream.connect(resolves_);
-        ec = {};
-        namespace csock = net::detail::socket_ops;
-        auto result =
-            csock::poll_connect(underlying_socket.native_handle(), 15'000, ec);
-        if (ec || result < 0) {
-          has_error_ = true;
-          return;
-        }
-        int connect_error = 0;
-        size_t connect_error_len = sizeof(connect_error);
-        if (csock::getsockopt(underlying_socket.native_handle(), 0, SOL_SOCKET,
-                              SO_ERROR, &connect_error, &connect_error_len,
-                              ec) != 0 ||
-            ec) {
-          has_error_ = true;
-          return;
-        }
-        ec = {};
-        if (underlying_socket.native_non_blocking()) {
-          underlying_socket.native_non_blocking(false, ec);
-        }
-        if (ec) {
-          has_error_ = true;
-          return;
-        }
-      }
-      http::request<http::empty_body> http_request{};
-      http_request.method(http::verb::get);
-      http_request.target(more_ip_uri_.target());
-      http_request.version(11);
-      http_request.set(http::field::host, more_ip_uri_.host());
-      http_request.set(http::field::user_agent, utilities::get_random_agent());
-
-      http::write(http_tcp_stream, http_request);
-      beast::flat_buffer buffer{};
-      http::response<http::string_body> server_response{};
-      int const timeout_seconds = 30;
-#ifndef _WIN32
-      timeval time_val{timeout_seconds, 0};
-      setsockopt(http_tcp_stream.native_handle(), SOL_SOCKET, SO_RCVTIMEO,
-                 (char *)&time_val, sizeof(timeval));
-#else
-      http_tcp_stream.set_option(
-          net::detail::socket_option::integer<SOL_SOCKET, SO_RCVTIMEO>(
-              timeout_seconds * 1'000));
-#endif // !_WIN32
-
-      beast::error_code ec{};
-      http::read(http_tcp_stream, buffer, server_response, ec);
-      if (ec) {
-        last_fetch_time_ = std::time(nullptr);
         has_error_ = true;
-        return;
+        return spdlog::error("custom_socket error: {}", ec.message());
       }
-      ec = {};
-      http_tcp_stream.shutdown(tcp::socket::shutdown_both, ec);
-      auto &response_body = server_response.body();
-      auto const result_code = server_response.result_int();
-      if (result_code != 200 || ec) {
+      int const status_code = custom_socket.http_status_code();
+      if (status_code != 200) {
         has_error_ = true;
         last_fetch_time_ = std::time(nullptr);
         return spdlog::error("server was kind enough to say: {}",
-                             response_body);
+                             *response_body);
       }
       std::vector<std::string> ips;
-      split_ips(ips, response_body);
-      if (ips.empty() || response_body.find('{') != std::string::npos) {
+      split_ips(ips, *response_body);
+      if (ips.empty() || response_body->find('{') != std::string::npos) {
         has_error_ = true;
         last_fetch_time_ = std::time(nullptr);
-        return spdlog::error("IPs empty: {}", response_body);
+        return spdlog::error("IPs empty: {}", *response_body);
       }
       spdlog::info("Grabbed {} proxies", ips.size());
       for (auto const &line : ips) {
@@ -298,7 +207,9 @@ void proxy_base::get_more_proxies() {
         } catch (std::exception const &except) {
           has_error_ = true;
           last_fetch_time_ = std::time(nullptr);
-          spdlog::error("server says: {}", response_body);
+          if (response_body) {
+            spdlog::error("server says: {}", *response_body);
+          }
           return spdlog::error("[get_more_proxies] {}", except.what());
         }
       }
@@ -464,7 +375,7 @@ endpoint_ptr proxy_base::next_endpoint() {
   } else {
     return endpoints_[count_++];
   }
-
+  /*
   bool at_least_one_worked = false;
   endpoints_.for_each([&at_least_one_worked](endpoint_ptr &e) {
     at_least_one_worked = e->number_scanned != 0;
@@ -474,7 +385,7 @@ endpoint_ptr proxy_base::next_endpoint() {
     endpoints_.clear();
     return nullptr;
   }
-
+  */
   endpoints_.remove_if([](auto const &ep) {
     return ep->property != ProxyProperty::ProxyActive;
   });
@@ -485,7 +396,7 @@ endpoint_ptr proxy_base::next_endpoint() {
   }
   get_more_proxies();
   if (has_error_ || endpoints_.empty()) {
-    int const max_retries = 3;
+    int const max_retries = 5;
     int n = 0;
     auto const sleep_time =
         std::chrono::seconds(utilities::proxy_fetch_interval());

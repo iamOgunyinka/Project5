@@ -280,7 +280,7 @@ std::array<char const *, LenUserAgents> const request_handler::user_agents = {
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like "
     "Gecko) Chrome/64.0.3282.140 Safari/537.36 Edge/17.17134"};
 
-uri::uri(const std::string &url_s) { parse(url_s); }
+uri::uri(std::string const &url_s) { parse(url_s); }
 
 std::string uri::target() const { return path_ + "?" + query_; }
 
@@ -290,7 +290,7 @@ std::string uri::path() const { return path_; }
 
 std::string uri::host() const { return host_; }
 
-void uri::parse(const std::string &url_s) {
+void uri::parse(std::string const &url_s) {
   std::string const prot_end{"://"};
   std::string::const_iterator prot_i =
       std::search(url_s.begin(), url_s.end(), prot_end.begin(), prot_end.end());

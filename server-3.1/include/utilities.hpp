@@ -155,7 +155,7 @@ struct request_handler {
 };
 
 struct uri {
-  uri(std::string const &url_s);
+  uri(std::string const & url_s);
   std::string path() const;
   std::string host() const;
   std::string target() const;
