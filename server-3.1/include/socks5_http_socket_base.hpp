@@ -204,6 +204,8 @@ void socks5_http_socket_base_t<Derived, ProxyProvider>::
         [this](beast::error_code const ec, std::size_t const) {
           if (ec) {
             // spdlog::error("Unable to write to stream: {}", ec.message());
+            current_proxy_assign_prop(
+                ProxyProvider::Property::ProxyUnresponsive);
             return choose_next_proxy();
           }
           reply_buffer.clear();
@@ -220,6 +222,7 @@ void socks5_http_socket_base_t<Derived, ProxyProvider>::
     return perform_sock5_second_handshake();
   }
   // spdlog::error("unsupported socks version");
+  current_proxy_assign_prop(ProxyProvider::Property::ProxyUnresponsive);
   choose_next_proxy();
 }
 
@@ -298,6 +301,7 @@ void socks5_http_socket_base_t<Derived, ProxyProvider>::
     on_handshake_response_received(beast::error_code ec, std::size_t const sz) {
   if (ec) {
     // spdlog::error("[second_handshake_read_error] {}", ec.message());
+    current_proxy_assign_prop(ProxyProvider::Property::ProxyUnresponsive);
     return choose_next_proxy();
   }
   char const *p1 = reinterpret_cast<char const *>(reply_buffer.data());

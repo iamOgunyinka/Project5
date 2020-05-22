@@ -3,6 +3,10 @@
 #include <filesystem>
 
 namespace wudi_server {
+using utilities::atomic_task_t;
+using utilities::internal_task_result_t;
+using utilities::search_result_type_e;
+using utilities::task_status_e;
 
 background_worker_t::~background_worker_t() {
   signal_connector_.disconnect();
@@ -13,23 +17,21 @@ background_worker_t::~background_worker_t() {
 
 background_worker_t::background_worker_t(
     website_result_t &&website, std::vector<upload_result_t> &&uploads,
-    std::shared_ptr<utilities::internal_task_result_t> task_result,
+    std::shared_ptr<internal_task_result_t> task_result,
     net::ssl::context &ssl_context)
     : ssl_context_{ssl_context}, website_info_{std::move(website)},
       uploads_info_{std::move(uploads)}, task_result_ptr_{task_result},
       website_type_{website_type_e::Unknown} {}
 
 background_worker_t::background_worker_t(
-    utilities::atomic_task_t old_task,
-    std::shared_ptr<utilities::internal_task_result_t> task_result,
+    atomic_task_t old_task, std::shared_ptr<internal_task_result_t> task_result,
     net::ssl::context &ssl_context)
     : ssl_context_{ssl_context}, website_info_{}, uploads_info_{},
       task_result_ptr_{task_result}, website_type_{website_type_e::Unknown},
       atomic_task_{std::move(old_task)} {}
 
-void background_worker_t::on_data_result_obtained(
-    utilities::search_result_type_e type, std::string_view number) {
-  using utilities::search_result_type_e;
+void background_worker_t::on_data_result_obtained(search_result_type_e type,
+                                                  std::string_view number) {
   auto &processed = task_result_ptr_->processed;
   auto &total = task_result_ptr_->total_numbers;
   ++processed;
@@ -130,8 +132,7 @@ bool background_worker_t::open_output_files() {
          task_result_ptr_->unknown_file.is_open();
 }
 
-utilities::task_status_e background_worker_t::run_number_crawler() {
-  using utilities::task_status_e;
+task_status_e background_worker_t::run_number_crawler() {
   if (!open_output_files()) {
     spdlog::error("OpenOutputFiles failed");
     if (std::filesystem::exists(input_filename)) {
@@ -243,9 +244,7 @@ utilities::task_status_e background_worker_t::run_number_crawler() {
   return task_result_ptr_->operation_status;
 }
 
-utilities::task_status_e background_worker_t::continue_old_task() {
-  using utilities::atomic_task_t;
-  using utilities::task_status_e;
+task_status_e background_worker_t::continue_old_task() {
 
   auto &task = atomic_task_.value();
   if (task.website_address.find("autohome") != std::string::npos) {
@@ -290,8 +289,7 @@ utilities::task_status_e background_worker_t::continue_old_task() {
   return run_number_crawler();
 }
 
-utilities::task_status_e background_worker_t::run_new_task() {
-  using utilities::task_status_e;
+task_status_e background_worker_t::run_new_task() {
   {
     input_filename = "./{}.txt"_format(
         utilities::get_random_string(utilities::get_random_integer()));
@@ -335,7 +333,7 @@ utilities::task_status_e background_worker_t::run_new_task() {
   return run_number_crawler();
 }
 
-utilities::task_status_e background_worker_t::run() {
+task_status_e background_worker_t::run() {
   if (website_info_.id != 0) {
     return run_new_task();
   }

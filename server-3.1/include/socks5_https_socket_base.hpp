@@ -231,6 +231,7 @@ void socks5_https_socket_base_t<Derived, ProxyProvider>::
     return perform_sock5_second_handshake();
   }
   // spdlog::error("unsupported socks version");
+  current_proxy_assign_prop(ProxyProvider::Property::ProxyUnresponsive);
   choose_next_proxy();
 }
 
@@ -287,7 +288,7 @@ void socks5_https_socket_base_t<
           net::const_buffer(handshake_buffer.data(), handshake_buffer.size()),
           [this](beast::error_code ec, std::size_t const) {
             if (ec) {
-              //spdlog::error("[second_socks_write] {}", ec.message());
+              // spdlog::error("[second_socks_write] {}", ec.message());
               current_proxy_assign_prop(
                   ProxyProvider::Property::ProxyUnresponsive);
               return choose_next_proxy();
@@ -315,6 +316,7 @@ void socks5_https_socket_base_t<Derived, ProxyProvider>::
     on_handshake_response_received(beast::error_code ec, std::size_t const sz) {
   if (ec) {
     // spdlog::error("[second_handshake_read_error] {} {}", ec.message(), sz);
+    current_proxy_assign_prop(ProxyProvider::Property::ProxyUnresponsive);
     return choose_next_proxy();
   }
   char const *p1 = reinterpret_cast<char const *>(reply_buffer.data());
@@ -436,12 +438,8 @@ void socks5_https_socket_base_t<Derived, Proxy>::on_ssl_handshake(
       ec.value() == ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SHORT_READ)) {
     return send_https_data();
   }
-  if (ec == http::error::end_of_stream) {
-    //spdlog::error("SSL: {}", ec.message());
-    return choose_next_proxy();
-  }
   if (ec) {
-    //spdlog::error("SSL handshake: {}", ec.message());
+    // spdlog::error("SSL handshake: {}", ec.message());
     current_proxy_assign_prop(Proxy::Property::ProxyUnresponsive);
     return choose_next_proxy();
   }
@@ -455,8 +453,7 @@ void socks5_https_socket_base_t<Derived, Proxy>::perform_ssl_ritual() {
                                 host_name.c_str())) {
     beast::error_code ec{static_cast<int>(::ERR_get_error()),
                          net::error::get_ssl_category()};
-    //spdlog::error("Unable to set TLS because: {}", ec.message());
-    return;
+    // spdlog::error("Unable to set TLS because: {}", ec.message());
   }
 }
 
@@ -569,7 +566,7 @@ template <typename Derived, typename Proxy>
 void socks5_https_socket_base_t<Derived, Proxy>::on_data_sent(
     beast::error_code ec, std::size_t const s) {
   if (ec) {
-    //spdlog::error(ec.message());
+    // spdlog::error(ec.message());
     return resend_http_request();
   }
   receive_data();
