@@ -156,7 +156,7 @@ struct proxy_base_params {
 
 class proxy_base {
   static std::time_t last_fetch_time_;
-  static std::mutex fetch_time_mutex_;
+  static std::timed_mutex fetch_time_mutex_;
   ip::basic_resolver_results<ip::tcp> resolves_;
 
 protected:
@@ -175,6 +175,7 @@ protected:
   void save_proxies_to_file();
   virtual extraction_data get_remain_count();
   virtual void get_more_proxies();
+  virtual void get_proxies_without_waiting();
 
 public:
   using Property = ProxyProperty;
