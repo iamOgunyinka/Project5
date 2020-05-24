@@ -160,6 +160,7 @@ task_status_e background_worker_t::run_number_crawler() {
       return task_status_e::Erred;
     }
   }
+
   if (!db_connector->set_input_files(
           input_filename, task_result_ptr_->ok_filename.string(),
           task_result_ptr_->ok2_filename.string(),
