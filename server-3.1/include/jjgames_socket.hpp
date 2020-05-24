@@ -16,11 +16,11 @@ class jjgames_socket
   std::size_t success_sent_count_{};
   void process_response(std::string const &);
 
-  using socks5_https_socket_base_t<jjgames_socket<Proxy>, Proxy>::request_;
-  using socks5_https_socket_base_t<jjgames_socket<Proxy>, Proxy>::signal_;
-  using socks5_https_socket_base_t<jjgames_socket<Proxy>, Proxy>::response_;
-  using socks5_https_socket_base_t<jjgames_socket<Proxy>,
-                                   Proxy>::current_number_;
+  using super_class = socks5_https_socket_base_t<jjgames_socket<Proxy>, Proxy>;
+  using super_class::current_number_;
+  using super_class::request_;
+  using super_class::response_;
+  using super_class::signal_;
 
 public:
   template <typename... Args>

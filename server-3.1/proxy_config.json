@@ -13,7 +13,7 @@
         "protocol": 0,
         "share": true,
         "socket_count": 1,
-        "target": "http://api.wandoudl.com/api/ip?app_key=19ead3cb7a5d477f5d480d850f18de94&pack=0&num=10&xy=3&type=1&lb=\\\\n&mr=1&",
+        "target": "http://127.0.0.7/joshua",
         "username": ""
     },
     "socket": {

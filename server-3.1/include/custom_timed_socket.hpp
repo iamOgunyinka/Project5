@@ -73,12 +73,12 @@ public:
     if (ec) {
       return std::nullopt;
     }
+
     http_tcp_socket.connect(*resolver_iter);
 
     ec = {};
     int const connect_time_ms = connect_timeout_sec * 1'000;
-    auto const result =
-        csock::poll_connect(socket_nhandle, connect_time_ms, ec);
+    auto result = csock::poll_connect(socket_nhandle, connect_time_ms, ec);
     if (ec || result < 0) {
       return std::nullopt;
     }
@@ -109,25 +109,28 @@ public:
     beast::flat_buffer buffer{};
     http::response<http::string_body> server_response{};
 
-#ifdef _WIN32
-    int const read_time_ms = read_timeout_sec * 1'000;
-    http_tcp_socket.set_option(
-        net::detail::socket_option::integer<SOL_SOCKET, SO_RCVTIMEO>(
-            read_time_ms));
-#else
-    timeval time_val{};
-    time_val.tv_sec = read_timeout_sec;
-    time_val.tv_usec = 0;
-    setsockopt(socket_nhandle, SOL_SOCKET, SO_RCVTIMEO, (char *)&time_val,
-               sizeof(timeval));
-#endif // !_WIN32
-    http::read(http_tcp_socket, buffer, server_response, ec);
+    if (!http_tcp_socket.native_non_blocking())
+      http_tcp_socket.native_non_blocking(true, ec);
+
     if (ec) {
+      return std::nullopt;
+    }
+
+    http::read(http_tcp_socket, buffer, server_response, ec);
+    ec = {};
+
+    int const read_time_ms = read_timeout_sec * 1'000;
+    result = csock::poll_read(socket_nhandle, 0, read_time_ms, ec);
+    if (ec || result < 0) {
       // would like to know if the error obtained is due to timeout on read
       data_read_error_ = true;
       return std::nullopt;
     }
+
     ec = {};
+    if (http_tcp_socket.native_non_blocking())
+      http_tcp_socket.native_non_blocking(false, ec);
+
     http_tcp_socket.shutdown(tcp::socket::shutdown_both, ec);
     http_status_code_ = server_response.result_int();
     return server_response.body();

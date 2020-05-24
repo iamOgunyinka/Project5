@@ -12,16 +12,14 @@ template <typename Proxy>
 class auto_home_socks5_socket_t
     : public socks5_https_socket_base_t<auto_home_socks5_socket_t<Proxy>,
                                         Proxy> {
-  using socks5_https_socket_base_t<auto_home_socks5_socket_t<Proxy>,
-                                   Proxy>::signal_;
-  using socks5_https_socket_base_t<auto_home_socks5_socket_t<Proxy>,
-                                   Proxy>::request_;
-  using socks5_https_socket_base_t<auto_home_socks5_socket_t<Proxy>,
-                                   Proxy>::response_;
-  using socks5_https_socket_base_t<auto_home_socks5_socket_t<Proxy>,
-                                   Proxy>::send_next;
-  using socks5_https_socket_base_t<auto_home_socks5_socket_t<Proxy>,
-                                   Proxy>::current_number_;
+  using super_class =
+      socks5_https_socket_base_t<auto_home_socks5_socket_t<Proxy>, Proxy>;
+
+  using super_class::current_number_;
+  using super_class::request_;
+  using super_class::response_;
+  using super_class::send_next;
+  using super_class::signal_;
 
 public:
   void data_received(beast::error_code, std::size_t const);

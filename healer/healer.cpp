@@ -46,6 +46,30 @@ void fix_database_problem(std::vector<int> const &task_ids) {
     utilities::normalize_paths(task.ok_filename);
     utilities::normalize_paths(task.unknown_filename);
 
+    for (auto const &filename : {task.not_ok_filename, task.ok_filename,
+                                 task.ok2_filename, task.unknown_filename}) {
+      std::string const command = "sort -u " + filename;
+      std::string out_filename = filename + "_";
+      try {
+        bp::system(command, bp::std_out > out_filename);
+      } catch (std::exception const &e) {
+        std::cerr << e.what() << std::endl;
+        return;
+      }
+      std::error_code ec{};
+      std::filesystem::remove(filename, ec);
+      if (ec) {
+        std::cerr << ec.message() << std::endl;
+        continue;
+      }
+      ec = {};
+      std::filesystem::rename(out_filename, filename, ec);
+      if (ec) {
+        std::cerr << ec.message() << std::endl;
+        continue;
+      }
+    }
+
     auto processed = count_file_lines(task.not_ok_filename, task.ok2_filename,
                                       task.ok_filename, task.unknown_filename);
     std::cout << "Total processed for task " << task.task_id << " = "
