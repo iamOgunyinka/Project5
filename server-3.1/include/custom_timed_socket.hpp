@@ -1,140 +1,101 @@
 #pragma once
+
 #include "utilities.hpp"
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
-#include <optional>
 
 namespace wudi_server {
 namespace net = boost::asio;
 namespace beast = boost::beast;
 namespace http = beast::http;
-namespace csock = net::detail::socket_ops;
 
 using net::ip::tcp;
 
-class custom_timed_socket_t {
-  net::io_context &io_context_;
-  net::ip::basic_resolver_results<tcp> &resolves_;
-  int http_status_code_ = -1;
-  bool data_read_error_ = false;
+template <typename T> class custom_timed_socket_t {
+  beast::tcp_stream http_tcp_socket_;
+  net::ip::tcp::resolver resolver_;
+  int const connect_timeout_ms;
+  int const read_timeout_ms;
+  std::promise<T> promise_;
+  beast::flat_buffer buffer_;
+  utilities::uri const uri_;
+  http::request<http::empty_body> http_request_;
+  http::response<http::string_body> http_response_;
 
 public:
-  bool data_read_error() const { return data_read_error_; }
-  int http_status_code() const { return http_status_code_; }
+  custom_timed_socket_t(net::io_context &io_context, std::string url,
+                        int const connect_timeout_sec,
+                        int const read_timeout_sec, std::promise<T> &&prom)
+      : http_tcp_socket_(net::make_strand(io_context)), resolver_{io_context},
+        connect_timeout_ms{connect_timeout_sec * 1'000},
+        read_timeout_ms{read_timeout_sec * 1'000},
+        promise_(std::move(prom)), uri_{std::move(url)} {}
 
-  custom_timed_socket_t(net::io_context &io_context,
-                        net::ip::basic_resolver_results<tcp> &resolves)
-      : io_context_{io_context}, resolves_{resolves} {}
+  void start() { return get(); }
 
-  std::optional<std::string> get(std::string const &url,
-                                 int const connect_timeout_sec,
-                                 int const read_timeout_sec,
-                                 boost::system::error_code &ec) {
-
-    utilities::uri const more_ip_uri_{url};
-    net::ip::basic_resolver_results<tcp>::iterator resolver_iter{};
-    bool is_ipv4 = true;
-    if (resolves_.empty()) {
-      net::ip::tcp::resolver resolver{io_context_};
-      resolves_ =
-          resolver.resolve(more_ip_uri_.host(), more_ip_uri_.protocol());
-    }
-    resolver_iter =
-        std::find_if(resolves_.begin(), resolves_.end(), [](auto const &ep) {
-          return ep.endpoint().address().is_v4();
+private:
+  void connect(net::ip::tcp::resolver::results_type const &resolves) {
+    http_tcp_socket_.expires_after(
+        std::chrono::milliseconds(connect_timeout_ms));
+    http_tcp_socket_.async_connect(
+        resolves, [=](beast::error_code ec, auto const &) {
+          if (ec) {
+            try {
+              throw std::runtime_error(ec.message());
+            } catch (std::runtime_error const &) {
+              return promise_.set_exception(std::current_exception());
+            }
+          }
+          return send_request();
         });
-    is_ipv4 = resolver_iter != resolves_.end();
-    if (!is_ipv4) {
-      resolver_iter = std::find_if(
-          resolves_.begin(), resolves_.end(),
-          [](net::ip::basic_resolver_entry<net::ip::tcp> const &ep) {
-            return ep.endpoint().address().is_v6();
-          });
-      if (resolver_iter == resolves_.end()) {
-        return std::nullopt;
-      }
-    }
+  }
 
-    tcp::socket http_tcp_socket(net::make_strand(io_context_));
+  void receive_data() {
+    http_tcp_socket_.expires_after(std::chrono::milliseconds(read_timeout_ms));
+    http::async_read(http_tcp_socket_, buffer_, http_response_,
+                     [=](beast::error_code ec, std::size_t const) {
+                       if (ec) {
+                         return promise_.set_value(T{});
+                       }
+                       return promise_.set_value(T{
+                           http_response_.body(), http_response_.result_int()});
+                     });
+  }
 
-    if (is_ipv4) {
-      http_tcp_socket.open(net::ip::tcp::v4(), ec);
-    } else {
-      http_tcp_socket.open(net::ip::tcp::v6(), ec);
-    }
-    if (ec) {
-      return std::nullopt;
-    }
-    ec = {};
-    auto socket_nhandle = http_tcp_socket.native_handle();
-    if (!http_tcp_socket.native_non_blocking())
-      http_tcp_socket.native_non_blocking(true, ec);
+  void send_request() {
+    http_request_.method(http::verb::get);
+    http_request_.target(uri_.target());
+    http_request_.version(11);
+    http_request_.set(http::field::host, uri_.host());
+    http_request_.set(http::field::user_agent, utilities::get_random_agent());
 
-    if (ec) {
-      return std::nullopt;
-    }
-
-    http_tcp_socket.connect(*resolver_iter);
-
-    ec = {};
-    int const connect_time_ms = connect_timeout_sec * 1'000;
-    auto result = csock::poll_connect(socket_nhandle, connect_time_ms, ec);
-    if (ec || result < 0) {
-      return std::nullopt;
-    }
-    int connect_error = 0;
-    std::size_t connect_error_len = sizeof(connect_error);
-    auto const get_sock_result =
-        csock::getsockopt(socket_nhandle, 0, SOL_SOCKET, SO_ERROR,
-                          &connect_error, &connect_error_len, ec);
-    if (get_sock_result != 0 || ec) {
-      return std::nullopt;
-    }
-    ec = {};
-    if (http_tcp_socket.native_non_blocking()) {
-      http_tcp_socket.native_non_blocking(false, ec);
-    }
-    if (ec) {
-      return std::nullopt;
-    }
-
-    http::request<http::empty_body> http_request{};
-    http_request.method(http::verb::get);
-    http_request.target(more_ip_uri_.target());
-    http_request.version(11);
-    http_request.set(http::field::host, more_ip_uri_.host());
-    http_request.set(http::field::user_agent, utilities::get_random_agent());
-
-    http::write(http_tcp_socket, http_request, ec);
-    beast::flat_buffer buffer{};
-    http::response<http::string_body> server_response{};
-
-    if (!http_tcp_socket.native_non_blocking())
-      http_tcp_socket.native_non_blocking(true, ec);
-
-    if (ec) {
-      return std::nullopt;
-    }
-
-    http::read(http_tcp_socket, buffer, server_response, ec);
-    ec = {};
-
-    int const read_time_ms = read_timeout_sec * 1'000;
-    result = csock::poll_read(socket_nhandle, 0, read_time_ms, ec);
-    if (ec || result < 0) {
-      // would like to know if the error obtained is due to timeout on read
-      data_read_error_ = true;
-      return std::nullopt;
-    }
-
-    ec = {};
-    if (http_tcp_socket.native_non_blocking())
-      http_tcp_socket.native_non_blocking(false, ec);
-
-    http_tcp_socket.shutdown(tcp::socket::shutdown_both, ec);
-    http_status_code_ = server_response.result_int();
-    return server_response.body();
+    http_tcp_socket_.expires_after(std::chrono::milliseconds(10));
+    http::async_write(http_tcp_socket_, http_request_,
+                      [=](beast::error_code ec, std::size_t const) {
+                        if (ec) {
+                          try {
+                            throw std::runtime_error(ec.message());
+                          } catch (std::runtime_error const &) {
+                            return promise_.set_exception(
+                                std::current_exception());
+                          }
+                        }
+                        return receive_data();
+                      });
+  }
+  void get() {
+    resolver_.async_resolve(uri_.host(), uri_.protocol(),
+                            [=](auto const &ec, auto const &resolves) {
+                              if (ec) {
+                                try {
+                                  throw std::runtime_error(ec.message());
+                                } catch (std::runtime_error const &) {
+                                  return promise_.set_exception(
+                                      std::current_exception());
+                                }
+                              }
+                              connect(resolves);
+                            });
   }
 };
-
 } // namespace wudi_server

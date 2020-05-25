@@ -10,6 +10,8 @@ enum constant_e { WorkerThreadCount = 15 };
 
 int WUDI_SOFTWARE_VERSION = 313;
 
+using wudi_server::global_proxy_repo_t;
+
 int main(int argc, char *argv[]) {
   CLI::App cli_parser{
       "Wu-di: an asynchronous web server for Kiaowa Trading LLC"};
@@ -34,7 +36,7 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  wudi_server::global_proxy_repo_t global_proxy_provider{};
+  global_proxy_repo_t global_proxy_provider{};
   boost::asio::ssl::context ssl_context(
       boost::asio::ssl::context::tlsv11_client);
   ssl_context.set_default_verify_paths();
@@ -54,12 +56,17 @@ int main(int argc, char *argv[]) {
   {
     using wudi_server::background_task_executor;
     auto thread_callback = [&] {
-      background_task_executor(stop, ssl_context, global_proxy_provider);
+      background_task_executor(stop, ssl_context, io_context,
+                               global_proxy_provider);
     };
     for (int i = 0; i != WorkerThreadCount; ++i) {
       std::thread t{thread_callback};
       t.detach();
     }
+
+    std::thread safe_proxy_executor{
+        global_proxy_repo_t::background_proxy_fetcher, std::ref(io_context)};
+    safe_proxy_executor.detach();
   }
   database_connector->username(db_config.username)
       .password(db_config.password)

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "utilities.hpp"
 #include <boost/asio.hpp>
 #include <boost/signals2/signal.hpp>
 #include <ctime>
@@ -134,7 +135,19 @@ struct shared_data_t {
   std::vector<custom_endpoint> eps{};
 };
 
+struct http_result_t {
+  std::string response_body{};
+  std::size_t status_code{};
+};
+
+struct posted_data_t {
+  std::string url{};
+  std::promise<http_result_t> promise;
+};
+
 using NewProxySignal = signals2::signal<void(shared_data_t const &)>;
+using promise_container = utilities::threadsafe_cv_container<posted_data_t>;
+
 void swap(custom_endpoint &a, custom_endpoint &b);
 
 class global_proxy_repo_t {
@@ -142,6 +155,8 @@ class global_proxy_repo_t {
 
 public:
   NewProxySignal *new_ep_signal() { return &new_endpoints_signal_; }
+  static promise_container &get_promise_container();
+  static void background_proxy_fetcher(net::io_context &);
 };
 
 struct proxy_base_params {
@@ -155,10 +170,6 @@ struct proxy_base_params {
 };
 
 class proxy_base {
-  static std::time_t last_fetch_time_;
-  static std::timed_mutex fetch_time_mutex_;
-  ip::basic_resolver_results<ip::tcp> resolves_;
-
 protected:
   proxy_base_params &param_;
   std::size_t proxies_used_{};
@@ -175,7 +186,6 @@ protected:
   void save_proxies_to_file();
   virtual extraction_data get_remain_count();
   virtual void get_more_proxies();
-  virtual void get_proxies_without_waiting();
 
 public:
   using Property = ProxyProperty;

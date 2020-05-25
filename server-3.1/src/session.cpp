@@ -782,7 +782,7 @@ void session::stop_tasks_handler(string_request const &request,
       tasks.emplace_back(task.get<json::number_integer_t>());
     }
     auto &queued_task = utilities::get_scheduled_tasks();
-    auto interesting_tasks = queued_task.remove_task(
+    auto interesting_tasks = queued_task.remove_value(
         tasks, [](atomic_task_t &task, std::vector<uint32_t> const &ids) {
           for (auto const &id : ids)
             if (task.task_id == id)
