@@ -1,6 +1,5 @@
 #include "safe_proxy.hpp"
 #include "custom_timed_socket.hpp"
-#include "utilities.hpp"
 #include <boost/algorithm/string.hpp>
 #include <boost/lexical_cast.hpp>
 #include <filesystem>
@@ -12,8 +11,57 @@
 namespace wudi_server {
 enum constants_e { max_read_allowed = 300, max_capacity = 5'000 };
 
-std::time_t proxy_base::last_fetch_time_{};
-std::timed_mutex proxy_base::fetch_time_mutex_{};
+promise_container &global_proxy_repo_t::get_promise_container() {
+  static promise_container container{};
+  return container;
+}
+
+void global_proxy_repo_t::background_proxy_fetcher(
+    net::io_context &io_context) {
+  auto &promises = get_promise_container();
+  int const connect_timeout_sec = 15;
+  int const read_timeout_sec = 15;
+  std::time_t last_fetch_time = 0;
+
+  while (true) {
+    auto info_posted = std::move(promises.get());
+    {
+      std::time_t const current_time = std::time(nullptr);
+      auto const time_difference = current_time - last_fetch_time;
+      auto const interval_secs = utilities::proxy_fetch_interval();
+      if (time_difference < interval_secs) {
+        std::this_thread::sleep_for(
+            std::chrono::seconds(interval_secs - time_difference));
+      }
+    }
+    std::promise<http_result_t> http_result_promise{};
+    auto result_future = http_result_promise.get_future();
+
+    std::optional<custom_timed_socket_t<http_result_t>> custom_socket{
+        std::in_place,       io_context,       info_posted.url,
+        connect_timeout_sec, read_timeout_sec, std::move(http_result_promise)};
+    custom_socket->start();
+    try {
+      auto const status = result_future.wait_for(std::chrono::seconds(30));
+
+      if (status == std::future_status::timeout) {
+        custom_socket.reset();
+        last_fetch_time = std::time(nullptr);
+        info_posted.promise.set_exception(nullptr);
+        continue;
+      }
+      auto const result = result_future.get();
+      if (result.status_code == 0) {
+        info_posted.promise.set_exception(nullptr);
+      } else {
+        info_posted.promise.set_value(result);
+      }
+      last_fetch_time = std::time(nullptr);
+    } catch (...) {
+      info_posted.promise.set_exception(std::current_exception());
+    }
+  }
+}
 
 proxy_base::proxy_base(proxy_base_params &params, std::string const &filename)
     : param_{params} {
@@ -124,146 +172,39 @@ void split_ips(std::vector<std::string> &out, std::string const &str) {
   }
 }
 
-void proxy_base::get_proxies_without_waiting() {
-  std::vector<custom_endpoint> new_eps{};
-  try {
-    if (confirm_count_) {
-      current_extracted_data_ = get_remain_count();
-      if (!current_extracted_data_.is_available) {
-        has_error_ = true;
-        return;
-      }
-    }
-
-    if (!confirm_count_ || current_extracted_data_.extract_remain > 0) {
-      int const read_timeout_seconds = 30;
-      int const connect_timeout_seconds = 15;
-      custom_timed_socket_t custom_socket{param_.io_, resolves_};
-      boost::system::error_code ec{};
-      auto response_body =
-          custom_socket.get(param_.config_.proxy_target,
-                            connect_timeout_seconds, read_timeout_seconds, ec);
-      if (!response_body) {
-        has_error_ = true;
-        return spdlog::error("custom_socket error: {}", ec.message());
-      }
-      int const status_code = custom_socket.http_status_code();
-      if (status_code != 200) {
-        has_error_ = true;
-        return spdlog::error("server was kind enough to say: {}",
-                             *response_body);
-      }
-      std::vector<std::string> ips{};
-      split_ips(ips, *response_body);
-      if (ips.empty() || response_body->find('{') != std::string::npos) {
-        has_error_ = true;
-        return spdlog::error("IPs empty: {}", *response_body);
-      }
-      new_eps.reserve(param_.config_.fetch_once);
-      spdlog::info("Grabbed {} proxies", ips.size());
-      for (auto const &line : ips) {
-        if (line.empty())
-          continue;
-        std::istringstream ss{line};
-        std::string ip_address{};
-        std::string username{};
-        std::string password{};
-        ss >> ip_address >> username >> password;
-        auto ip_port = utilities::split_string_view(ip_address, ":");
-        if (ip_port.size() < 2)
-          continue;
-        ec = {};
-        try {
-          auto endpoint = net::ip::tcp::endpoint(
-              net::ip::make_address(ip_port[0].to_string()),
-              std::stoi(ip_port[1].to_string()));
-          new_eps.emplace_back(
-              custom_endpoint(std::move(endpoint), username, password));
-        } catch (std::exception const &except) {
-          has_error_ = true;
-          if (response_body) {
-            spdlog::error("server says: {}", *response_body);
-          }
-          return spdlog::error("[get_more_proxies] {}", except.what());
-        }
-      }
-    }
-  } catch (std::exception const &e) {
-    has_error_ = true;
-    return spdlog::error("safe_proxy exception: {}", e.what());
-  }
-
-  if (endpoints_.size() >= max_capacity) {
-    endpoints_.remove_first_n(new_eps.size());
-  }
-  for (auto const &ep : new_eps) {
-    endpoints_.push_back(std::make_shared<custom_endpoint>(ep));
-  }
-  proxies_used_ += new_eps.size();
-}
-
 void proxy_base::get_more_proxies() {
-  auto const prev_size = endpoints_.size();
+
+  auto &promises = global_proxy_repo_t::get_promise_container();
   std::vector<custom_endpoint> new_eps{};
 
-  // try acquiring a lock on this global mutex `fetch_time_mutex_`.
-  std::unique_lock<std::timed_mutex> lock_g(fetch_time_mutex_, std::defer_lock);
-  bool const lock_acquired = lock_g.try_lock_for(std::chrono::minutes(3));
-  if (!lock_acquired) {
-    return get_proxies_without_waiting();
-  }
-  // in between the time we spent trying to acquire a lock, if the
-  // size of endpoint has changed, it means another thread shared
-  // endpoint with this_thread,so no need to get new proxy endpoints
-  if (prev_size != endpoints_.size()) {
-    return;
-  }
-  if (last_fetch_time_ != 0) {
-    std::time_t const current_time = std::time(nullptr);
-    auto const time_difference = current_time - last_fetch_time_;
-    auto const interval_secs = utilities::proxy_fetch_interval();
-    if (time_difference < interval_secs) {
-      std::this_thread::sleep_for(
-          std::chrono::seconds(interval_secs - time_difference));
-    }
-  }
   try {
-    if (confirm_count_) {
-      current_extracted_data_ = get_remain_count();
-      if (!current_extracted_data_.is_available) {
+    if (!confirm_count_ || current_extracted_data_.extract_remain > 0) {
+
+      posted_data_t post_office{param_.config_.proxy_target, {}};
+      auto future = post_office.promise.get_future();
+      promises.push_back(std::move(post_office));
+
+      // wait for 2 minutes, 30 seconds max
+      auto const wait_status = future.wait_for(std::chrono::seconds(150));
+      if (wait_status == std::future_status::timeout) {
         has_error_ = true;
         return;
       }
-    }
 
-    if (!confirm_count_ || current_extracted_data_.extract_remain > 0) {
-      int const read_timeout_seconds = 30;
-      int const connect_timeout_seconds = 15;
-      custom_timed_socket_t custom_socket{param_.io_, resolves_};
-      boost::system::error_code ec{};
-      auto response_body =
-          custom_socket.get(param_.config_.proxy_target,
-                            connect_timeout_seconds, read_timeout_seconds, ec);
-      if (!response_body) {
-        if (custom_socket.data_read_error()) {
-          last_fetch_time_ = std::time(nullptr);
-        }
-        has_error_ = true;
-        return spdlog::error("custom_socket error: {}", ec.message());
-      }
-      int const status_code = custom_socket.http_status_code();
+      auto const result = future.get();
+      int const status_code = result.status_code;
+      auto &response_body = result.response_body;
+
       if (status_code != 200) {
         has_error_ = true;
-        last_fetch_time_ = std::time(nullptr);
         return spdlog::error("server was kind enough to say: {}",
-                             *response_body);
+                             result.response_body);
       }
       std::vector<std::string> ips;
-      split_ips(ips, *response_body);
-      if (ips.empty() || response_body->find('{') != std::string::npos) {
+      split_ips(ips, response_body);
+      if (ips.empty() || response_body.find('{') != std::string::npos) {
         has_error_ = true;
-        last_fetch_time_ = std::time(nullptr);
-        return spdlog::error("IPs empty: {}", *response_body);
+        return spdlog::error("IPs empty: {}", response_body);
       }
       new_eps.reserve(param_.config_.fetch_once);
       spdlog::info("Grabbed {} proxies", ips.size());
@@ -278,7 +219,7 @@ void proxy_base::get_more_proxies() {
         auto ip_port = utilities::split_string_view(ip_address, ":");
         if (ip_port.size() < 2)
           continue;
-        ec = {};
+        boost::system::error_code ec{};
         try {
           auto endpoint = net::ip::tcp::endpoint(
               net::ip::make_address(ip_port[0].to_string()),
@@ -287,21 +228,17 @@ void proxy_base::get_more_proxies() {
               custom_endpoint(std::move(endpoint), username, password));
         } catch (std::exception const &except) {
           has_error_ = true;
-          last_fetch_time_ = std::time(nullptr);
-          if (response_body) {
-            spdlog::error("server says: {}", *response_body);
-          }
+          spdlog::error("server says: {}", response_body);
           return spdlog::error("[get_more_proxies] {}", except.what());
         }
       }
     }
   } catch (std::exception const &e) {
-    last_fetch_time_ = std::time(nullptr);
     has_error_ = true;
     return spdlog::error("safe_proxy exception: {}", e.what());
   }
 
-  if (param_.config_.share_proxy) {
+  if (param_.config_.share_proxy && !param_.signal_.empty()) {
     shared_data_t shared_data{};
     shared_data.eps = std::move(new_eps);
     shared_data.proxy_type = type();
@@ -326,7 +263,6 @@ void proxy_base::get_more_proxies() {
     }
     proxies_used_ += new_eps.size();
   }
-  last_fetch_time_ = std::time(nullptr);
   // save_proxies_to_file();
 }
 
@@ -456,17 +392,7 @@ endpoint_ptr proxy_base::next_endpoint() {
   } else {
     return endpoints_[count_++];
   }
-  /*
-  bool at_least_one_worked = false;
-  endpoints_.for_each([&at_least_one_worked](endpoint_ptr &e) {
-    at_least_one_worked = e->number_scanned != 0;
-  });
 
-  if (!at_least_one_worked) {
-    endpoints_.clear();
-    return nullptr;
-  }
-  */
   endpoints_.remove_if([](auto const &ep) {
     return ep->property != ProxyProperty::ProxyActive;
   });

@@ -145,8 +145,8 @@ resume_unstarted_task(atomic_task_t &scheduled_task,
 
 void background_task_executor(std::atomic_bool &stopped,
                               boost::asio::ssl::context &ssl_context,
+                              boost::asio::io_context &io_context,
                               global_proxy_repo_t &r) {
-
   auto db_connector = database_connector_t::s_get_db_connector();
   auto &scheduled_tasks = utilities::get_scheduled_tasks();
 

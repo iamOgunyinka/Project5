@@ -155,7 +155,7 @@ struct request_handler {
 };
 
 struct uri {
-  uri(std::string const & url_s);
+  uri(std::string const &url_s);
   std::string path() const;
   std::string host() const;
   std::string target() const;
@@ -265,21 +265,21 @@ public:
   T get() {
     std::unique_lock<std::mutex> u_lock{mutex_};
     cv_.wait(u_lock, [this] { return !container_.empty(); });
-    T value = container_.front();
+    T value{std::move(container_.front())};
     container_.pop_front();
     total_ = container_.size();
     return value;
   }
 
   template <typename U, typename Func>
-  std::vector<T> remove_task(U &&keys, Func &&function) {
+  std::vector<T> remove_value(U &&keys, Func &&function) {
     if (container_.empty())
       return {};
     std::unique_lock<std::mutex> u_lock{mutex_};
     std::vector<T> result{};
-    for (auto &task : container_) {
-      if (function(task, keys))
-        result.emplace_back(std::move(task));
+    for (auto &value : container_) {
+      if (function(value, keys))
+        result.emplace_back(std::move(value));
     }
     return result;
   }

@@ -11,12 +11,13 @@ using namespace fmt::v6::literals;
 template <typename Proxy>
 class auto_home_http_socket_t
     : public http_socket_base_t<auto_home_http_socket_t<Proxy>, Proxy> {
-  using http_socket_base_t<auto_home_http_socket_t<Proxy>, Proxy>::signal_;
-  using http_socket_base_t<auto_home_http_socket_t<Proxy>, Proxy>::request_;
-  using http_socket_base_t<auto_home_http_socket_t<Proxy>, Proxy>::response_;
-  using http_socket_base_t<auto_home_http_socket_t<Proxy>, Proxy>::send_next;
-  using http_socket_base_t<auto_home_http_socket_t<Proxy>,
-                           Proxy>::current_number_;
+  using super_class = http_socket_base_t<auto_home_http_socket_t<Proxy>, Proxy>;
+
+  using super_class::current_number_;
+  using super_class::request_;
+  using super_class::response_;
+  using super_class::send_next;
+  using super_class::signal_;
 
 public:
   void data_received(beast::error_code, std::size_t const);
