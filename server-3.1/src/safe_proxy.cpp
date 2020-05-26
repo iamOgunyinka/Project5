@@ -18,6 +18,7 @@ promise_container &global_proxy_repo_t::get_promise_container() {
 
 void global_proxy_repo_t::background_proxy_fetcher(
     net::io_context &io_context) {
+  using timed_socket = custom_timed_socket_t<http_result_t>;
   auto &promises = get_promise_container();
   int const connect_timeout_sec = 15;
   int const read_timeout_sec = 15;
@@ -37,7 +38,7 @@ void global_proxy_repo_t::background_proxy_fetcher(
     std::promise<http_result_t> http_result_promise{};
     auto result_future = http_result_promise.get_future();
 
-    std::optional<custom_timed_socket_t<http_result_t>> custom_socket{
+    std::optional<timed_socket> custom_socket{
         std::in_place,       io_context,       info_posted.url,
         connect_timeout_sec, read_timeout_sec, std::move(http_result_promise)};
     custom_socket->start();
@@ -47,16 +48,11 @@ void global_proxy_repo_t::background_proxy_fetcher(
       if (status == std::future_status::timeout) {
         custom_socket.reset();
         last_fetch_time = std::time(nullptr);
-        info_posted.promise.set_exception(nullptr);
-        continue;
+        throw std::runtime_error{"connection timed out"};
       }
       auto const result = result_future.get();
-      if (result.status_code == 0) {
-        info_posted.promise.set_exception(nullptr);
-      } else {
-        info_posted.promise.set_value(result);
-      }
       last_fetch_time = std::time(nullptr);
+      info_posted.promise.set_value(result);
     } catch (...) {
       info_posted.promise.set_exception(std::current_exception());
     }
