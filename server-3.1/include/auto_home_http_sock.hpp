@@ -25,8 +25,7 @@ public:
 
   template <typename... Args>
   auto_home_http_socket_t(Args &&... args)
-      : http_socket_base_t<auto_home_http_socket_t<Proxy>, Proxy>(
-            std::forward<Args>(args)...) {}
+      : super_class(std::forward<Args>(args)...) {}
   ~auto_home_http_socket_t() {}
 };
 

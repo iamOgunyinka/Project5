@@ -22,6 +22,7 @@ enum class ProxyProperty {
   ProxyActive,
   ProxyBlocked,
   ProxyMaxedOut,
+  ProxyToldToWait,
   ProxyUnresponsive
 };
 
@@ -55,6 +56,8 @@ struct custom_endpoint {
   std::string user_name_{};
   std::string password_{};
   int number_scanned{};
+  std::time_t time_last_used{};
+
   ProxyProperty property{ProxyProperty::ProxyActive};
 
   custom_endpoint(tcp::endpoint &&ep, std::string const &username,
@@ -70,6 +73,7 @@ struct custom_endpoint {
 template <typename T> class vector_wrapper {
   std::mutex mutex_{};
   std::vector<T> container_{};
+  using underlying_type = typename T::element_type;
 
 public:
   using value_type = T;
@@ -79,18 +83,26 @@ public:
     std::lock_guard<std::mutex> lock_g{mutex_};
     return container_.empty();
   }
-  void clear() {
+  T back() {
     std::lock_guard<std::mutex> lock_g{mutex_};
-    container_.clear();
+    return container_.back();
   }
-  void push_back(T const &t) {
+
+  template <
+      typename Container,
+      typename = std::enable_if_t<std::is_convertible_v<
+          typename decltype(std::declval<Container>().begin())::value_type,
+          underlying_type>>>
+  void push_back(Container const &eps) {
     std::lock_guard<std::mutex> lock_g{mutex_};
-    container_.push_back(t);
+    for (auto const &elem : eps)
+      container_.push_back(std::make_shared<underlying_type>(elem));
   }
-  void push_back(T &&t) {
-    std::lock_guard<std::mutex> lock_g{mutex_};
-    container_.push_back(std::move(t));
+
+  void push_back(underlying_type &&ep) {
+    container_.push_back(std::make_shared<underlying_type>(std::move(ep)));
   }
+
   typename std::vector<T>::size_type size() {
     std::lock_guard<std::mutex> lock_g{mutex_};
     return container_.size();
@@ -163,7 +175,6 @@ struct proxy_base_params {
   net::io_context &io_;
   NewProxySignal &signal_;
   proxy_configuration_t &config_;
-  bool &stopped_;
   std::thread::id thread_id;
   std::uint32_t web_id;
   std::string filename{};

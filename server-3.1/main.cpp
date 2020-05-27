@@ -56,7 +56,7 @@ int main(int argc, char *argv[]) {
   {
     using wudi_server::background_task_executor;
     auto thread_callback = [&] {
-      background_task_executor(stop, ssl_context, io_context,
+      background_task_executor(stop, ssl_context,
                                global_proxy_provider);
     };
     for (int i = 0; i != WorkerThreadCount; ++i) {

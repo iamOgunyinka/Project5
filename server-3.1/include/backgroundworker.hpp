@@ -4,10 +4,12 @@
 #include "auto_home_socks5_sock.hpp"
 #include "jjgames_socket.hpp"
 #include "pp_sports.hpp"
+#include "qunar_socket.hpp"
 #include "safe_proxy.hpp"
 #include "utilities.hpp"
 #include "watch_home_http.hpp"
 #include "watch_home_socks5.hpp"
+
 #include <boost/asio/ssl/context.hpp>
 #include <boost/signals2.hpp>
 #include <fstream>
@@ -32,15 +34,18 @@ using pps_sk5 = pp_sports_socks5_socket_t<proxy_provider_t>;
 using jjgames_sk5 = jjgames_socket<proxy_provider_t>;
 using wh_http = watch_home_http_socket_t<proxy_provider_t>;
 using wh_sk5 = watch_home_socks5_socket_t<proxy_provider_t>;
+using qn_http = qunar_http_socket<proxy_provider_t>;
+using qn_sk5 = qunar_socks5_socket<proxy_provider_t>;
 
 using vsocket_type = std::variant<wh_http, wh_sk5, ah_https, ah_sk5, pps_http,
-                                  pps_sk5, jjgames_sk5>;
+                                  pps_sk5, jjgames_sk5, qn_http, qn_sk5>;
 
 enum class website_type_e {
   Unknown,
   AutoHomeRegister,
   JJGames,
   PPSports,
+  Qunar,
   WatchHome
 };
 
@@ -84,6 +89,9 @@ private:
       case website_type_e::PPSports:
         return std::make_unique<vsocket_type>(std::in_place_type<pps_http>,
                                               std::forward<Args>(args)...);
+      case website_type_e::Qunar:
+        return std::make_unique<vsocket_type>(std::in_place_type<qn_http>,
+                                              std::forward<Args>(args)...);
       case website_type_e::WatchHome:
         return std::make_unique<vsocket_type>(std::in_place_type<wh_http>,
                                               std::forward<Args>(args)...);
@@ -96,6 +104,10 @@ private:
                                               std::forward<Args>(args)...);
       case website_type_e::JJGames:
         return std::make_unique<vsocket_type>(std::in_place_type<jjgames_sk5>,
+                                              ssl_context_,
+                                              std::forward<Args>(args)...);
+      case website_type_e::Qunar:
+        return std::make_unique<vsocket_type>(std::in_place_type<qn_sk5>,
                                               ssl_context_,
                                               std::forward<Args>(args)...);
       case website_type_e::PPSports:

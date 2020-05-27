@@ -65,8 +65,8 @@ void background_worker_t::on_data_result_obtained(search_result_type_e type,
 
   bool const signallable = (processed % proxy_config_->max_socket) == 0;
   if (signallable) {
-    spdlog::info("Task({}): Processed {} of {}", task_result_ptr_->task_id,
-                 processed, total);
+    // spdlog::info("Task({}): Processed {} of {}", task_result_ptr_->task_id,
+    // processed, total);
     db_connector->update_task_progress(*task_result_ptr_,
                                        proxy_provider_->total_used());
   }
@@ -155,6 +155,8 @@ task_status_e background_worker_t::run_number_crawler() {
       website_type_ = website_type_e::PPSports;
     } else if (website_info_.address.find("watch") != std::string::npos) {
       website_type_ = website_type_e::WatchHome;
+    } else if (website_info_.address.find("qunar") != std::string::npos) {
+      website_type_ = website_type_e::Qunar;
     } else {
       spdlog::error("Type not found");
       return task_status_e::Erred;
@@ -181,9 +183,8 @@ task_status_e background_worker_t::run_number_crawler() {
   auto const thread_id = std::this_thread::get_id();
   auto const web_id = task_result_ptr_->website_id;
   io_context_.emplace();
-  proxy_base_params proxy_param{*io_context_,   *new_proxy_signal_,
-                                *proxy_config_, is_stopped,
-                                thread_id,      web_id};
+  proxy_base_params proxy_param{*io_context_, *new_proxy_signal_,
+                                *proxy_config_, thread_id, web_id};
 
   switch (proxy_config_->proxy_protocol) {
   case proxy_type_e::http_https_proxy:
@@ -256,6 +257,8 @@ task_status_e background_worker_t::continue_old_task() {
     website_type_ = website_type_e::PPSports;
   } else if (task.website_address.find("watch") != std::string::npos) {
     website_type_ = website_type_e::WatchHome;
+  } else if (task.website_address.find("qunar") != std::string::npos) {
+    website_type_ = website_type_e::Qunar;
   }
 
   input_filename = task.input_filename;
