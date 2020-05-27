@@ -27,8 +27,7 @@ public:
 
   template <typename... Args>
   auto_home_socks5_socket_t<Proxy>(ssl::context &ssl_context, Args &&... args)
-      : socks5_https_socket_base_t<auto_home_socks5_socket_t<Proxy>, Proxy>(
-            ssl_context, std::forward<Args>(args)...) {}
+      : super_class(ssl_context, std::forward<Args>(args)...) {}
   ~auto_home_socks5_socket_t() {}
   std::string hostname() const;
 };

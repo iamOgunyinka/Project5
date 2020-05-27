@@ -45,6 +45,5 @@ bool save_status_to_persistent_storage(
     std::shared_ptr<database_connector_t> db_connector);
 
 void background_task_executor(std::atomic_bool &stopped,
-                              boost::asio::ssl::context &,
-                              boost::asio::io_context &, global_proxy_repo_t &);
+                              boost::asio::ssl::context &,global_proxy_repo_t &);
 } // namespace wudi_server

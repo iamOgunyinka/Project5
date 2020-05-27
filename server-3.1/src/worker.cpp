@@ -145,7 +145,6 @@ resume_unstarted_task(atomic_task_t &scheduled_task,
 
 void background_task_executor(std::atomic_bool &stopped,
                               boost::asio::ssl::context &ssl_context,
-                              boost::asio::io_context &io_context,
                               global_proxy_repo_t &r) {
   auto db_connector = database_connector_t::s_get_db_connector();
   auto &scheduled_tasks = utilities::get_scheduled_tasks();
@@ -166,7 +165,7 @@ void background_task_executor(std::atomic_bool &stopped,
   };
 
   while (!stopped) {
-    auto scheduled_task = std::move(scheduled_tasks.get());
+    atomic_task_t scheduled_task{scheduled_tasks.get()};
     std::unique_ptr<background_worker_t> worker{};
     if (scheduled_task.type_ == atomic_task_t::task_type::fresh) {
       worker = start_new_task(scheduled_task, ssl_context);

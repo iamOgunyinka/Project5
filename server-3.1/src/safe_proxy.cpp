@@ -25,7 +25,7 @@ void global_proxy_repo_t::background_proxy_fetcher(
   std::time_t last_fetch_time = 0;
 
   while (true) {
-    auto info_posted = std::move(promises.get());
+    auto info_posted{promises.get()};
     {
       std::time_t const current_time = std::time(nullptr);
       auto const time_difference = current_time - last_fetch_time;
@@ -246,17 +246,13 @@ void proxy_base::get_more_proxies() {
     if (endpoints_.size() >= max_capacity) {
       endpoints_.remove_first_n(shared_data.eps.size());
     }
-    for (auto const &ep : shared_data.eps) {
-      endpoints_.push_back(std::make_shared<custom_endpoint>(ep));
-    }
+    endpoints_.push_back(shared_data.eps);
     proxies_used_ += shared_data.eps.size();
   } else {
     if (endpoints_.size() >= max_capacity) {
       endpoints_.remove_first_n(new_eps.size());
     }
-    for (auto const &ep : new_eps) {
-      endpoints_.push_back(std::make_shared<custom_endpoint>(ep));
-    }
+    endpoints_.push_back(new_eps);
     proxies_used_ += new_eps.size();
   }
   // save_proxies_to_file();
@@ -266,25 +262,11 @@ void proxy_base::add_more(shared_data_t const &shared_data) {
   bool const can_share = param_.thread_id != shared_data.thread_id &&
                          param_.web_id != shared_data.web_id &&
                          (type() == shared_data.proxy_type);
-  if (!can_share)
+  if (!can_share || endpoints_.size() >= max_capacity)
     return;
-  bool has_enough = false;
-  if (endpoints_.size() >= max_capacity) {
-    endpoints_.remove_if([](endpoint_ptr const &ep) {
-      return ep->property != ProxyProperty::ProxyActive;
-    });
-    int const num_to_remove =
-        max_capacity - (endpoints_.size() + shared_data.eps.size());
-    if (num_to_remove < 0) {
-      endpoints_.remove_first_n(std::abs(num_to_remove));
-      has_enough = true;
-    }
-  }
-  for (auto const &ep : shared_data.eps) {
-    endpoints_.push_back(std::make_shared<custom_endpoint>(ep));
-  }
-  if (!has_enough && (shared_data.shared_web_ids.find(param_.web_id) ==
-                      shared_data.shared_web_ids.cend())) {
+  endpoints_.push_back(shared_data.eps);
+  if (shared_data.shared_web_ids.find(param_.web_id) ==
+      shared_data.shared_web_ids.cend()) {
     proxies_used_ += shared_data.eps.size();
     shared_data.shared_web_ids.insert(param_.web_id);
   }
@@ -366,8 +348,8 @@ void proxy_base::load_proxy_file() {
       if (endpoints_.size() > max_read_allowed) {
         endpoints_.remove_first_n(1);
       }
-      endpoints_.push_back(std::make_shared<custom_endpoint>(
-          std::move(endpoint), username, password));
+      endpoints_.push_back(
+          custom_endpoint(std::move(endpoint), username, password));
     } catch (std::exception const &e) {
       spdlog::error("Error while converting( {} ), {}", line, e.what());
     }
@@ -386,16 +368,36 @@ endpoint_ptr proxy_base::next_endpoint() {
       ++count_;
     }
   } else {
-    return endpoints_[count_++];
+    while (count_ < endpoints_.size()) {
+      if (endpoints_[count_]->property == ProxyProperty::ProxyActive) {
+        return endpoints_[count_++];
+      }
+      ++count_;
+    }
+    return endpoints_.back();
   }
 
   endpoints_.remove_if([](auto const &ep) {
-    return ep->property != ProxyProperty::ProxyActive;
+    return ep->property != ProxyProperty::ProxyActive &&
+           ep->property != ProxyProperty::ProxyToldToWait;
   });
   count_ = 0;
   if (!endpoints_.empty()) {
-    endpoints_.for_each([](auto &e) { e->property = Property::ProxyActive; });
-    return endpoints_[count_++];
+    auto const current_time = std::time(nullptr);
+    bool has_usable = false;
+    std::size_t usable_index = 0;
+    endpoints_.for_each([&](auto &e) {
+      if (e->property == ProxyProperty::ProxyToldToWait &&
+          (e->time_last_used + (600)) <= current_time) {
+        e->property = Property::ProxyActive;
+        has_usable = true;
+        if (count_ == 0)
+          count_ = usable_index;
+      }
+      ++usable_index;
+    });
+    if (count_ != 0)
+      return endpoints_[count_++];
   }
   get_more_proxies();
   if (has_error_ || endpoints_.empty()) {
