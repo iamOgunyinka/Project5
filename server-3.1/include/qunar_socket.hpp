@@ -2,7 +2,6 @@
 
 #include "http_socket_base.hpp"
 #include "socks5_https_socket_base.hpp"
-#include <fstream>
 
 namespace wudi_server {
 namespace net = boost::asio;

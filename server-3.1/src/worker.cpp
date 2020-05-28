@@ -3,12 +3,9 @@
 #include "database_connector.hpp"
 #include "utilities.hpp"
 #include <boost/algorithm/string.hpp>
+#include <spdlog/spdlog.h>
 
 namespace wudi_server {
-using utilities::atomic_task_t;
-using utilities::internal_task_result_t;
-using utilities::task_status_e;
-
 void on_task_ran(task_status_e status, atomic_task_t &scheduled_task,
                  std::shared_ptr<database_connector_t> &db_connector,
                  background_worker_t *worker_ptr) {
@@ -25,8 +22,6 @@ void on_task_ran(task_status_e status, atomic_task_t &scheduled_task,
 
 std::unique_ptr<background_worker_t>
 start_new_task(atomic_task_t &scheduled_task, net::ssl::context &ssl_context) {
-  using utilities::intlist_to_string;
-
   auto db_connector = wudi_server::database_connector_t::s_get_db_connector();
   std::optional<website_result_t> website =
       db_connector->get_website(scheduled_task.website_id);
@@ -41,7 +36,7 @@ start_new_task(atomic_task_t &scheduled_task, net::ssl::context &ssl_context) {
     return {};
   }
 
-  auto &response_queue = utilities::get_response_queue();
+  auto &response_queue = get_response_queue();
 
   auto task_result = std::make_shared<internal_task_result_t>();
   task_result->task_id = scheduled_task.task_id;
@@ -78,7 +73,7 @@ continue_recent_task(atomic_task_t &scheduled_task,
     return {};
   }
   std::shared_ptr<internal_task_result_t> task_result{};
-  auto &response_queue = utilities::get_response_queue();
+  auto &response_queue = get_response_queue();
   auto iter = response_queue.find(scheduled_task.task_id);
   if (iter == response_queue.cend()) {
     task_result = std::make_shared<internal_task_result_t>();
@@ -132,7 +127,7 @@ resume_unstarted_task(atomic_task_t &scheduled_task,
   scheduled_task.ok2_filename.clear();
   scheduled_task.unknown_filename.clear();
   scheduled_task.website_address.clear();
-  auto &response_queue = utilities::get_response_queue();
+  auto &response_queue = get_response_queue();
 
   auto task_result = std::make_shared<internal_task_result_t>();
   task_result->task_id = scheduled_task.task_id;
@@ -147,7 +142,7 @@ void background_task_executor(std::atomic_bool &stopped,
                               boost::asio::ssl::context &ssl_context,
                               global_proxy_repo_t &r) {
   auto db_connector = database_connector_t::s_get_db_connector();
-  auto &scheduled_tasks = utilities::get_scheduled_tasks();
+  auto &scheduled_tasks = utilities::get_scheduled_tasks<atomic_task_t>();
 
   auto on_error = [db_connector](atomic_task_t &scheduled_task) {
     using utilities::replace_special_chars;
@@ -161,7 +156,7 @@ void background_task_executor(std::atomic_bool &stopped,
     }
     db_connector->change_task_status(
         scheduled_task.task_id, scheduled_task.processed,
-        scheduled_task.ip_used, utilities::task_status_e::Erred);
+        scheduled_task.ip_used, task_status_e::Erred);
   };
 
   while (!stopped) {

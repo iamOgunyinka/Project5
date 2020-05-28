@@ -1,15 +1,56 @@
 #include "session.hpp"
 #include "database_connector.hpp"
+#include "utilities.hpp"
 #include <boost/algorithm/string.hpp>
 #include <fstream>
 #include <gzip/decompress.hpp>
+#include <spdlog/spdlog.h>
 #include <zip_file.hpp>
 
 extern int WUDI_SOFTWARE_VERSION;
+extern int FETCH_INTERVAL;
 
 namespace wudi_server {
 using namespace fmt::v6::literals;
 enum constant_e { RequestBodySize = 1024 * 1024 * 50 };
+
+std::string decode_url(boost::string_view const &encoded_string) {
+  std::string src{};
+  for (size_t i = 0; i < encoded_string.size();) {
+    char c = encoded_string[i];
+    if (c != '%') {
+      src.push_back(c);
+      ++i;
+    } else {
+      char c1 = encoded_string[i + 1];
+      unsigned int localui1 = 0L;
+      if ('0' <= c1 && c1 <= '9') {
+        localui1 = c1 - '0';
+      } else if ('A' <= c1 && c1 <= 'F') {
+        localui1 = c1 - 'A' + 10;
+      } else if ('a' <= c1 && c1 <= 'f') {
+        localui1 = c1 - 'a' + 10;
+      }
+
+      char c2 = encoded_string[i + 2];
+      unsigned int localui2 = 0L;
+      if ('0' <= c2 && c2 <= '9') {
+        localui2 = c2 - '0';
+      } else if ('A' <= c2 && c2 <= 'F') {
+        localui2 = c2 - 'A' + 10;
+      } else if ('a' <= c2 && c2 <= 'f') {
+        localui2 = c2 - 'a' + 10;
+      }
+
+      unsigned int ui = localui1 * 16 + localui2;
+      src.push_back(ui);
+
+      i += 3;
+    }
+  }
+
+  return src;
+}
 
 std::filesystem::path const download_path =
     std::filesystem::current_path() / "downloads" / "zip_files";
@@ -135,8 +176,7 @@ void session::http_read_data() {
   buffer_.clear();
   empty_body_parser_.emplace();
   empty_body_parser_->body_limit(RequestBodySize);
-  beast::get_lowest_layer(tcp_stream_)
-      .expires_after(std::chrono::minutes(utilities::MaxRetries));
+  beast::get_lowest_layer(tcp_stream_).expires_after(std::chrono::minutes(10));
   http::async_read_header(
       tcp_stream_, buffer_, *empty_body_parser_,
       beast::bind_front_handler(&session::on_header_read, shared_from_this()));
@@ -172,7 +212,7 @@ void session::on_header_read(beast::error_code ec, std::size_t const) {
 }
 
 void session::handle_requests(string_request const &request) {
-  std::string const request_target{utilities::decode_url(request.target())};
+  std::string const request_target{decode_url(request.target())};
   if (request_target.empty())
     return index_page_handler(request, {});
 
@@ -369,7 +409,7 @@ void session::upload_handler(string_request const &request,
       } else {
         time_str = time_iter->second.to_string();
       }
-      utilities::upload_request_t upload_request{
+      upload_request_t upload_request{
           filename_view, file_path, uploader_iter->second,
           boost::string_view(time_str.data(), time_str.size()), counter};
       if (!db_connector->add_upload(upload_request)) {
@@ -404,7 +444,7 @@ void session::upload_handler(string_request const &request,
       return send_response(json_success(json_result, request));
     } else {
       // a DELETE request
-      std::vector<utilities::upload_result_t> uploads;
+      std::vector<upload_result_t> uploads{};
       if (!ids.empty() && ids[0] == "all") { // remove all
         if (!db_connector->remove_uploads({})) {
           return error_handler(server_error("unable to delete any record",
@@ -606,7 +646,6 @@ void session::remove_tasks_handler(string_request const &req,
   if (content_type_ != "application/json")
     return error_handler(bad_request("invalid content-type", req));
   try {
-    using utilities::task_status_e;
     auto user_id_iter = optional_query.find("id");
     if (user_id_iter == optional_query.cend())
       return error_handler(bad_request("user id is missing", req));
@@ -652,9 +691,8 @@ void session::proxy_config_handler(string_request const &request,
           proxy_object["fetch_interval"].get<json::number_integer_t>();
       int const software_version =
           root["client_version"].get<json::number_integer_t>();
-      auto &current_interval = utilities::proxy_fetch_interval();
-      if (current_interval != interval_between_fetch) {
-        current_interval = interval_between_fetch;
+      if (FETCH_INTERVAL != interval_between_fetch) {
+        FETCH_INTERVAL = interval_between_fetch;
       }
       if (software_version < WUDI_SOFTWARE_VERSION) {
         return error_handler(upgrade_required(request));
@@ -676,7 +714,6 @@ void session::proxy_config_handler(string_request const &request,
 
 void session::delete_stopped_tasks_impl(
     std::vector<uint32_t> const &user_stopped_tasks) {
-  using utilities::atomic_task_t;
   using utilities::remove_file;
   auto db_connector = database_connector_t::s_get_db_connector();
   std::vector<atomic_task_t> tasks{};
@@ -695,7 +732,7 @@ void session::delete_other_tasks_impl(boost::string_view const user_id,
                                       std::vector<uint32_t> const &all_tasks) {
   auto db_connector = database_connector_t::s_get_db_connector();
   db_connector->remove_filtered_tasks(user_id, all_tasks);
-  auto &response_queue = utilities::get_response_queue();
+  auto &response_queue = get_response_queue();
   for (auto const &task : all_tasks) {
     response_queue.erase(task);
   }
@@ -704,9 +741,7 @@ void session::delete_other_tasks_impl(boost::string_view const user_id,
 std::vector<uint32_t>
 session::stop_running_tasks_impl(std::vector<uint32_t> const &task_id_list,
                                  bool const saving_state) {
-  using utilities::task_status_e;
-
-  auto &running_tasks = utilities::get_response_queue();
+  auto &running_tasks = get_response_queue();
   std::vector<uint32_t> stopped_tasks{};
   stopped_tasks.reserve(task_id_list.size());
   for (std::size_t index = 0; index != task_id_list.size(); ++index) {
@@ -769,8 +804,6 @@ void session::stop_tasks_handler(string_request const &request,
   if (content_type_ != "application/json")
     return error_handler(bad_request("invalid content-type", request));
   try {
-    using utilities::atomic_task_t;
-    using utilities::task_status_e;
     json json_root = json::parse(request.body());
     json::array_t const task_id_list = json_root.get<json::array_t>();
     if (task_id_list.empty()) {
@@ -781,7 +814,7 @@ void session::stop_tasks_handler(string_request const &request,
     for (auto const &task : task_id_list) {
       tasks.emplace_back(task.get<json::number_integer_t>());
     }
-    auto &queued_task = utilities::get_scheduled_tasks();
+    auto &queued_task = utilities::get_scheduled_tasks<atomic_task_t>();
     auto interesting_tasks = queued_task.remove_value(
         tasks, [](atomic_task_t &task, std::vector<uint32_t> const &ids) {
           for (auto const &id : ids)
@@ -802,7 +835,7 @@ void session::stop_tasks_handler(string_request const &request,
               "{free}";
 
       unstarted_task.input_filename =
-          utilities::intlist_to_string(unstarted_task.number_ids);
+          intlist_to_string(unstarted_task.number_ids);
       db_connector->save_unstarted_task(unstarted_task);
     }
     return send_response(json_success(stop_running_tasks_impl(tasks), request));
@@ -817,7 +850,6 @@ void session::restart_tasks_handler(string_request const &request,
   if (content_type_ != "application/json")
     return error_handler(bad_request("invalid content-type", request));
   try {
-    using utilities::task_status_e;
     json json_root = json::parse(request.body());
     json::array_t user_task_list = json_root.get<json::array_t>();
     if (user_task_list.empty()) {
@@ -828,7 +860,6 @@ void session::restart_tasks_handler(string_request const &request,
     for (auto const &user_task_id : user_task_list) {
       task_list.push_back(user_task_id.get<json::number_integer_t>());
     }
-    using utilities::restart_tasks;
 
     if (auto stopped_tasks = restart_tasks(task_list); !stopped_tasks.empty()) {
       return send_response(json_success(stopped_tasks, request));
@@ -859,9 +890,8 @@ void session::schedule_task_handler(string_request const &request,
       auto const number_ids = task_object["numbers"].get<json::array_t>();
       auto const total = task_object["total"].get<json::number_integer_t>();
       auto const per_ip = task_object["per_ip"].get<json::number_integer_t>();
-      auto &tasks{get_scheduled_tasks()};
-      using utilities::atomic_task_t;
-      utilities::scheduled_task_t task{};
+      auto &tasks{utilities::get_scheduled_tasks<atomic_task_t>()};
+      scheduled_task_t task{};
       task.total_numbers = total;
       task.scans_per_ip = per_ip;
       task.scheduled_dt =
@@ -1062,21 +1092,37 @@ session::split_optional_queries(boost::string_view const &optional_query) {
   return result;
 }
 
-namespace utilities {
-std::vector<utilities::atomic_task_t>
-restart_tasks(std::vector<uint32_t> const &task_ids) {
-  auto db_connector = wudi_server::database_connector_t::s_get_db_connector();
-  std::vector<utilities::atomic_task_t> stopped_tasks{};
-  auto &task_queue = utilities::get_scheduled_tasks();
-  if (db_connector->get_stopped_tasks(task_ids, stopped_tasks)) {
-    for (auto &stopped_task : stopped_tasks) {
-      task_queue.push_back(std::move(stopped_task));
-    }
-    return stopped_tasks;
-  }
-  return {};
+void to_json(json &j, upload_result_t const &item) {
+  j = json{{"id", item.upload_id},
+           {"status", item.status},
+           {"date", item.upload_date},
+           {"filename", item.filename},
+           {"total", item.total_numbers}};
 }
-} // namespace utilities
+
+void to_json(json &j, website_result_t const &result) {
+  j = json{
+      {"id", result.id}, {"alias", result.alias}, {"address", result.address}};
+}
+
+void to_json(json &j, task_result_t const &item) {
+  j = json{{"id", item.id},
+           {"status", item.task_status},
+           {"processed", item.processed},
+           {"per_ip", item.scans_per_ip},
+           {"ip_used", item.ip_used},
+           {"web", item.website_id},
+           {"numbers", item.data_ids},
+           {"total", item.total},
+           {"unknown", item.unknown},
+           {"not_ok", item.not_ok},
+           {"date", item.scheduled_date}};
+}
+
+void to_json(json &j, atomic_task_t const &task) {
+  j = json{{"id", task.task_id}};
+}
+
 } // namespace wudi_server
 
 std::vector<uint32_t> operator+(std::vector<uint32_t> const &a,
