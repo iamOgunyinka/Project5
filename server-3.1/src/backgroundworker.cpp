@@ -1,12 +1,21 @@
 #include "backgroundworker.hpp"
-#include "database_connector.hpp"
-#include <filesystem>
+#include <spdlog/spdlog.h>
 
 namespace wudi_server {
-using utilities::atomic_task_t;
-using utilities::internal_task_result_t;
-using utilities::search_result_type_e;
-using utilities::task_status_e;
+
+namespace utilities {
+time_data_t get_time_data() {
+  static std::random_device rd{};
+  static std::mt19937 gen(rd());
+  static std::uniform_real_distribution<> dis(0.0, 1.0);
+  uint64_t const current_time = std::time(nullptr) * 1'000;
+  std::size_t const random_number =
+      static_cast<std::size_t>(std::round(1e3 * dis(gen)));
+  std::uint64_t const callback_number =
+      static_cast<std::size_t>(current_time + random_number);
+  return time_data_t{current_time, callback_number};
+}
+} // namespace utilities
 
 background_worker_t::~background_worker_t() {
   signal_connector_.disconnect();
@@ -289,7 +298,7 @@ task_status_e background_worker_t::continue_old_task() {
     spdlog::error("Could not open input file: {}", input_filename);
     return task_status_e::Erred;
   }
-  number_stream_ = std::make_unique<utilities::number_stream_t>(input_file);
+  number_stream_ = std::make_unique<number_stream_t>(input_file);
   return run_number_crawler();
 }
 
@@ -332,7 +341,7 @@ task_status_e background_worker_t::run_new_task() {
       spdlog::error("Could not open input_file");
       return task_status_e::Erred;
     }
-    number_stream_ = std::make_unique<utilities::number_stream_t>(input_file);
+    number_stream_ = std::make_unique<number_stream_t>(input_file);
   }
   return run_number_crawler();
 }

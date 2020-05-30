@@ -1,11 +1,9 @@
 #pragma once
 
-#include "utilities.hpp"
 #include <boost/asio.hpp>
 #include <boost/signals2/signal.hpp>
 #include <ctime>
 #include <memory>
-#include <optional>
 #include <set>
 #include <vector>
 
@@ -49,7 +47,7 @@ struct proxy_configuration_t {
   int software_version{};
 };
 
-std::optional<proxy_configuration_t> read_proxy_configuration();
+std::unique_ptr<proxy_configuration_t> read_proxy_configuration();
 
 struct custom_endpoint {
   tcp::endpoint endpoint_{};
@@ -155,7 +153,6 @@ struct posted_data_t {
 };
 
 using NewProxySignal = signals2::signal<void(shared_data_t const &)>;
-using promise_container = utilities::threadsafe_cv_container<posted_data_t>;
 
 void swap(custom_endpoint &a, custom_endpoint &b);
 
@@ -164,7 +161,6 @@ class global_proxy_repo_t {
 
 public:
   NewProxySignal *new_ep_signal() { return &new_endpoints_signal_; }
-  static promise_container &get_promise_container();
   static void background_proxy_fetcher(net::io_context &);
 };
 
@@ -190,9 +186,6 @@ protected:
   std::atomic_bool confirm_count_ = !param_.config_.count_target.empty();
 
 protected:
-  void load_proxy_file();
-  void save_proxies_to_file();
-  virtual extraction_data get_remain_count();
   virtual void get_more_proxies();
 
 public:
