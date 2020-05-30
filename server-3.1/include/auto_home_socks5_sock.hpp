@@ -4,6 +4,10 @@
 #include <iostream>
 
 namespace wudi_server {
+namespace net = boost::asio;
+
+using tcp = boost::asio::ip::tcp;
+using namespace fmt::v6::literals;
 
 template <typename Proxy>
 class auto_home_socks5_socket_t
@@ -26,8 +30,13 @@ public:
   auto_home_socks5_socket_t<Proxy>(ssl::context &ssl_context, Args &&... args)
       : super_class(ssl_context, std::forward<Args>(args)...) {}
   ~auto_home_socks5_socket_t() {}
-  std::string hostname() const { return "account.autohome.com.cn"; }
+  std::string hostname() const;
 };
+
+template <typename Proxy>
+std::string auto_home_socks5_socket_t<Proxy>::hostname() const {
+  return "account.autohome.com.cn";
+}
 
 template <typename Proxy>
 void auto_home_socks5_socket_t<Proxy>::prepare_request_data(
@@ -38,7 +47,7 @@ void auto_home_socks5_socket_t<Proxy>::prepare_request_data(
   request_.version(11);
   request_.target(target);
   if (use_authentication_header) {
-    request_.set(http::field::proxy_authorization,
+    request_.set(beast::http::field::proxy_authorization,
                  "Basic bGFueHVhbjM2OUBnbWFpbC5jb206TGFueHVhbjk2Mw==");
   }
   request_.set(beast::http::field::connection, "keep-alive");
@@ -49,7 +58,7 @@ void auto_home_socks5_socket_t<Proxy>::prepare_request_data(
   request_.set(http::field::referer,
                "https://account.autohome.com.cn/register");
   request_.keep_alive(true);
-  request_.set(http::field::content_type,
+  request_.set(beast::http::field::content_type,
                "application/x-www-form-urlencoded; charset=UTF-8");
   request_.body() =
       "isOverSea=0&phone={}&validcodetype=1&"_format(current_number_);
@@ -59,6 +68,8 @@ void auto_home_socks5_socket_t<Proxy>::prepare_request_data(
 template <typename Proxy>
 void auto_home_socks5_socket_t<Proxy>::data_received(beast::error_code ec,
                                                      std::size_t const) {
+  static std::array<std::size_t, 10> redirect_codes{300, 301, 302, 303, 304,
+                                                    305, 306, 307, 308};
   if (ec) {
     if (ec != http::error::end_of_stream) {
       this->current_proxy_assign_prop(Proxy::Property::ProxyUnresponsive);
@@ -69,7 +80,7 @@ void auto_home_socks5_socket_t<Proxy>::data_received(beast::error_code ec,
 
   std::size_t const status_code = response_.result_int();
   // check if we've been redirected, most likely due to IP ban
-  if ((status_code / 100) == 3) {
+  if (utilities::status_in_codes(status_code, redirect_codes)) {
     this->current_proxy_assign_prop(Proxy::Property::ProxyBlocked);
     return this->choose_next_proxy();
   }

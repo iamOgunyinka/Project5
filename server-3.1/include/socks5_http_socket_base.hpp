@@ -11,14 +11,16 @@ namespace beast = boost::beast;
 namespace net = boost::asio;
 namespace http = beast::http;
 
+using utilities::search_result_type_e;
 using tcp = boost::asio::ip::tcp;
+using utilities::search_result_type_e;
 
 template <typename Derived, typename Proxy> class socks5_http_socket_base_t {
   net::io_context &io_;
   std::optional<beast::tcp_stream> tcp_stream_;
 
 protected:
-  number_stream_t &numbers_;
+  utilities::number_stream_t &numbers_;
   Proxy &proxy_provider_;
   bool &stopped_;
 
@@ -69,7 +71,7 @@ protected:
 
 public:
   socks5_http_socket_base_t(bool &, net::io_context &, Proxy &,
-                            number_stream_t &, int);
+                            utilities::number_stream_t &, int);
   void start_connect();
   ~socks5_http_socket_base_t() {
     signal_.disconnect_all_slots();
@@ -81,7 +83,7 @@ public:
 template <typename Derived, typename Proxy>
 socks5_http_socket_base_t<Derived, Proxy>::socks5_http_socket_base_t(
     bool &stopped, net::io_context &io_context, Proxy &proxy_provider,
-    number_stream_t &numbers, int const scans_per_ip)
+    utilities::number_stream_t &numbers, int const scans_per_ip)
     : io_{io_context}, tcp_stream_{net::make_strand(io_)}, numbers_{numbers},
       proxy_provider_{proxy_provider}, stopped_{stopped}, scans_per_ip_{
                                                               scans_per_ip} {}
@@ -357,6 +359,7 @@ void socks5_http_socket_base_t<Derived, ProxyProvider>::process_ipv4_response(
     return choose_next_proxy();
   }
 
+  using utilities::read_byte;
   char const *p1 = reinterpret_cast<char const *>(reply_buffer.data());
   BOOST_ASSERT(p1 != nullptr);
   read_byte<uint8_t>(p1); // version
@@ -402,7 +405,7 @@ void socks5_http_socket_base_t<Derived, ProxyProvider>::prepare_request_data(
 template <typename Derived, typename ProxyProvider>
 void socks5_http_socket_base_t<Derived, ProxyProvider>::reconnect() {
   ++connect_count_;
-  if (connect_count_ >= MaxRetries) {
+  if (connect_count_ >= utilities::MaxRetries) {
     current_proxy_assign_prop(ProxyProvider::Property::ProxyUnresponsive);
     return choose_next_proxy();
   }
@@ -444,7 +447,7 @@ void socks5_http_socket_base_t<Derived, ProxyProvider>::connect() {
     return;
   }
   tcp_stream_->expires_after(
-      std::chrono::milliseconds(TimeoutMilliseconds));
+      std::chrono::milliseconds(utilities::TimeoutMilliseconds));
   temp_list_ = {*current_proxy_};
   tcp_stream_->async_connect(
       temp_list_,
@@ -464,14 +467,14 @@ void socks5_http_socket_base_t<Derived, ProxyProvider>::send_first_request() {
     current_number_ = numbers_.get();
     prepare_request_data();
     connect();
-  } catch (empty_container_exception_t &) {
+  } catch (utilities::empty_container_exception_t &) {
   }
 }
 
 template <typename Derived, typename ProxyProvider>
 void socks5_http_socket_base_t<Derived, ProxyProvider>::receive_data() {
   tcp_stream_->expires_after(
-      std::chrono::milliseconds(TimeoutMilliseconds * 4)); // 4*3secs
+      std::chrono::milliseconds(utilities::TimeoutMilliseconds * 4)); // 4*3secs
   response_ = {};
   buffer_ = {};
   http::async_read(*tcp_stream_, buffer_, response_,
@@ -489,7 +492,7 @@ void socks5_http_socket_base_t<Derived, ProxyProvider>::start_connect() {
 template <typename Derived, typename ProxyProvider>
 void socks5_http_socket_base_t<Derived, ProxyProvider>::send_http_data() {
   tcp_stream_->expires_after(
-      std::chrono::milliseconds(TimeoutMilliseconds));
+      std::chrono::milliseconds(utilities::TimeoutMilliseconds));
   http::async_write(*tcp_stream_, request_,
                     beast::bind_front_handler(
                         &socks5_http_socket_base_t::on_data_sent, this));
@@ -506,7 +509,7 @@ void socks5_http_socket_base_t<Derived, ProxyProvider>::on_data_sent(
 
 template <typename Derived, typename ProxyProvider>
 void socks5_http_socket_base_t<Derived, ProxyProvider>::resend_http_request() {
-  if (++send_count_ >= MaxRetries) {
+  if (++send_count_ >= utilities::MaxRetries) {
     current_proxy_assign_prop(ProxyProvider::Property::ProxyUnresponsive);
     return choose_next_proxy();
   }
@@ -543,7 +546,7 @@ void socks5_http_socket_base_t<Derived, ProxyProvider>::send_next() {
     }
     ++current_proxy_->number_scanned;
     return send_http_data();
-  } catch (empty_container_exception_t &) {
+  } catch (utilities::empty_container_exception_t &) {
   }
 }
 

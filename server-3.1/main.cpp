@@ -1,20 +1,14 @@
-#ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif // !WIN_MEAN_AND_LEAN
-#endif // _WIN32
-
 #include "database_connector.hpp"
 #include "safe_proxy.hpp"
 #include "server.hpp"
 #include "worker.hpp"
 #include <CLI11/CLI11.hpp>
+#include <boost/asio/ssl/context.hpp>
 #include <thread>
 
 enum constant_e { WorkerThreadCount = 15 };
 
 int WUDI_SOFTWARE_VERSION = 313;
-int FETCH_INTERVAL = 1;
 
 using wudi_server::global_proxy_repo_t;
 
@@ -53,7 +47,8 @@ int main(int argc, char *argv[]) {
       std::cerr << "Unable to read proxy configuration file\n";
       return -1;
     }
-    FETCH_INTERVAL = proxy_config->fetch_interval;
+    wudi_server::utilities::proxy_fetch_interval() =
+        proxy_config->fetch_interval;
     WUDI_SOFTWARE_VERSION = proxy_config->software_version;
   }
   wudi_server::asio::io_context io_context{static_cast<int>(thread_count)};
@@ -61,7 +56,8 @@ int main(int argc, char *argv[]) {
   {
     using wudi_server::background_task_executor;
     auto thread_callback = [&] {
-      background_task_executor(stop, ssl_context, global_proxy_provider);
+      background_task_executor(stop, ssl_context,
+                               global_proxy_provider);
     };
     for (int i = 0; i != WorkerThreadCount; ++i) {
       std::thread t{thread_callback};

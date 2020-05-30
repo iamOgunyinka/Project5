@@ -12,18 +12,6 @@ std::vector<uint32_t> operator+(std::vector<uint32_t> const &a,
                                 std::vector<uint32_t> const &b);
 
 namespace wudi_server {
-using nlohmann::json;
-
-struct task_result_t;
-struct atomic_task_t;
-struct website_result_t;
-struct upload_result_t;
-
-void to_json(json &j, task_result_t const &);
-void to_json(json &j, atomic_task_t const &);
-void to_json(json &j, website_result_t const &);
-void to_json(json &j, upload_result_t const &item);
-
 namespace asio = boost::asio;
 namespace beast = boost::beast;
 namespace http = beast::http;
