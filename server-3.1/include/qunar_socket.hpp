@@ -2,7 +2,6 @@
 
 #include "http_socket_base.hpp"
 #include "socks5_https_socket_base.hpp"
-#include <fstream>
 
 namespace wudi_server {
 namespace net = boost::asio;
@@ -96,8 +95,8 @@ void qunar_http_socket<Proxy>::data_received(beast::error_code ec,
     auto const error_code =
         root_object["errCode"].get<json::number_integer_t>();
     if (error_code == 21017) {
-      this->current_proxy_->time_last_used = std::time(nullptr);
       this->current_proxy_assign_prop(Proxy::Property::ProxyToldToWait);
+      this->current_proxy_->time_last_used = std::time(nullptr);
       return this->choose_next_proxy();
     } else if (error_code == 21006) {
       signal_(search_result_type_e::NotRegistered, current_number_);

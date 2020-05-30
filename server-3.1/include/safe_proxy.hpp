@@ -103,10 +103,7 @@ public:
     container_.push_back(std::make_shared<underlying_type>(std::move(ep)));
   }
 
-  typename std::vector<T>::size_type size() {
-    std::lock_guard<std::mutex> lock_g{mutex_};
-    return container_.size();
-  }
+  typename std::vector<T>::size_type size() { return container_.size(); }
 
   T &operator[](typename std::vector<T>::size_type const index) {
     std::lock_guard<std::mutex> lock_g{mutex_};

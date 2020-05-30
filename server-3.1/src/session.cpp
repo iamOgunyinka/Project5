@@ -634,7 +634,7 @@ void session::remove_tasks_handler(string_request const &req,
 
 void session::proxy_config_handler(string_request const &request,
                                    url_query const &query) {
-  char const *json_content_type = "application/json";
+  char const *const json_content_type = "application/json";
   if (content_type_ != json_content_type) {
     return error_handler(bad_request("invalid content-type", request));
   }
@@ -736,8 +736,9 @@ void session::get_file_handler(string_request const &request,
   }
   std::filesystem::path const file_path =
       download_path / iter->second.to_string();
-  char const *content_type = "application/zip, application/octet-stream, "
-                             "application/x-zip-compressed, multipart/x-zip";
+  char const *const content_type =
+      "application/zip, application/octet-stream, "
+      "application/x-zip-compressed, multipart/x-zip";
   auto callback = [=] {
     std::error_code temp_ec{};
     std::filesystem::remove(file_path, temp_ec);
@@ -750,8 +751,9 @@ void session::software_update_handler(string_request const &request,
   if (content_type_ != "application/json") {
     return error_handler(bad_request("invalid content-type", request));
   }
-  char const *content_type = "application/zip, application/octet-stream, "
-                             "application/x-zip-compressed, multipart/x-zip";
+  char const *const content_type =
+      "application/zip, application/octet-stream, "
+      "application/x-zip-compressed, multipart/x-zip";
   if (!std::filesystem::exists(download_path)) {
     std::error_code ec{};
     std::filesystem::create_directories(download_path, ec);
