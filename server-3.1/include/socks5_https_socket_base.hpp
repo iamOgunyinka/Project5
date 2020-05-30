@@ -129,12 +129,12 @@ void socks5_https_socket_base_t<Derived, Proxy>::perform_socks5_handshake() {
 
   beast::get_lowest_layer(*ssl_stream_).expires_after(std::chrono::seconds(10));
   beast::get_lowest_layer(*ssl_stream_)
-      .async_write_some(net::const_buffer(reinterpret_cast<char const *>(
-                                              handshake_buffer.data()),
-                                          handshake_buffer.size()),
-                        [this](beast::error_code ec, std::size_t const sz) {
-                          on_first_handshake_initiated(ec, sz);
-                        });
+      .async_write_some(
+          net::const_buffer(static_cast<char const *>(handshake_buffer.data()),
+                            handshake_buffer.size()),
+          [this](beast::error_code ec, std::size_t const sz) {
+            on_first_handshake_initiated(ec, sz);
+          });
 }
 
 template <typename Derived, typename Proxy>
@@ -172,7 +172,7 @@ void socks5_https_socket_base_t<Derived, ProxyProvider>::
     current_proxy_assign_prop(ProxyProvider::Property::ProxyUnresponsive);
     return choose_next_proxy();
   }
-  char const *p1 = reinterpret_cast<char const *>(reply_buffer.data());
+  char const *p1 = static_cast<char const *>(reply_buffer.data());
   BOOST_ASSERT(p1 != nullptr);
 
   auto const version = p1[0];
@@ -319,7 +319,7 @@ void socks5_https_socket_base_t<Derived, ProxyProvider>::
     current_proxy_assign_prop(ProxyProvider::Property::ProxyUnresponsive);
     return choose_next_proxy();
   }
-  char const *p1 = reinterpret_cast<char const *>(reply_buffer.data());
+  char const *p1 = static_cast<char const *>(reply_buffer.data());
   BOOST_ASSERT(p1 != nullptr);
 
   using utilities::read_byte;
@@ -380,7 +380,7 @@ void socks5_https_socket_base_t<Derived, ProxyProvider>::process_ipv4_response(
     return choose_next_proxy();
   }
 
-  char const *p1 = reinterpret_cast<char const *>(reply_buffer.data());
+  char const *p1 = static_cast<char const *>(reply_buffer.data());
   BOOST_ASSERT(p1 != nullptr);
 
   using utilities::read_byte;

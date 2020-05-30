@@ -255,7 +255,6 @@ void proxy_base::get_more_proxies() {
     endpoints_.push_back(new_eps);
     proxies_used_ += new_eps.size();
   }
-  // save_proxies_to_file();
 }
 
 void proxy_base::add_more(shared_data_t const &shared_data) {

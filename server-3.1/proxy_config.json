@@ -1,5 +1,5 @@
 {
-  "client_version": 315,
+    "client_version": 315,
     "proxy": {
         "#available_protocols": [
             "SOCKS5",
@@ -12,8 +12,8 @@
         "per_fetch": 10,
         "protocol": 0,
         "share": true,
-        "socket_count": 1,
-        "target": "http://pandavip.xiongmaodaili.com/xiongmao-web/vip/gbip?secret=c35dabf4395e947d4693ebd3a51f02f2&orderNo=VGB20200422181215QHG1s1vF&count=10&isTxt=1&proxyType=2",
+        "socket_count": 4,
+        "target": "http://pandavip.xiongmaodaili.com/xiongmao-web/vip/gbip?secret=3d57031b68d4793723c97bdac74d35dd&orderNo=VGB20200520180830w8nSYkWH&count=10&isTxt=1&proxyType=2",
         "username": ""
     },
     "socket": {
