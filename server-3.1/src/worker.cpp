@@ -1,7 +1,6 @@
 #include "worker.hpp"
 #include "backgroundworker.hpp"
 #include "database_connector.hpp"
-#include "utilities.hpp"
 #include <boost/algorithm/string.hpp>
 
 namespace wudi_server {
@@ -184,8 +183,11 @@ void background_task_executor(std::atomic_bool &stopped,
                      worker_ptr = worker.get()](task_status_e status) {
         on_task_ran(status, scheduled_task, db_connector, worker_ptr);
       };
+
       worker->proxy_callback_signal(r.new_ep_signal());
+      worker->proxy_info_map(r.get_thread_proxy_info());
       handle(worker->run());
+
       auto task_result_ptr = worker->task_result();
 
       try {
