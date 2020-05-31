@@ -61,7 +61,8 @@ public:
       net::ssl::context &);
   ~background_worker_t();
 
-  void proxy_callback_signal(NewProxySignal *signal);
+  void proxy_callback_signal(NewProxySignal *);
+  void proxy_info_map(proxy_info_map_t *);
   task_status_e run();
   website_type_e type() const { return website_type_; }
   auto &number_stream() { return number_stream_; }
@@ -136,6 +137,8 @@ private:
   std::optional<net::io_context> io_context_;
   std::vector<std::unique_ptr<vsocket_type>> sockets_;
   NewProxySignal *new_proxy_signal_{nullptr};
+  proxy_info_map_t *proxy_info_map_{nullptr};
+  proxy_base_params *proxy_parameters_{nullptr};
   boost::signals2::connection signal_connector_;
   std::optional<proxy_configuration_t> proxy_config_;
 };

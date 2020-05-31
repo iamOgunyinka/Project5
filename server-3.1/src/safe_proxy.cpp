@@ -62,7 +62,10 @@ void global_proxy_repo_t::background_proxy_fetcher(
 proxy_base::proxy_base(proxy_base_params &params, std::string const &filename)
     : param_{params} {
   params.filename = filename;
+  params.proxy_info_map[params.thread_id] = {};
 }
+
+proxy_base::~proxy_base() { param_.proxy_info_map.erase(param_.thread_id); }
 
 extraction_data proxy_base::get_remain_count() {
   beast::tcp_stream http_tcp_stream(net::make_strand(param_.io_));
@@ -246,12 +249,15 @@ void proxy_base::get_more_proxies() {
     if (endpoints_.size() >= max_capacity) {
       endpoints_.remove_first_n(shared_data.eps.size());
     }
+    param_.proxy_info_map[param_.thread_id].proxy_count +=
+        shared_data.eps.size();
     endpoints_.push_back(shared_data.eps);
     proxies_used_ += shared_data.eps.size();
   } else {
     if (endpoints_.size() >= max_capacity) {
       endpoints_.remove_first_n(new_eps.size());
     }
+    param_.proxy_info_map[param_.thread_id].proxy_count += new_eps.size();
     endpoints_.push_back(new_eps);
     proxies_used_ += new_eps.size();
   }
@@ -263,9 +269,24 @@ void proxy_base::add_more(shared_data_t const &shared_data) {
                          (type() == shared_data.proxy_type);
   if (!can_share || endpoints_.size() >= max_capacity)
     return;
-  endpoints_.push_back(shared_data.eps);
   if (shared_data.shared_web_ids.find(param_.web_id) ==
       shared_data.shared_web_ids.cend()) {
+    auto iter = param_.proxy_info_map.cend();
+    for (auto find_iter = param_.proxy_info_map.cbegin();
+         find_iter != param_.proxy_info_map.cend(); ++find_iter) {
+      if (find_iter->second.web_id != param_.web_id)
+        continue;
+
+      if (iter == param_.proxy_info_map.cend() ||
+          iter->second.proxy_count < find_iter->second.proxy_count) {
+        iter = find_iter;
+      }
+    }
+    if (iter == param_.proxy_info_map.cend())
+      return;
+    endpoints_.push_back(shared_data.eps);
+    param_.proxy_info_map[param_.thread_id].proxy_count +=
+        shared_data.eps.size();
     proxies_used_ += shared_data.eps.size();
     shared_data.shared_web_ids.insert(param_.web_id);
   }
@@ -281,10 +302,6 @@ void proxy_base::save_proxies_to_file() {
   }
   if (!out_file_ptr)
     return;
-  try {
-    out_file_ptr->seekp(std::ios::beg);
-  } catch (std::exception const &) {
-  }
   std::set<std::string> unique_set{};
   endpoints_.for_each([&](auto const &proxy) {
     try {

@@ -8,13 +8,6 @@ using utilities::internal_task_result_t;
 using utilities::search_result_type_e;
 using utilities::task_status_e;
 
-background_worker_t::~background_worker_t() {
-  signal_connector_.disconnect();
-  sockets_.clear();
-  io_context_.reset();
-  spdlog::info("Closing all files");
-}
-
 background_worker_t::background_worker_t(
     website_result_t &&website, std::vector<upload_result_t> &&uploads,
     std::shared_ptr<internal_task_result_t> task_result,
@@ -29,6 +22,130 @@ background_worker_t::background_worker_t(
     : ssl_context_{ssl_context}, website_info_{}, uploads_info_{},
       task_result_ptr_{task_result}, website_type_{website_type_e::Unknown},
       atomic_task_{std::move(old_task)} {}
+
+background_worker_t::~background_worker_t() {
+  signal_connector_.disconnect();
+  delete proxy_parameters_;
+  proxy_parameters_ = nullptr;
+  sockets_.clear();
+  io_context_.reset();
+  spdlog::info("Closing all files");
+}
+
+task_status_e background_worker_t::run_number_crawler() {
+  if (!open_output_files()) {
+    spdlog::error("OpenOutputFiles failed");
+    if (std::filesystem::exists(input_filename)) {
+      if (input_file.is_open())
+        input_file.close();
+      std::filesystem::remove(input_filename);
+    }
+    spdlog::error("unable to open output files");
+    return task_status_e::Erred;
+  }
+
+  db_connector = database_connector_t::s_get_db_connector();
+  task_result_ptr_->operation_status = task_status_e::Ongoing;
+  if (website_type_ == website_type_e::Unknown) {
+    if (website_info_.address.find("jjgames") != std::string::npos) {
+      website_type_ = website_type_e::JJGames;
+    } else if (website_info_.address.find("autohome") != std::string::npos) {
+      website_type_ = website_type_e::AutoHomeRegister;
+    } else if (website_info_.address.find("ppsports") != std::string::npos) {
+      website_type_ = website_type_e::PPSports;
+    } else if (website_info_.address.find("watch") != std::string::npos) {
+      website_type_ = website_type_e::WatchHome;
+    } else if (website_info_.address.find("qunar") != std::string::npos) {
+      website_type_ = website_type_e::Qunar;
+    } else {
+      spdlog::error("Type not found");
+      return task_status_e::Erred;
+    }
+  }
+
+  if (!db_connector->set_input_files(
+          input_filename, task_result_ptr_->ok_filename.string(),
+          task_result_ptr_->ok2_filename.string(),
+          task_result_ptr_->not_ok_filename.string(),
+          task_result_ptr_->unknown_filename.string(),
+          task_result_ptr_->task_id)) {
+    spdlog::error("Could not set input files");
+    return task_status_e::Erred;
+  }
+  // we delayed construction of safe_proxy/io_context until now
+  proxy_config_ = read_proxy_configuration();
+  if (!proxy_config_) {
+    return task_status_e::Erred;
+  }
+
+  bool &is_stopped = task_result_ptr_->stopped();
+  is_stopped = false;
+  auto const thread_id = std::this_thread::get_id();
+  auto const web_id = task_result_ptr_->website_id;
+  io_context_.emplace();
+  proxy_parameters_ = new proxy_base_params{*io_context_,   *new_proxy_signal_,
+                                            *proxy_config_, *proxy_info_map_,
+                                            thread_id,      web_id};
+
+  switch (proxy_config_->proxy_protocol) {
+  case proxy_type_e::http_https_proxy:
+    proxy_provider_.reset(new http_proxy(*proxy_parameters_));
+    break;
+  case proxy_type_e::socks5:
+    proxy_provider_.reset(new socks5_proxy(*proxy_parameters_));
+    break;
+  default:
+    return task_status_e::Erred;
+  }
+
+  // when this signal is emitted, all workers subscribe to it so they
+  // can have copies of the new proxies obtained
+  if (proxy_config_->share_proxy) {
+    signal_connector_ = new_proxy_signal_->connect([this](auto &&... args) {
+      proxy_provider_->add_more(std::forward<decltype(args)>(args)...);
+    });
+  }
+  proxy_provider_->total_used(task_result_ptr_->ip_used);
+
+  sockets_.reserve(static_cast<std::size_t>(proxy_config_->max_socket));
+  proxy_config_->max_socket = std::max<int>(1, proxy_config_->max_socket);
+  int const per_ip = task_result_ptr_->scans_per_ip;
+  auto const proxy_type = proxy_provider_->type();
+
+  for (int i = 0; i != proxy_config_->max_socket; ++i) {
+    auto c_socket = get_socket(proxy_type, is_stopped, *io_context_,
+                               *proxy_provider_, *number_stream_, per_ip);
+    if (!c_socket) {
+      return task_status_e::AutoStopped;
+    }
+    sockets_.push_back(std::move(c_socket));
+  }
+  auto callback = [=](search_result_type_e type, std::string_view number) {
+    on_data_result_obtained(type, number);
+  };
+  for (auto &socket : sockets_) {
+    std::visit(
+        [=](auto &&sock) {
+          sock.signal().connect(callback);
+          sock.start_connect();
+        },
+        *socket);
+  }
+
+  io_context_->run();
+
+  if (task_result_ptr_->operation_status == task_status_e::Ongoing) {
+    if (number_stream_->empty()) {
+      task_result_ptr_->operation_status = task_status_e::Completed;
+    } else {
+      // this will hardly ever happen, if it does, put it in a stop state
+      task_result_ptr_->stop();
+      task_result_ptr_->operation_status = task_status_e::Stopped;
+    }
+  }
+  task_result_ptr_->ip_used = proxy_provider_->total_used();
+  return task_result_ptr_->operation_status;
+}
 
 void background_worker_t::on_data_result_obtained(search_result_type_e type,
                                                   std::string_view number) {
@@ -65,8 +182,6 @@ void background_worker_t::on_data_result_obtained(search_result_type_e type,
 
   bool const signallable = (processed % proxy_config_->max_socket) == 0;
   if (signallable) {
-    // spdlog::info("Task({}): Processed {} of {}", task_result_ptr_->task_id,
-    // processed, total);
     db_connector->update_task_progress(*task_result_ptr_,
                                        proxy_provider_->total_used());
   }
@@ -130,120 +245,6 @@ bool background_worker_t::open_output_files() {
          task_result_ptr_->ok_file.is_open() &&
          task_result_ptr_->ok2_file.is_open() &&
          task_result_ptr_->unknown_file.is_open();
-}
-
-task_status_e background_worker_t::run_number_crawler() {
-  if (!open_output_files()) {
-    spdlog::error("OpenOutputFiles failed");
-    if (std::filesystem::exists(input_filename)) {
-      if (input_file.is_open())
-        input_file.close();
-      std::filesystem::remove(input_filename);
-    }
-    spdlog::error("unable to open output files");
-    return task_status_e::Erred;
-  }
-
-  db_connector = database_connector_t::s_get_db_connector();
-  task_result_ptr_->operation_status = task_status_e::Ongoing;
-  if (website_type_ == website_type_e::Unknown) {
-    if (website_info_.address.find("jjgames") != std::string::npos) {
-      website_type_ = website_type_e::JJGames;
-    } else if (website_info_.address.find("autohome") != std::string::npos) {
-      website_type_ = website_type_e::AutoHomeRegister;
-    } else if (website_info_.address.find("ppsports") != std::string::npos) {
-      website_type_ = website_type_e::PPSports;
-    } else if (website_info_.address.find("watch") != std::string::npos) {
-      website_type_ = website_type_e::WatchHome;
-    } else if (website_info_.address.find("qunar") != std::string::npos) {
-      website_type_ = website_type_e::Qunar;
-    } else {
-      spdlog::error("Type not found");
-      return task_status_e::Erred;
-    }
-  }
-
-  if (!db_connector->set_input_files(
-          input_filename, task_result_ptr_->ok_filename.string(),
-          task_result_ptr_->ok2_filename.string(),
-          task_result_ptr_->not_ok_filename.string(),
-          task_result_ptr_->unknown_filename.string(),
-          task_result_ptr_->task_id)) {
-    spdlog::error("Could not set input files");
-    return task_status_e::Erred;
-  }
-  // we delayed construction of safe_proxy/io_context until now
-  proxy_config_ = read_proxy_configuration();
-  if (!proxy_config_) {
-    return task_status_e::Erred;
-  }
-
-  bool &is_stopped = task_result_ptr_->stopped();
-  is_stopped = false;
-  auto const thread_id = std::this_thread::get_id();
-  auto const web_id = task_result_ptr_->website_id;
-  io_context_.emplace();
-  proxy_base_params proxy_param{*io_context_, *new_proxy_signal_,
-                                *proxy_config_, thread_id, web_id};
-
-  switch (proxy_config_->proxy_protocol) {
-  case proxy_type_e::http_https_proxy:
-    proxy_provider_.reset(new http_proxy(proxy_param));
-    break;
-  case proxy_type_e::socks5:
-    proxy_provider_.reset(new socks5_proxy(proxy_param));
-    break;
-  default:
-    return task_status_e::Erred;
-  }
-
-  // when this signal is emitted, all workers subscribe to it so they
-  // can have copies of the new proxies obtained
-  if (proxy_config_->share_proxy) {
-    signal_connector_ = new_proxy_signal_->connect([this](auto &&... args) {
-      proxy_provider_->add_more(std::forward<decltype(args)>(args)...);
-    });
-  }
-  proxy_provider_->total_used(task_result_ptr_->ip_used);
-
-  sockets_.reserve(static_cast<std::size_t>(proxy_config_->max_socket));
-  proxy_config_->max_socket = std::max<int>(1, proxy_config_->max_socket);
-  int const per_ip = task_result_ptr_->scans_per_ip;
-  auto const proxy_type = proxy_provider_->type();
-
-  for (int i = 0; i != proxy_config_->max_socket; ++i) {
-    auto c_socket = get_socket(proxy_type, is_stopped, *io_context_,
-                               *proxy_provider_, *number_stream_, per_ip);
-    if (!c_socket) {
-      return task_status_e::AutoStopped;
-    }
-    sockets_.push_back(std::move(c_socket));
-  }
-  auto callback = [=](search_result_type_e type, std::string_view number) {
-    on_data_result_obtained(type, number);
-  };
-  for (auto &socket : sockets_) {
-    std::visit(
-        [=](auto &&sock) {
-          sock.signal().connect(callback);
-          sock.start_connect();
-        },
-        *socket);
-  }
-
-  io_context_->run();
-
-  if (task_result_ptr_->operation_status == task_status_e::Ongoing) {
-    if (number_stream_->empty()) {
-      task_result_ptr_->operation_status = task_status_e::Completed;
-    } else {
-      // this will hardly ever happen, if it does, put it in a stop state
-      task_result_ptr_->stop();
-      task_result_ptr_->operation_status = task_status_e::Stopped;
-    }
-  }
-  task_result_ptr_->ip_used = proxy_provider_->total_used();
-  return task_result_ptr_->operation_status;
 }
 
 task_status_e background_worker_t::continue_old_task() {
@@ -346,5 +347,9 @@ task_status_e background_worker_t::run() {
 
 void background_worker_t::proxy_callback_signal(NewProxySignal *signal) {
   new_proxy_signal_ = signal;
+}
+
+void background_worker_t::proxy_info_map(proxy_info_map_t *proxy_map) {
+  proxy_info_map_ = proxy_map;
 }
 } // namespace wudi_server

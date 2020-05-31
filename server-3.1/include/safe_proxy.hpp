@@ -95,8 +95,9 @@ public:
           underlying_type>>>
   void push_back(Container const &eps) {
     std::lock_guard<std::mutex> lock_g{mutex_};
-    for (auto const &elem : eps)
+    for (auto const &elem : eps) {
       container_.push_back(std::make_shared<underlying_type>(elem));
+    }
   }
 
   void push_back(underlying_type &&ep) {
@@ -160,18 +161,32 @@ using promise_container = utilities::threadsafe_cv_container<posted_data_t>;
 void swap(custom_endpoint &a, custom_endpoint &b);
 
 class global_proxy_repo_t {
-  NewProxySignal new_endpoints_signal_;
+  struct proxy_unique_info {
+    std::uint32_t web_id{};
+    std::uint32_t proxy_count{};
+  };
 
 public:
+  using proxy_info_map_t = std::map<std::thread::id, proxy_unique_info>;
+
   NewProxySignal *new_ep_signal() { return &new_endpoints_signal_; }
+  proxy_info_map_t *get_thread_proxy_info() { return &proxy_info_set_; }
+
   static promise_container &get_promise_container();
   static void background_proxy_fetcher(net::io_context &);
+
+private:
+  NewProxySignal new_endpoints_signal_;
+  proxy_info_map_t proxy_info_set_{};
 };
+
+using proxy_info_map_t = global_proxy_repo_t::proxy_info_map_t;
 
 struct proxy_base_params {
   net::io_context &io_;
   NewProxySignal &signal_;
   proxy_configuration_t &config_;
+  proxy_info_map_t &proxy_info_map;
   std::thread::id thread_id;
   std::uint32_t web_id;
   std::string filename{};
@@ -200,7 +215,7 @@ public:
   using value_type = endpoint_ptr;
 
   proxy_base(proxy_base_params &, std::string const &);
-  virtual ~proxy_base() {}
+  virtual ~proxy_base();
 
   endpoint_ptr next_endpoint();
   proxy_type_e type() const;
@@ -220,4 +235,5 @@ struct socks5_proxy final : proxy_base {
 };
 
 using proxy_provider_t = proxy_base;
+
 } // namespace wudi_server
