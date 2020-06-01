@@ -10,9 +10,9 @@ using tcp = boost::asio::ip::tcp;
 using namespace fmt::v6::literals;
 
 template <typename Proxy>
-class qunar_http_socket
-    : public http_socket_base_t<qunar_http_socket<Proxy>, Proxy> {
-  using super_class = http_socket_base_t<qunar_http_socket<Proxy>, Proxy>;
+class qunar_http_socket_t
+    : public http_socket_base_t<qunar_http_socket_t<Proxy>, Proxy> {
+  using super_class = http_socket_base_t<qunar_http_socket_t<Proxy>, Proxy>;
 
   using super_class::current_number_;
   using super_class::request_;
@@ -25,19 +25,19 @@ public:
   void prepare_request_data(bool use_authentication_header);
 
   template <typename... Args>
-  qunar_http_socket<Proxy>(Args &&... args)
+  qunar_http_socket_t<Proxy>(Args &&... args)
       : super_class(std::forward<Args>(args)...) {}
-  ~qunar_http_socket() {}
+  ~qunar_http_socket_t() {}
   std::string hostname() const;
 };
 
 template <typename Proxy>
-std::string qunar_http_socket<Proxy>::hostname() const {
+std::string qunar_http_socket_t<Proxy>::hostname() const {
   return "user.qunar.com";
 }
 
 template <typename Proxy>
-void qunar_http_socket<Proxy>::prepare_request_data(
+void qunar_http_socket_t<Proxy>::prepare_request_data(
     bool use_authentication_header) {
   char const *target = "https://user.qunar.com/ajax/validator.jsp";
   request_.clear();
@@ -66,8 +66,8 @@ void qunar_http_socket<Proxy>::prepare_request_data(
 }
 
 template <typename Proxy>
-void qunar_http_socket<Proxy>::data_received(beast::error_code ec,
-                                             std::size_t const) {
+void qunar_http_socket_t<Proxy>::data_received(beast::error_code ec,
+                                               std::size_t const) {
   if (ec) {
     if (ec != http::error::end_of_stream) {
       this->current_proxy_assign_prop(Proxy::Property::ProxyUnresponsive);
@@ -115,10 +115,10 @@ void qunar_http_socket<Proxy>::data_received(beast::error_code ec,
 //////////////////////////////////////////////////////////////
 
 template <typename Proxy>
-class qunar_socks5_socket
-    : public socks5_https_socket_base_t<qunar_socks5_socket<Proxy>, Proxy> {
+class qunar_socks5_socket_t
+    : public socks5_https_socket_base_t<qunar_socks5_socket_t<Proxy>, Proxy> {
   using super_class =
-      socks5_https_socket_base_t<qunar_socks5_socket<Proxy>, Proxy>;
+      socks5_https_socket_base_t<qunar_socks5_socket_t<Proxy>, Proxy>;
 
   using super_class::current_number_;
   using super_class::request_;
@@ -131,19 +131,19 @@ public:
   void prepare_request_data(bool use_authentication_header);
 
   template <typename... Args>
-  qunar_socks5_socket<Proxy>(Args &&... args)
+  qunar_socks5_socket_t<Proxy>(Args &&... args)
       : super_class(std::forward<Args>(args)...) {}
-  ~qunar_socks5_socket() {}
+  ~qunar_socks5_socket_t() {}
   std::string hostname() const;
 };
 
 template <typename Proxy>
-std::string qunar_socks5_socket<Proxy>::hostname() const {
+std::string qunar_socks5_socket_t<Proxy>::hostname() const {
   return "user.qunar.com";
 }
 
 template <typename Proxy>
-void qunar_socks5_socket<Proxy>::prepare_request_data(
+void qunar_socks5_socket_t<Proxy>::prepare_request_data(
     bool use_authentication_header) {
   char const *target = "/ajax/validator.jsp";
   request_.clear();
@@ -172,8 +172,8 @@ void qunar_socks5_socket<Proxy>::prepare_request_data(
 }
 
 template <typename Proxy>
-void qunar_socks5_socket<Proxy>::data_received(beast::error_code ec,
-                                               std::size_t const) {
+void qunar_socks5_socket_t<Proxy>::data_received(beast::error_code ec,
+                                                 std::size_t const) {
 
   if (ec) {
     if (ec != http::error::end_of_stream) {

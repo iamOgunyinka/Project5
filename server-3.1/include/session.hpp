@@ -16,9 +16,14 @@ namespace asio = boost::asio;
 namespace beast = boost::beast;
 namespace http = beast::http;
 
+using string_response_t = http::response<http::string_body>;
+using string_request_t = http::request<http::string_body>;
+using dynamic_request = http::request_parser<http::string_body>;
+
 using url_query = std::map<boost::string_view, boost::string_view>;
-using callback_t = std::function<void(http::request<http::string_body> const &,
-                                      url_query const &)>;
+using callback_t =
+    std::function<void(string_request_t const &, url_query const &)>;
+
 struct rule_t {
   std::size_t num_verbs_{};
   std::array<http::verb, 3> verbs_{};
@@ -34,7 +39,7 @@ class endpoint_t {
 public:
   void add_endpoint(std::string const &, std::initializer_list<http::verb>,
                     callback_t &&);
-  std::optional<endpoint_t::rule_iterator> get_rules(std::string const &target);
+  std::optional<rule_iterator> get_rules(std::string const &target);
   std::optional<rule_iterator> get_rules(boost::string_view const &target);
 };
 
@@ -48,13 +53,10 @@ enum class error_type_e {
   Unauthorized
 };
 
-using string_response = http::response<http::string_body>;
-using string_request = http::request<http::string_body>;
-using dynamic_request = http::request_parser<http::string_body>;
 using url_query = std::map<boost::string_view, boost::string_view>;
 using nlohmann::json;
 
-class session {
+class session_t {
   using dynamic_body_ptr = std::unique_ptr<dynamic_request>;
   using string_body_ptr =
       std::unique_ptr<http::request_parser<http::string_body>>;
@@ -91,61 +93,62 @@ private:
                                     json::number_integer_t const to = 0);
 
 private:
-  session *shared_from_this() { return this; }
+  session_t *shared_from_this() { return this; }
   void add_endpoint_interfaces();
   void http_read_data();
   void on_header_read(beast::error_code, std::size_t const);
   void binary_data_read(beast::error_code ec, std::size_t bytes_transferred);
   void on_data_read(beast::error_code ec, std::size_t const);
   void shutdown_socket();
-  void send_response(string_response &&response);
-  void error_handler(string_response &&response, bool close_socket = false);
+  void send_response(string_response_t &&response);
+  void error_handler(string_response_t &&response, bool close_socket = false);
   void on_data_written(beast::error_code ec, std::size_t const bytes_written);
-  void login_handler(string_request const &, url_query const &);
-  void index_page_handler(string_request const &, url_query const &);
-  void upload_handler(string_request const &, url_query const &);
-  void software_update_handler(string_request const &, url_query const &);
-  void handle_requests(string_request const &request);
-  void download_handler(string_request const &request,
+  void login_handler(string_request_t const &, url_query const &);
+  void index_page_handler(string_request_t const &, url_query const &);
+  void upload_handler(string_request_t const &, url_query const &);
+  void software_update_handler(string_request_t const &, url_query const &);
+  void handle_requests(string_request_t const &request);
+  void download_handler(string_request_t const &request,
                         url_query const &optional_query);
-  void schedule_task_handler(string_request const &request,
+  void schedule_task_handler(string_request_t const &request,
                              url_query const &query);
-  void website_handler(string_request const &, url_query const &);
-  void get_file_handler(string_request const &, url_query const &);
-  void stop_tasks_handler(string_request const &, url_query const &);
-  void restart_tasks_handler(string_request const &, url_query const &);
-  void remove_tasks_handler(string_request const &, url_query const &);
-  void proxy_config_handler(string_request const &, url_query const &);
+  void website_handler(string_request_t const &, url_query const &);
+  void get_file_handler(string_request_t const &, url_query const &);
+  void stop_tasks_handler(string_request_t const &, url_query const &);
+  void restart_tasks_handler(string_request_t const &, url_query const &);
+  void remove_tasks_handler(string_request_t const &, url_query const &);
+  void proxy_config_handler(string_request_t const &, url_query const &);
 
-  static string_response json_success(json const &body,
-                                      string_request const &req);
-  static string_response success(char const *message, string_request const &);
-  static string_response bad_request(std::string const &message,
-                                     string_request const &);
-  static string_response not_found(string_request const &);
-  static string_response upgrade_required(string_request const &);
-  static string_response method_not_allowed(string_request const &request);
-  static string_response successful_login(int const id, int const role,
-                                          string_request const &req);
-  static string_response server_error(std::string const &, error_type_e,
-                                      string_request const &);
-  static string_response get_error(std::string const &, error_type_e,
-                                   http::status, string_request const &);
+  static string_response_t json_success(json const &body,
+                                        string_request_t const &req);
+  static string_response_t success(char const *message,
+                                   string_request_t const &);
+  static string_response_t bad_request(std::string const &message,
+                                       string_request_t const &);
+  static string_response_t not_found(string_request_t const &);
+  static string_response_t upgrade_required(string_request_t const &);
+  static string_response_t method_not_allowed(string_request_t const &request);
+  static string_response_t successful_login(int const id, int const role,
+                                            string_request_t const &req);
+  static string_response_t server_error(std::string const &, error_type_e,
+                                        string_request_t const &);
+  static string_response_t get_error(std::string const &, error_type_e,
+                                     http::status, string_request_t const &);
   static url_query split_optional_queries(boost::string_view const &args);
   template <typename Func>
   void send_file(std::filesystem::path const &, std::string_view,
-                 string_request const &, Func &&func);
+                 string_request_t const &, Func &&func);
 
 public:
-  session(asio::io_context &io, asio::ip::tcp::socket &&socket);
+  session_t(asio::io_context &io, asio::ip::tcp::socket &&socket);
   bool is_closed();
   void run();
 };
 
 template <typename Func>
-void session::send_file(std::filesystem::path const &file_path,
-                        std::string_view const content_type,
-                        string_request const &request, Func &&func) {
+void session_t::send_file(std::filesystem::path const &file_path,
+                          std::string_view const content_type,
+                          string_request_t const &request, Func &&func) {
   std::error_code ec_{};
   if (!std::filesystem::exists(file_path, ec_)) {
     return error_handler(bad_request("file does not exist", request));

@@ -34,8 +34,8 @@ using pps_sk5 = pp_sports_socks5_socket_t<proxy_provider_t>;
 using jjgames_sk5 = jjgames_socket<proxy_provider_t>;
 using wh_http = watch_home_http_socket_t<proxy_provider_t>;
 using wh_sk5 = watch_home_socks5_socket_t<proxy_provider_t>;
-using qn_http = qunar_http_socket<proxy_provider_t>;
-using qn_sk5 = qunar_socks5_socket<proxy_provider_t>;
+using qn_http = qunar_http_socket_t<proxy_provider_t>;
+using qn_sk5 = qunar_socks5_socket_t<proxy_provider_t>;
 
 using vsocket_type = std::variant<wh_http, wh_sk5, ah_https, ah_sk5, pps_http,
                                   pps_sk5, jjgames_sk5, qn_http, qn_sk5>;
@@ -138,7 +138,7 @@ private:
   std::vector<std::unique_ptr<vsocket_type>> sockets_;
   NewProxySignal *new_proxy_signal_{nullptr};
   proxy_info_map_t *proxy_info_map_{nullptr};
-  proxy_base_params *proxy_parameters_{nullptr};
+  proxy_base_params_t *proxy_parameters_{nullptr};
   boost::signals2::connection signal_connector_;
   std::optional<proxy_configuration_t> proxy_config_;
 };

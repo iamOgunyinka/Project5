@@ -59,15 +59,16 @@ void global_proxy_repo_t::background_proxy_fetcher(
   }
 }
 
-proxy_base::proxy_base(proxy_base_params &params, std::string const &filename)
+proxy_base_t::proxy_base_t(proxy_base_params_t &params,
+                           std::string const &filename)
     : param_{params} {
   params.filename = filename;
   params.proxy_info_map[params.thread_id] = {};
 }
 
-proxy_base::~proxy_base() { param_.proxy_info_map.erase(param_.thread_id); }
+proxy_base_t::~proxy_base_t() { param_.proxy_info_map.erase(param_.thread_id); }
 
-extraction_data proxy_base::get_remain_count() {
+extraction_data_t proxy_base_t::get_remain_count() {
   beast::tcp_stream http_tcp_stream(net::make_strand(param_.io_));
   auto const count_url_ = utilities::uri{param_.config_.count_target};
   net::ip::tcp::resolver resolver{param_.io_};
@@ -106,7 +107,7 @@ extraction_data proxy_base::get_remain_count() {
     if (json_result["code"].get<json::number_integer_t>() != 200)
       return {};
     json::array_t const data_list = json_result["data"].get<json::array_t>();
-    std::vector<extraction_data> proxy_extract_info{};
+    std::vector<extraction_data_t> proxy_extract_info{};
     proxy_extract_info.reserve(data_list.size());
 
     for (auto const &data_item : data_list) {
@@ -114,7 +115,7 @@ extraction_data proxy_base::get_remain_count() {
       std::string const expire_time =
           data_object["expire_time"].get<json::string_t>();
 
-      extraction_data data{};
+      extraction_data_t data{};
       data.expire_time = get_time_t(expire_time);
       data.is_available = data_item["is_available"].get<json::boolean_t>();
       // for unknown and most likely insane reasons, the server returns some
@@ -171,10 +172,10 @@ void split_ips(std::vector<std::string> &out, std::string const &str) {
   }
 }
 
-void proxy_base::get_more_proxies() {
+void proxy_base_t::get_more_proxies() {
 
   auto &promises = global_proxy_repo_t::get_promise_container();
-  std::vector<custom_endpoint> new_eps{};
+  std::vector<custom_endpoint_t> new_eps{};
 
   try {
     if (!confirm_count_ || current_extracted_data_.extract_remain > 0) {
@@ -224,7 +225,7 @@ void proxy_base::get_more_proxies() {
               net::ip::make_address(ip_port[0].to_string()),
               std::stoi(ip_port[1].to_string()));
           new_eps.emplace_back(
-              custom_endpoint(std::move(endpoint), username, password));
+              custom_endpoint_t(std::move(endpoint), username, password));
         } catch (std::exception const &except) {
           has_error_ = true;
           spdlog::error("server says: {}", response_body);
@@ -263,7 +264,7 @@ void proxy_base::get_more_proxies() {
   }
 }
 
-void proxy_base::add_more(shared_data_t const &shared_data) {
+void proxy_base_t::add_more(shared_data_t const &shared_data) {
   bool const can_share = param_.thread_id != shared_data.thread_id &&
                          param_.web_id != shared_data.web_id &&
                          (type() == shared_data.proxy_type);
@@ -292,7 +293,7 @@ void proxy_base::add_more(shared_data_t const &shared_data) {
   }
 }
 
-void proxy_base::save_proxies_to_file() {
+void proxy_base_t::save_proxies_to_file() {
   std::unique_ptr<std::ofstream> out_file_ptr{nullptr};
   if (std::filesystem::exists(param_.filename)) {
     out_file_ptr = std::make_unique<std::ofstream>(
@@ -318,7 +319,7 @@ void proxy_base::save_proxies_to_file() {
   out_file_ptr->close();
 }
 
-void proxy_base::load_proxy_file() {
+void proxy_base_t::load_proxy_file() {
   std::filesystem::path const http_filename_path{param_.filename};
   if (!std::filesystem::exists(http_filename_path)) {
     return get_more_proxies();
@@ -365,27 +366,27 @@ void proxy_base::load_proxy_file() {
         endpoints_.remove_first_n(1);
       }
       endpoints_.push_back(
-          custom_endpoint(std::move(endpoint), username, password));
+          custom_endpoint_t(std::move(endpoint), username, password));
     } catch (std::exception const &e) {
       spdlog::error("Error while converting( {} ), {}", line, e.what());
     }
   }
 }
 
-endpoint_ptr proxy_base::next_endpoint() {
+endpoint_ptr proxy_base_t::next_endpoint() {
   if (has_error_ || endpoints_.empty())
     return nullptr;
   if (count_ >= endpoints_.size()) {
     count_ = 0;
     while (count_ < endpoints_.size()) {
-      if (endpoints_[count_]->property == ProxyProperty::ProxyActive) {
+      if (endpoints_[count_]->property == proxy_property_e::ProxyActive) {
         return endpoints_[count_++];
       }
       ++count_;
     }
   } else {
     while (count_ < endpoints_.size()) {
-      if (endpoints_[count_]->property == ProxyProperty::ProxyActive) {
+      if (endpoints_[count_]->property == proxy_property_e::ProxyActive) {
         return endpoints_[count_++];
       }
       ++count_;
@@ -394,8 +395,8 @@ endpoint_ptr proxy_base::next_endpoint() {
   }
 
   endpoints_.remove_if([](auto const &ep) {
-    return ep->property != ProxyProperty::ProxyActive &&
-           ep->property != ProxyProperty::ProxyToldToWait;
+    return ep->property != proxy_property_e::ProxyActive &&
+           ep->property != proxy_property_e::ProxyToldToWait;
   });
   count_ = 0;
   if (!endpoints_.empty()) {
@@ -403,7 +404,7 @@ endpoint_ptr proxy_base::next_endpoint() {
     bool has_usable = false;
     std::size_t usable_index = 0;
     endpoints_.for_each([&](auto &e) {
-      if (e->property == ProxyProperty::ProxyToldToWait &&
+      if (e->property == proxy_property_e::ProxyToldToWait &&
           (e->time_last_used + (600)) <= current_time) {
         e->property = Property::ProxyActive;
         has_usable = true;
@@ -441,15 +442,17 @@ endpoint_ptr proxy_base::next_endpoint() {
   return next_endpoint();
 }
 
-proxy_type_e proxy_base::type() const { return param_.config_.proxy_protocol; }
+proxy_type_e proxy_base_t::type() const {
+  return param_.config_.proxy_protocol;
+}
 
-socks5_proxy::socks5_proxy(proxy_base_params &param)
-    : proxy_base(param, "./socks5_proxy_servers.txt") {
+socks5_proxy_t::socks5_proxy_t(proxy_base_params_t &param)
+    : proxy_base_t(param, "./socks5_proxy_servers.txt") {
   load_proxy_file();
 }
 
-http_proxy::http_proxy(proxy_base_params &param)
-    : proxy_base(param, "./http_proxy_servers.txt") {
+http_proxy_t::http_proxy_t(proxy_base_params_t &param)
+    : proxy_base_t(param, "./http_proxy_servers.txt") {
   load_proxy_file();
 }
 
@@ -458,12 +461,12 @@ net::io_context &get_network_context() {
   return context;
 }
 
-void custom_endpoint::swap(custom_endpoint &other) {
+void custom_endpoint_t::swap(custom_endpoint_t &other) {
   std::swap(other.endpoint_, this->endpoint_);
   std::swap(other.property, this->property);
 }
 
-void swap(custom_endpoint &a, custom_endpoint &b) { a.swap(b); }
+void swap(custom_endpoint_t &a, custom_endpoint_t &b) { a.swap(b); }
 
 std::optional<proxy_configuration_t> read_proxy_configuration() {
   std::ifstream in_file{"./proxy_config.json"};

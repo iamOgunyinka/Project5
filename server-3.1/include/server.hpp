@@ -6,7 +6,7 @@
 
 namespace wudi_server {
 namespace utilities {
-struct command_line_interface {
+struct command_line_interface_t {
   uint16_t port{3456};
   std::string ip_address{"127.0.0.1"};
   std::string launch_type{"development"};
@@ -16,19 +16,19 @@ struct command_line_interface {
 namespace asio = boost::asio;
 namespace beast = boost::beast;
 
-using utilities::command_line_interface;
-class session;
+using utilities::command_line_interface_t;
+class session_t;
 
-class server : public std::enable_shared_from_this<server> {
+class server_t : public std::enable_shared_from_this<server_t> {
   asio::io_context &io_context_;
   asio::ip::tcp::endpoint const endpoint_;
   asio::ip::tcp::acceptor acceptor_;
   bool is_open{false};
-  command_line_interface const &args_;
-  std::list<std::shared_ptr<session>> sessions_;
+  command_line_interface_t const &args_;
+  std::list<std::shared_ptr<session_t>> sessions_;
 
 public:
-  server(asio::io_context &context, command_line_interface const &args);
+  server_t(asio::io_context &context, command_line_interface_t const &args);
   void run();
 
 private:
