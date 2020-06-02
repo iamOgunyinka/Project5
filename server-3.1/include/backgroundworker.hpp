@@ -71,6 +71,9 @@ public:
 
 private:
   bool open_output_files();
+  task_status_e set_website_type();
+  task_status_e setup_proxy_provider();
+  task_status_e start_operations();
   void on_data_result_obtained(utilities::search_result_type_e,
                                std::string_view);
   utilities::task_status_e run_new_task();

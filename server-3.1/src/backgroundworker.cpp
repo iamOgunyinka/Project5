@@ -32,20 +32,7 @@ background_worker_t::~background_worker_t() {
   spdlog::info("Closing all files");
 }
 
-task_status_e background_worker_t::run_number_crawler() {
-  if (!open_output_files()) {
-    spdlog::error("OpenOutputFiles failed");
-    if (std::filesystem::exists(input_filename)) {
-      if (input_file.is_open())
-        input_file.close();
-      std::filesystem::remove(input_filename);
-    }
-    spdlog::error("unable to open output files");
-    return task_status_e::Erred;
-  }
-
-  db_connector = database_connector_t::s_get_db_connector();
-  task_result_ptr_->operation_status = task_status_e::Ongoing;
+task_status_e background_worker_t::set_website_type() {
   if (website_type_ == website_type_e::Unknown) {
     if (website_info_.address.find("jjgames") != std::string::npos) {
       website_type_ = website_type_e::JJGames;
@@ -62,24 +49,16 @@ task_status_e background_worker_t::run_number_crawler() {
       return task_status_e::Erred;
     }
   }
+  return task_status_e::Ongoing;
+}
 
-  if (!db_connector->set_input_files(
-          input_filename, task_result_ptr_->ok_filename.string(),
-          task_result_ptr_->ok2_filename.string(),
-          task_result_ptr_->not_ok_filename.string(),
-          task_result_ptr_->unknown_filename.string(),
-          task_result_ptr_->task_id)) {
-    spdlog::error("Could not set input files");
-    return task_status_e::Erred;
-  }
+task_status_e background_worker_t::setup_proxy_provider() {
   // we delayed construction of safe_proxy/io_context until now
   proxy_config_ = read_proxy_configuration();
   if (!proxy_config_) {
     return task_status_e::Erred;
   }
 
-  bool &is_stopped = task_result_ptr_->stopped();
-  is_stopped = false;
   auto const thread_id = std::this_thread::get_id();
   auto const web_id = task_result_ptr_->website_id;
   io_context_.emplace();
@@ -106,12 +85,18 @@ task_status_e background_worker_t::run_number_crawler() {
     });
   }
   proxy_provider_->total_used(task_result_ptr_->ip_used);
+  proxy_config_->max_socket = std::max<int>(1, proxy_config_->max_socket);
+
+  return task_status_e::Ongoing;
+}
+
+task_status_e background_worker_t::start_operations() {
+  bool &is_stopped = task_result_ptr_->stopped();
+  auto const proxy_type = proxy_provider_->type();
+  int const per_ip = task_result_ptr_->scans_per_ip;
+  is_stopped = false;
 
   sockets_.reserve(static_cast<std::size_t>(proxy_config_->max_socket));
-  proxy_config_->max_socket = std::max<int>(1, proxy_config_->max_socket);
-  int const per_ip = task_result_ptr_->scans_per_ip;
-  auto const proxy_type = proxy_provider_->type();
-
   for (int i = 0; i != proxy_config_->max_socket; ++i) {
     auto c_socket = get_socket(proxy_type, is_stopped, *io_context_,
                                *proxy_provider_, *number_stream_, per_ip);
@@ -145,6 +130,40 @@ task_status_e background_worker_t::run_number_crawler() {
   }
   task_result_ptr_->ip_used = proxy_provider_->total_used();
   return task_result_ptr_->operation_status;
+}
+
+task_status_e background_worker_t::run_number_crawler() {
+  if (!open_output_files()) {
+    spdlog::error("OpenOutputFiles failed");
+    if (std::filesystem::exists(input_filename)) {
+      if (input_file.is_open())
+        input_file.close();
+      std::filesystem::remove(input_filename);
+    }
+    spdlog::error("unable to open output files");
+    return task_status_e::Erred;
+  }
+
+  task_result_ptr_->operation_status = task_status_e::Ongoing;
+  if (auto status = set_website_type(); status == task_status_e::Erred) {
+    return status;
+  }
+
+  db_connector = database_connector_t::s_get_db_connector();
+  if (!db_connector->set_input_files(
+          input_filename, task_result_ptr_->ok_filename.string(),
+          task_result_ptr_->ok2_filename.string(),
+          task_result_ptr_->not_ok_filename.string(),
+          task_result_ptr_->unknown_filename.string(),
+          task_result_ptr_->task_id)) {
+    spdlog::error("Could not set input files");
+    return task_status_e::Erred;
+  }
+
+  if (auto status = setup_proxy_provider(); status == task_status_e::Erred) {
+    return status;
+  }
+  return start_operations();
 }
 
 void background_worker_t::on_data_result_obtained(search_result_type_e type,

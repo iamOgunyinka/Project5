@@ -199,7 +199,8 @@ void session_t::binary_data_read(beast::error_code ec,
                                  std::size_t bytes_transferred) {
   if (ec) {
     spdlog::error(ec.message());
-    return error_handler(bad_request("invalid content-type", string_request_t{}));
+    return error_handler(
+        bad_request("invalid content-type", string_request_t{}));
   }
   auto &request = dynamic_body_parser->get();
   handle_requests(request);
@@ -209,13 +210,13 @@ void session_t::on_data_read(beast::error_code ec, std::size_t const) {
   if (ec == http::error::end_of_stream) { // end of connection
     return shutdown_socket();
   } else if (ec == http::error::body_limit) {
-    return error_handler(
-        server_error(ec.message(), error_type_e::ServerError, string_request_t{}),
-        true);
+    return error_handler(server_error(ec.message(), error_type_e::ServerError,
+                                      string_request_t{}),
+                         true);
   } else if (ec) {
-    return error_handler(
-        server_error(ec.message(), error_type_e::ServerError, string_request_t{}),
-        true);
+    return error_handler(server_error(ec.message(), error_type_e::ServerError,
+                                      string_request_t{}),
+                         true);
   } else {
     handle_requests(client_request_->get());
   }
@@ -967,13 +968,13 @@ string_response_t session_t::upgrade_required(string_request_t const &request) {
 }
 
 string_response_t session_t::server_error(std::string const &message,
-                                        error_type_e type,
-                                        string_request_t const &request) {
+                                          error_type_e type,
+                                          string_request_t const &request) {
   return get_error(message, type, http::status::internal_server_error, request);
 }
 
 string_response_t session_t::bad_request(std::string const &message,
-                                       string_request_t const &request) {
+                                         string_request_t const &request) {
   return get_error(message, error_type_e::BadRequest, http::status::bad_request,
                    request);
 }
@@ -984,7 +985,7 @@ string_response_t session_t::method_not_allowed(string_request_t const &req) {
 }
 
 string_response_t session_t::successful_login(int const id, int const role,
-                                            string_request_t const &req) {
+                                              string_request_t const &req) {
   json::object_t result_obj;
   result_obj["status"] = error_type_e::NoError;
   result_obj["message"] = "success";
@@ -1001,8 +1002,8 @@ string_response_t session_t::successful_login(int const id, int const role,
 }
 
 string_response_t session_t::get_error(std::string const &error_message,
-                                     error_type_e type, http::status status,
-                                     string_request_t const &req) {
+                                       error_type_e type, http::status status,
+                                       string_request_t const &req) {
   json::object_t result_obj;
   result_obj["status"] = type;
   result_obj["message"] = error_message;
@@ -1017,7 +1018,7 @@ string_response_t session_t::get_error(std::string const &error_message,
 }
 
 string_response_t session_t::json_success(json const &body,
-                                        string_request_t const &req) {
+                                          string_request_t const &req) {
   string_response_t response{http::status::ok, req.version()};
   response.set(http::field::content_type, "application/json");
   response.keep_alive(req.keep_alive());
@@ -1027,7 +1028,7 @@ string_response_t session_t::json_success(json const &body,
 }
 
 string_response_t session_t::success(char const *message,
-                                   string_request_t const &req) {
+                                     string_request_t const &req) {
   json::object_t result_obj;
   result_obj["status"] = error_type_e::NoError;
   result_obj["message"] = message;

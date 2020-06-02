@@ -1,7 +1,6 @@
 #pragma once
 
 #include "socks5_https_socket_base.hpp"
-#include <iostream>
 
 namespace wudi_server {
 namespace net = boost::asio;
@@ -93,7 +92,6 @@ void auto_home_socks5_socket_t<Proxy>::data_received(beast::error_code ec,
   }
 
   auto &body{response_.body()};
-  std::cout << body << std::endl;
   json document;
   try {
     document = json::parse(body);
