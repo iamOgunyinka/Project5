@@ -192,22 +192,22 @@ private:
 };
 
 template <typename T, typename Container = std::deque<T>, bool use_cv = false>
-struct threadsafe_container {
+struct threadsafe_container_t {
 private:
   std::mutex mutex_{};
   Container container_{};
   std::size_t total_{};
 
 public:
-  threadsafe_container(Container &&container)
+  threadsafe_container_t(Container &&container)
       : container_{std::move(container)}, total_{container_.size()} {}
-  threadsafe_container() = default;
-  threadsafe_container(threadsafe_container &&vec)
+  threadsafe_container_t() = default;
+  threadsafe_container_t(threadsafe_container_t &&vec)
       : mutex_{std::move(vec.mutex_)},
         container_{std::move(vec.container_)}, total_{vec.total_} {}
-  threadsafe_container &operator=(threadsafe_container &&) = delete;
-  threadsafe_container(threadsafe_container const &) = delete;
-  threadsafe_container &operator=(threadsafe_container const &) = delete;
+  threadsafe_container_t &operator=(threadsafe_container_t &&) = delete;
+  threadsafe_container_t(threadsafe_container_t const &) = delete;
+  threadsafe_container_t &operator=(threadsafe_container_t const &) = delete;
 
   T get() {
     std::lock_guard<std::mutex> lock{mutex_};
@@ -243,7 +243,7 @@ public:
 };
 
 template <typename T, typename Container>
-struct threadsafe_container<T, Container, true> {
+struct threadsafe_container_t<T, Container, true> {
 private:
   std::mutex mutex_{};
   Container container_{};
@@ -251,16 +251,16 @@ private:
   std::condition_variable cv_{};
 
 public:
-  threadsafe_container(Container &&container)
+  threadsafe_container_t(Container &&container)
       : container_{std::move(container)}, total_{container_.size()} {}
-  threadsafe_container() = default;
+  threadsafe_container_t() = default;
 
-  threadsafe_container(threadsafe_container &&vec)
+  threadsafe_container_t(threadsafe_container_t &&vec)
       : mutex_{std::move(vec.mutex_)}, container_{std::move(vec.container_)},
         total_{vec.total_}, cv_{std::move(vec.cv_)} {}
-  threadsafe_container &operator=(threadsafe_container &&) = delete;
-  threadsafe_container(threadsafe_container const &) = delete;
-  threadsafe_container &operator=(threadsafe_container const &) = delete;
+  threadsafe_container_t &operator=(threadsafe_container_t &&) = delete;
+  threadsafe_container_t(threadsafe_container_t const &) = delete;
+  threadsafe_container_t &operator=(threadsafe_container_t const &) = delete;
 
   T get() {
     std::unique_lock<std::mutex> u_lock{mutex_};
@@ -348,7 +348,7 @@ void get_file_content(std::string const &filename, filter<T> filter,
 }
 
 template <typename T>
-using threadsafe_cv_container = threadsafe_container<T, std::deque<T>, true>;
+using threadsafe_cv_container = threadsafe_container_t<T, std::deque<T>, true>;
 
 std::vector<atomic_task_t> restart_tasks(std::vector<uint32_t> const &task_ids);
 std::string md5(std::string const &);

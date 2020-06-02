@@ -18,7 +18,7 @@ using tcp = ip::tcp;
 
 net::io_context &get_network_context();
 
-enum class ProxyProperty {
+enum class proxy_property_e {
   ProxyActive,
   ProxyBlocked,
   ProxyMaxedOut,
@@ -28,7 +28,7 @@ enum class ProxyProperty {
 
 enum class proxy_type_e : int { socks5 = 0, http_https_proxy = 1 };
 
-struct extraction_data {
+struct extraction_data_t {
   std::time_t expire_time{};
   int product_remain{};
   int connect_remain{};
@@ -51,26 +51,26 @@ struct proxy_configuration_t {
 
 std::optional<proxy_configuration_t> read_proxy_configuration();
 
-struct custom_endpoint {
+struct custom_endpoint_t {
   tcp::endpoint endpoint_{};
   std::string user_name_{};
   std::string password_{};
   int number_scanned{};
   std::time_t time_last_used{};
 
-  ProxyProperty property{ProxyProperty::ProxyActive};
+  proxy_property_e property{proxy_property_e::ProxyActive};
 
-  custom_endpoint(tcp::endpoint &&ep, std::string const &username,
-                  std::string const &password)
+  custom_endpoint_t(tcp::endpoint &&ep, std::string const &username,
+                    std::string const &password)
       : endpoint_(std::move(ep)), user_name_{username}, password_{password} {}
   operator tcp::endpoint() const { return endpoint_; }
 
   std::string &username() { return user_name_; }
   std::string &password() { return password_; }
-  void swap(custom_endpoint &);
+  void swap(custom_endpoint_t &);
 };
 
-template <typename T> class vector_wrapper {
+template <typename T> class vector_wrapper_t {
   std::mutex mutex_{};
   std::vector<T> container_{};
   using underlying_type = typename T::element_type;
@@ -78,7 +78,7 @@ template <typename T> class vector_wrapper {
 public:
   using value_type = T;
 
-  vector_wrapper() {}
+  vector_wrapper_t() {}
   bool empty() {
     std::lock_guard<std::mutex> lock_g{mutex_};
     return container_.empty();
@@ -134,15 +134,15 @@ public:
   }
 };
 
-using endpoint_ptr = std::shared_ptr<custom_endpoint>;
-using endpoint_ptr_list = vector_wrapper<endpoint_ptr>;
+using endpoint_ptr = std::shared_ptr<custom_endpoint_t>;
+using endpoint_ptr_list = vector_wrapper_t<endpoint_ptr>;
 
 struct shared_data_t {
   std::thread::id thread_id{};
   std::uint32_t web_id{};
   proxy_type_e proxy_type;
   mutable std::set<uint32_t> shared_web_ids{};
-  std::vector<custom_endpoint> eps{};
+  std::vector<custom_endpoint_t> eps{};
 };
 
 struct http_result_t {
@@ -158,7 +158,7 @@ struct posted_data_t {
 using NewProxySignal = signals2::signal<void(shared_data_t const &)>;
 using promise_container = utilities::threadsafe_cv_container<posted_data_t>;
 
-void swap(custom_endpoint &a, custom_endpoint &b);
+void swap(custom_endpoint_t &a, custom_endpoint_t &b);
 
 class global_proxy_repo_t {
   struct proxy_unique_info {
@@ -182,7 +182,7 @@ private:
 
 using proxy_info_map_t = global_proxy_repo_t::proxy_info_map_t;
 
-struct proxy_base_params {
+struct proxy_base_params_t {
   net::io_context &io_;
   NewProxySignal &signal_;
   proxy_configuration_t &config_;
@@ -192,12 +192,12 @@ struct proxy_base_params {
   std::string filename{};
 };
 
-class proxy_base {
+class proxy_base_t {
 protected:
-  proxy_base_params &param_;
+  proxy_base_params_t &param_;
   std::size_t proxies_used_{};
 
-  extraction_data current_extracted_data_;
+  extraction_data_t current_extracted_data_;
   std::mutex mutex_{};
   std::size_t count_{};
   endpoint_ptr_list endpoints_;
@@ -207,15 +207,15 @@ protected:
 protected:
   void load_proxy_file();
   void save_proxies_to_file();
-  virtual extraction_data get_remain_count();
+  virtual extraction_data_t get_remain_count();
   virtual void get_more_proxies();
 
 public:
-  using Property = ProxyProperty;
+  using Property = proxy_property_e;
   using value_type = endpoint_ptr;
 
-  proxy_base(proxy_base_params &, std::string const &);
-  virtual ~proxy_base();
+  proxy_base_t(proxy_base_params_t &, std::string const &);
+  virtual ~proxy_base_t();
 
   endpoint_ptr next_endpoint();
   proxy_type_e type() const;
@@ -224,16 +224,16 @@ public:
   void total_used(int val) { proxies_used_ += val; }
 };
 
-struct http_proxy final : proxy_base {
-  http_proxy(proxy_base_params &);
-  ~http_proxy() {}
+struct http_proxy_t final : proxy_base_t {
+  http_proxy_t(proxy_base_params_t &);
+  ~http_proxy_t() {}
 };
 
-struct socks5_proxy final : proxy_base {
-  socks5_proxy(proxy_base_params &);
-  ~socks5_proxy() {}
+struct socks5_proxy_t final : proxy_base_t {
+  socks5_proxy_t(proxy_base_params_t &);
+  ~socks5_proxy_t() {}
 };
 
-using proxy_provider_t = proxy_base;
+using proxy_provider_t = proxy_base_t;
 
 } // namespace wudi_server

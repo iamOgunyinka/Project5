@@ -15,7 +15,7 @@ using wudi_server::global_proxy_repo_t;
 int main(int argc, char *argv[]) {
   CLI::App cli_parser{
       "Wu-di: an asynchronous web server for Kiaowa Trading LLC"};
-  wudi_server::command_line_interface args{};
+  wudi_server::command_line_interface_t args{};
   auto const thread_count = std::thread::hardware_concurrency();
 
   cli_parser.add_option("-p", args.port, "port to bind server to", true);
@@ -56,8 +56,7 @@ int main(int argc, char *argv[]) {
   {
     using wudi_server::background_task_executor;
     auto thread_callback = [&] {
-      background_task_executor(stop, ssl_context,
-                               global_proxy_provider);
+      background_task_executor(stop, ssl_context, global_proxy_provider);
     };
     for (int i = 0; i != WorkerThreadCount; ++i) {
       std::thread t{thread_callback};
@@ -76,7 +75,7 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
   auto server_instance =
-      std::make_shared<wudi_server::server>(io_context, args);
+      std::make_shared<wudi_server::server_t>(io_context, args);
   server_instance->run();
 
   std::vector<std::thread> threads{};

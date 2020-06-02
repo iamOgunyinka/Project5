@@ -83,16 +83,16 @@ task_status_e background_worker_t::run_number_crawler() {
   auto const thread_id = std::this_thread::get_id();
   auto const web_id = task_result_ptr_->website_id;
   io_context_.emplace();
-  proxy_parameters_ = new proxy_base_params{*io_context_,   *new_proxy_signal_,
-                                            *proxy_config_, *proxy_info_map_,
-                                            thread_id,      web_id};
+  proxy_parameters_ = new proxy_base_params_t{
+      *io_context_,     *new_proxy_signal_, *proxy_config_,
+      *proxy_info_map_, thread_id,          web_id};
 
   switch (proxy_config_->proxy_protocol) {
   case proxy_type_e::http_https_proxy:
-    proxy_provider_.reset(new http_proxy(*proxy_parameters_));
+    proxy_provider_.reset(new http_proxy_t(*proxy_parameters_));
     break;
   case proxy_type_e::socks5:
-    proxy_provider_.reset(new socks5_proxy(*proxy_parameters_));
+    proxy_provider_.reset(new socks5_proxy_t(*proxy_parameters_));
     break;
   default:
     return task_status_e::Erred;

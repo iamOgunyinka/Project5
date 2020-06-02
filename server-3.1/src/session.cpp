@@ -44,59 +44,59 @@ endpoint_t::get_rules(boost::string_view const &target) {
   return get_rules(std::string(target.data(), target.size()));
 }
 
-session::session(asio::io_context &io, asio::ip::tcp::socket &&socket)
+session_t::session_t(asio::io_context &io, asio::ip::tcp::socket &&socket)
     : io_context_{io}, tcp_stream_{std::move(socket)} {
   add_endpoint_interfaces();
 }
 
-void session::add_endpoint_interfaces() {
+void session_t::add_endpoint_interfaces() {
   using http::verb;
 
   endpoint_apis_.add_endpoint(
       "/", {verb::get},
-      [=](string_request const &request, url_query const &optional_query) {
+      [=](string_request_t const &request, url_query const &optional_query) {
         index_page_handler(request, optional_query);
       });
 
   endpoint_apis_.add_endpoint(
       "/login", {verb::get, verb::post},
-      [=](string_request const &request, url_query const &optional_query) {
+      [=](string_request_t const &request, url_query const &optional_query) {
         login_handler(request, optional_query);
       });
 
   endpoint_apis_.add_endpoint(
       "/upload", {verb::post, verb::delete_, verb::get},
-      [=](string_request const &request, url_query const &optional_query) {
+      [=](string_request_t const &request, url_query const &optional_query) {
         upload_handler(request, optional_query);
       });
 
   endpoint_apis_.add_endpoint(
       "/website", {verb::post, verb::get, verb::post},
-      [=](string_request const &request, url_query const &optional_query) {
+      [=](string_request_t const &request, url_query const &optional_query) {
         website_handler(request, optional_query);
       });
 
   endpoint_apis_.add_endpoint(
       "/schedule_task", {verb::post, verb::get, verb::delete_},
-      [=](string_request const &request, url_query const &optional_query) {
+      [=](string_request_t const &request, url_query const &optional_query) {
         schedule_task_handler(request, optional_query);
       });
 
   endpoint_apis_.add_endpoint(
       "/task", {verb::post, verb::get, verb::delete_},
-      [=](string_request const &request, url_query const &optional_query) {
+      [=](string_request_t const &request, url_query const &optional_query) {
         schedule_task_handler(request, optional_query);
       });
 
   endpoint_apis_.add_endpoint(
       "/download", {verb::post},
-      [=](string_request const &request, url_query const &optional_query) {
+      [=](string_request_t const &request, url_query const &optional_query) {
         download_handler(request, optional_query);
       });
 
   endpoint_apis_.add_endpoint(
       "/stop", {verb::post},
-      [=](string_request const &request, url_query const &optional_query) {
+      [=](string_request_t const &request, url_query const &optional_query) {
         stop_tasks_handler(request, optional_query);
       });
 
@@ -108,7 +108,7 @@ void session::add_endpoint_interfaces() {
 
   endpoint_apis_.add_endpoint(
       "/remove", {verb::post},
-      [=](string_request const &request, url_query const &optional_query) {
+      [=](string_request_t const &request, url_query const &optional_query) {
         remove_tasks_handler(request, optional_query);
       });
 
@@ -119,7 +119,7 @@ void session::add_endpoint_interfaces() {
 
   endpoint_apis_.add_endpoint(
       "/get_config", {verb::get, verb::post},
-      [=](string_request const &request, url_query const &optional_query) {
+      [=](string_request_t const &request, url_query const &optional_query) {
         proxy_config_handler(request, optional_query);
       });
 
@@ -129,20 +129,20 @@ void session::add_endpoint_interfaces() {
                               });
 }
 
-void session::run() { http_read_data(); }
+void session_t::run() { http_read_data(); }
 
-void session::http_read_data() {
+void session_t::http_read_data() {
   buffer_.clear();
   empty_body_parser_.emplace();
   empty_body_parser_->body_limit(RequestBodySize);
   beast::get_lowest_layer(tcp_stream_)
       .expires_after(std::chrono::minutes(utilities::MaxRetries));
-  http::async_read_header(
-      tcp_stream_, buffer_, *empty_body_parser_,
-      beast::bind_front_handler(&session::on_header_read, shared_from_this()));
+  http::async_read_header(tcp_stream_, buffer_, *empty_body_parser_,
+                          beast::bind_front_handler(&session_t::on_header_read,
+                                                    shared_from_this()));
 }
 
-void session::on_header_read(beast::error_code ec, std::size_t const) {
+void session_t::on_header_read(beast::error_code ec, std::size_t const) {
   if (ec == http::error::end_of_stream)
     return shutdown_socket();
   if (ec) {
@@ -155,23 +155,23 @@ void session::on_header_read(beast::error_code ec, std::size_t const) {
           std::make_unique<http::request_parser<http::string_body>>(
               std::move(*empty_body_parser_));
       http::async_read(tcp_stream_, buffer_, *client_request_,
-                       beast::bind_front_handler(&session::on_data_read,
+                       beast::bind_front_handler(&session_t::on_data_read,
                                                  shared_from_this()));
     } else if (content_type_ == "application/gzip") {
       dynamic_body_parser =
           std::make_unique<dynamic_request>(std::move(*empty_body_parser_));
       dynamic_body_parser->body_limit(RequestBodySize);
       http::async_read(tcp_stream_, buffer_, *dynamic_body_parser,
-                       beast::bind_front_handler(&session::binary_data_read,
+                       beast::bind_front_handler(&session_t::binary_data_read,
                                                  shared_from_this()));
     } else {
       return error_handler(bad_request(
-          "contact your admin for proper request format", string_request{}));
+          "contact your admin for proper request format", string_request_t{}));
     }
   }
 }
 
-void session::handle_requests(string_request const &request) {
+void session_t::handle_requests(string_request_t const &request) {
   std::string const request_target{utilities::decode_url(request.target())};
   if (request_target.empty())
     return index_page_handler(request, {});
@@ -195,37 +195,37 @@ void session::handle_requests(string_request const &request) {
   }
 }
 
-void session::binary_data_read(beast::error_code ec,
-                               std::size_t bytes_transferred) {
+void session_t::binary_data_read(beast::error_code ec,
+                                 std::size_t bytes_transferred) {
   if (ec) {
     spdlog::error(ec.message());
-    return error_handler(bad_request("invalid content-type", string_request{}));
+    return error_handler(bad_request("invalid content-type", string_request_t{}));
   }
   auto &request = dynamic_body_parser->get();
   handle_requests(request);
 }
 
-void session::on_data_read(beast::error_code ec, std::size_t const) {
+void session_t::on_data_read(beast::error_code ec, std::size_t const) {
   if (ec == http::error::end_of_stream) { // end of connection
     return shutdown_socket();
   } else if (ec == http::error::body_limit) {
     return error_handler(
-        server_error(ec.message(), error_type_e::ServerError, string_request{}),
+        server_error(ec.message(), error_type_e::ServerError, string_request_t{}),
         true);
   } else if (ec) {
     return error_handler(
-        server_error(ec.message(), error_type_e::ServerError, string_request{}),
+        server_error(ec.message(), error_type_e::ServerError, string_request_t{}),
         true);
   } else {
     handle_requests(client_request_->get());
   }
 }
 
-bool session::is_closed() {
+bool session_t::is_closed() {
   return !beast::get_lowest_layer(tcp_stream_).socket().is_open();
 }
 
-void session::shutdown_socket() {
+void session_t::shutdown_socket() {
   beast::error_code ec{};
   beast::get_lowest_layer(tcp_stream_)
       .socket()
@@ -235,12 +235,12 @@ void session::shutdown_socket() {
   beast::get_lowest_layer(tcp_stream_).close();
 }
 
-void session::error_handler(string_response &&response, bool close_socket) {
-  auto resp = std::make_shared<string_response>(std::move(response));
+void session_t::error_handler(string_response_t &&response, bool close_socket) {
+  auto resp = std::make_shared<string_response_t>(std::move(response));
   resp_ = resp;
   if (!close_socket) {
     http::async_write(tcp_stream_, *resp,
-                      beast::bind_front_handler(&session::on_data_written,
+                      beast::bind_front_handler(&session_t::on_data_written,
                                                 shared_from_this()));
   } else {
     http::async_write(
@@ -251,8 +251,8 @@ void session::error_handler(string_response &&response, bool close_socket) {
   }
 }
 
-void session::on_data_written(beast::error_code ec,
-                              std::size_t const bytes_written) {
+void session_t::on_data_written(beast::error_code ec,
+                                std::size_t const bytes_written) {
   if (ec) {
     return spdlog::error(ec.message());
   }
@@ -260,8 +260,8 @@ void session::on_data_written(beast::error_code ec,
   http_read_data();
 }
 
-void session::login_handler(string_request const &request,
-                            url_query const &optional_query) {
+void session_t::login_handler(string_request_t const &request,
+                              url_query const &optional_query) {
   if (request.method() == http::verb::get) {
     return error_handler(bad_request("POST username && password", request));
   }
@@ -301,14 +301,14 @@ void session::login_handler(string_request const &request,
   }
 }
 
-void session::index_page_handler(string_request const &request,
-                                 url_query const &) {
+void session_t::index_page_handler(string_request_t const &request,
+                                   url_query const &) {
   return error_handler(
       get_error("login", error_type_e::NoError, http::status::ok, request));
 }
 
-void session::upload_handler(string_request const &request,
-                             url_query const &optional_query) {
+void session_t::upload_handler(string_request_t const &request,
+                               url_query const &optional_query) {
   static std::string uploads_directory{"uploads/"};
   auto const method = request.method();
   auto db_connector = database_connector_t::s_get_db_connector();
@@ -431,7 +431,7 @@ void session::upload_handler(string_request const &request,
   }
 }
 
-std::filesystem::path session::copy_file_n(
+std::filesystem::path session_t::copy_file_n(
     std::filesystem::path const &source, std::filesystem::path const &temp_dest,
     std::string const &filename, json::number_integer_t const user_from,
     json::number_integer_t const user_to) {
@@ -470,8 +470,8 @@ std::filesystem::path session::copy_file_n(
   return temp_file;
 }
 
-void session::download_handler(string_request const &request,
-                               url_query const &optional_query) {
+void session_t::download_handler(string_request_t const &request,
+                                 url_query const &optional_query) {
   // we only handle POST(application/json) requests here, not any other.
   if (content_type_ != "application/json") {
     return error_handler(bad_request("invalid content-type", request));
@@ -601,8 +601,8 @@ void session::download_handler(string_request const &request,
   }
 }
 
-void session::remove_tasks_handler(string_request const &req,
-                                   url_query const &optional_query) {
+void session_t::remove_tasks_handler(string_request_t const &req,
+                                     url_query const &optional_query) {
   if (content_type_ != "application/json")
     return error_handler(bad_request("invalid content-type", req));
   try {
@@ -632,8 +632,8 @@ void session::remove_tasks_handler(string_request const &req,
   }
 }
 
-void session::proxy_config_handler(string_request const &request,
-                                   url_query const &query) {
+void session_t::proxy_config_handler(string_request_t const &request,
+                                     url_query const &query) {
   char const *const json_content_type = "application/json";
   if (content_type_ != json_content_type) {
     return error_handler(bad_request("invalid content-type", request));
@@ -674,7 +674,7 @@ void session::proxy_config_handler(string_request const &request,
   return send_response(success("ok", request));
 }
 
-void session::delete_stopped_tasks_impl(
+void session_t::delete_stopped_tasks_impl(
     std::vector<uint32_t> const &user_stopped_tasks) {
   using utilities::atomic_task_t;
   using utilities::remove_file;
@@ -691,8 +691,8 @@ void session::delete_stopped_tasks_impl(
   return db_connector->delete_stopped_tasks(user_stopped_tasks);
 }
 
-void session::delete_other_tasks_impl(boost::string_view const user_id,
-                                      std::vector<uint32_t> const &all_tasks) {
+void session_t::delete_other_tasks_impl(
+    boost::string_view const user_id, std::vector<uint32_t> const &all_tasks) {
   auto db_connector = database_connector_t::s_get_db_connector();
   db_connector->remove_filtered_tasks(user_id, all_tasks);
   auto &response_queue = utilities::get_response_queue();
@@ -702,8 +702,8 @@ void session::delete_other_tasks_impl(boost::string_view const user_id,
 }
 
 std::vector<uint32_t>
-session::stop_running_tasks_impl(std::vector<uint32_t> const &task_id_list,
-                                 bool const saving_state) {
+session_t::stop_running_tasks_impl(std::vector<uint32_t> const &task_id_list,
+                                   bool const saving_state) {
   using utilities::task_status_e;
 
   auto &running_tasks = utilities::get_response_queue();
@@ -725,8 +725,8 @@ session::stop_running_tasks_impl(std::vector<uint32_t> const &task_id_list,
   return stopped_tasks;
 }
 
-void session::get_file_handler(string_request const &request,
-                               url_query const &optional_query) {
+void session_t::get_file_handler(string_request_t const &request,
+                                 url_query const &optional_query) {
   if (content_type_ != "application/json") {
     return error_handler(bad_request("invalid content-type", request));
   }
@@ -746,8 +746,8 @@ void session::get_file_handler(string_request const &request,
   return send_file(file_path, content_type, request, callback);
 }
 
-void session::software_update_handler(string_request const &request,
-                                      url_query const &optional_query) {
+void session_t::software_update_handler(string_request_t const &request,
+                                        url_query const &optional_query) {
   if (content_type_ != "application/json") {
     return error_handler(bad_request("invalid content-type", request));
   }
@@ -766,8 +766,8 @@ void session::software_update_handler(string_request const &request,
   return send_file(file_path, content_type, request, [] {});
 }
 
-void session::stop_tasks_handler(string_request const &request,
-                                 url_query const &optional_query) {
+void session_t::stop_tasks_handler(string_request_t const &request,
+                                   url_query const &optional_query) {
   if (content_type_ != "application/json")
     return error_handler(bad_request("invalid content-type", request));
   try {
@@ -814,8 +814,8 @@ void session::stop_tasks_handler(string_request const &request,
   }
 }
 
-void session::restart_tasks_handler(string_request const &request,
-                                    url_query const &optional_query) {
+void session_t::restart_tasks_handler(string_request_t const &request,
+                                      url_query const &optional_query) {
   if (content_type_ != "application/json")
     return error_handler(bad_request("invalid content-type", request));
   try {
@@ -843,8 +843,8 @@ void session::restart_tasks_handler(string_request const &request,
   }
 }
 
-void session::schedule_task_handler(string_request const &request,
-                                    url_query const &optional_query) {
+void session_t::schedule_task_handler(string_request_t const &request,
+                                      url_query const &optional_query) {
   using http::verb;
   using wudi_server::utilities::get_scheduled_tasks;
 
@@ -928,8 +928,8 @@ void session::schedule_task_handler(string_request const &request,
   }
 }
 
-void session::website_handler(string_request const &request,
-                              url_query const &) {
+void session_t::website_handler(string_request_t const &request,
+                                url_query const &) {
   auto db_connector = wudi_server::database_connector_t::s_get_db_connector();
   if (request.method() == http::verb::get) {
     json j = db_connector->get_websites({});
@@ -955,36 +955,36 @@ void session::website_handler(string_request const &request,
   }
 }
 
-string_response session::not_found(string_request const &request) {
+string_response_t session_t::not_found(string_request_t const &request) {
   return get_error("url not found", error_type_e::ResourceNotFound,
                    http::status::not_found, request);
 }
 
-string_response session::upgrade_required(string_request const &request) {
+string_response_t session_t::upgrade_required(string_request_t const &request) {
   return get_error("you need to upgrade your client software",
                    error_type_e::ResourceNotFound,
                    http::status::upgrade_required, request);
 }
 
-string_response session::server_error(std::string const &message,
-                                      error_type_e type,
-                                      string_request const &request) {
+string_response_t session_t::server_error(std::string const &message,
+                                        error_type_e type,
+                                        string_request_t const &request) {
   return get_error(message, type, http::status::internal_server_error, request);
 }
 
-string_response session::bad_request(std::string const &message,
-                                     string_request const &request) {
+string_response_t session_t::bad_request(std::string const &message,
+                                       string_request_t const &request) {
   return get_error(message, error_type_e::BadRequest, http::status::bad_request,
                    request);
 }
 
-string_response session::method_not_allowed(string_request const &req) {
+string_response_t session_t::method_not_allowed(string_request_t const &req) {
   return get_error("method not allowed", error_type_e::MethodNotAllowed,
                    http::status::method_not_allowed, req);
 }
 
-string_response session::successful_login(int const id, int const role,
-                                          string_request const &req) {
+string_response_t session_t::successful_login(int const id, int const role,
+                                            string_request_t const &req) {
   json::object_t result_obj;
   result_obj["status"] = error_type_e::NoError;
   result_obj["message"] = "success";
@@ -992,7 +992,7 @@ string_response session::successful_login(int const id, int const role,
   result_obj["role"] = role;
   json result = result_obj;
 
-  string_response response{http::status::ok, req.version()};
+  string_response_t response{http::status::ok, req.version()};
   response.set(http::field::content_type, "application/json");
   response.keep_alive(req.keep_alive());
   response.body() = result.dump();
@@ -1000,15 +1000,15 @@ string_response session::successful_login(int const id, int const role,
   return response;
 }
 
-string_response session::get_error(std::string const &error_message,
-                                   error_type_e type, http::status status,
-                                   string_request const &req) {
+string_response_t session_t::get_error(std::string const &error_message,
+                                     error_type_e type, http::status status,
+                                     string_request_t const &req) {
   json::object_t result_obj;
   result_obj["status"] = type;
   result_obj["message"] = error_message;
   json result = result_obj;
 
-  string_response response{status, req.version()};
+  string_response_t response{status, req.version()};
   response.set(http::field::content_type, "application/json");
   response.keep_alive(req.keep_alive());
   response.body() = result.dump();
@@ -1016,9 +1016,9 @@ string_response session::get_error(std::string const &error_message,
   return response;
 }
 
-string_response session::json_success(json const &body,
-                                      string_request const &req) {
-  string_response response{http::status::ok, req.version()};
+string_response_t session_t::json_success(json const &body,
+                                        string_request_t const &req) {
+  string_response_t response{http::status::ok, req.version()};
   response.set(http::field::content_type, "application/json");
   response.keep_alive(req.keep_alive());
   response.body() = body.dump();
@@ -1026,14 +1026,14 @@ string_response session::json_success(json const &body,
   return response;
 }
 
-string_response session::success(char const *message,
-                                 string_request const &req) {
+string_response_t session_t::success(char const *message,
+                                   string_request_t const &req) {
   json::object_t result_obj;
   result_obj["status"] = error_type_e::NoError;
   result_obj["message"] = message;
   json result{result_obj};
 
-  string_response response{http::status::ok, req.version()};
+  string_response_t response{http::status::ok, req.version()};
   response.set(http::field::content_type, "application/json");
   response.keep_alive(req.keep_alive());
   response.body() = result.dump();
@@ -1041,16 +1041,16 @@ string_response session::success(char const *message,
   return response;
 }
 
-void session::send_response(string_response &&response) {
-  auto resp = std::make_shared<string_response>(std::move(response));
+void session_t::send_response(string_response_t &&response) {
+  auto resp = std::make_shared<string_response_t>(std::move(response));
   resp_ = resp;
-  http::async_write(
-      tcp_stream_, *resp,
-      beast::bind_front_handler(&session::on_data_written, shared_from_this()));
+  http::async_write(tcp_stream_, *resp,
+                    beast::bind_front_handler(&session_t::on_data_written,
+                                              shared_from_this()));
 }
 
 url_query
-session::split_optional_queries(boost::string_view const &optional_query) {
+session_t::split_optional_queries(boost::string_view const &optional_query) {
   url_query result{};
   if (!optional_query.empty()) {
     auto queries = utilities::split_string_view(optional_query, "&");

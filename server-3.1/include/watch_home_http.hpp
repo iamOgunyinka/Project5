@@ -12,12 +12,12 @@ class watch_home_http_socket_t
 public:
   void data_received(beast::error_code, std::size_t const);
   void prepare_request_data(bool use_authentication_header);
-  
+
   template <typename... Args>
   watch_home_http_socket_t(Args &&... args)
       : http_socket_base_t<watch_home_http_socket_t<Proxy>, Proxy>(
             std::forward<Args>(args)...) {}
-  
+
   ~watch_home_http_socket_t() {}
 
   std::string hostname() const { return "www.xbiao.com"; }
@@ -54,7 +54,7 @@ void watch_home_http_socket_t<Proxy>::data_received(beast::error_code ec,
                                                     std::size_t const) {
   if (ec) {
     if (ec != http::error::end_of_stream) {
-      this->current_proxy_assign_prop(ProxyProperty::ProxyUnresponsive);
+      this->current_proxy_assign_prop(proxy_property_e::ProxyUnresponsive);
       this->close_stream();
     }
     return this->choose_next_proxy();
