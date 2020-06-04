@@ -8,7 +8,7 @@
 
 enum constant_e { WorkerThreadCount = 15 };
 
-int WUDI_SOFTWARE_VERSION = 313;
+int WUDI_SOFTWARE_VERSION = 315;
 
 using wudi_server::global_proxy_repo_t;
 

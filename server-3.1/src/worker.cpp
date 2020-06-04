@@ -177,16 +177,17 @@ void background_task_executor(std::atomic_bool &stopped,
     }
     if (worker) {
       db_connector->change_task_status(
-          scheduled_task.task_id, worker->task_result()->processed,
+          scheduled_task.task_id, scheduled_task.processed,
           scheduled_task.ip_used, task_status_e::Ongoing);
-      auto handle = [&scheduled_task, &db_connector,
-                     worker_ptr = worker.get()](task_status_e status) {
+      auto on_post_execution = [&scheduled_task, &db_connector,
+                                worker_ptr =
+                                    worker.get()](task_status_e status) {
         on_task_ran(status, scheduled_task, db_connector, worker_ptr);
       };
 
       worker->proxy_callback_signal(r.new_ep_signal());
       worker->proxy_info_map(r.get_thread_proxy_info());
-      handle(worker->run());
+      on_post_execution(worker->run());
 
       auto task_result_ptr = worker->task_result();
 

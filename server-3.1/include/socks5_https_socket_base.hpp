@@ -19,27 +19,25 @@ using beast::error_code;
 using utilities::search_result_type_e;
 
 template <typename Derived, typename Proxy> class socks5_https_socket_base_t {
-protected:
   net::io_context &io_;
-  utilities::number_stream_t &numbers_;
-  Proxy &proxy_provider_;
   ssl::context &ssl_context_;
-  std::optional<beast::ssl_stream<beast::tcp_stream>> ssl_stream_;
-  bool &stopped_;
+  Proxy &proxy_provider_;
+  utilities::number_stream_t &numbers_;
 
+  std::optional<beast::ssl_stream<beast::tcp_stream>> ssl_stream_;
+  std::optional<beast::flat_buffer> general_buffer_{};
   std::vector<char> reply_buffer{};
   std::vector<char> handshake_buffer{};
+  std::size_t connect_count_{};
+  int const scans_per_ip_;
+  bool &stopped_;
 
-  std::optional<beast::flat_buffer> general_buffer_{};
+protected:
+  typename Proxy::value_type current_proxy_{nullptr};
   http::request<http::string_body> request_{};
   http::response<http::string_body> response_{};
   std::string current_number_{};
   boost::signals2::signal<void(search_result_type_e, std::string_view)> signal_;
-  std::size_t connect_count_{};
-  std::vector<tcp::endpoint> temp_list_;
-  std::size_t send_count_{};
-  typename Proxy::value_type current_proxy_{nullptr};
-  int const scans_per_ip_;
 
 protected:
   void send_first_request();
@@ -62,13 +60,12 @@ protected:
   void connect();
   void receive_data();
   void reconnect();
-  void resend_http_request();
   void choose_next_proxy(bool first_request = false);
   void send_https_data();
   void on_data_sent(error_code, std::size_t const);
   void current_proxy_assign_prop(typename Proxy::Property);
   void prepare_request_data(bool use_auth = false);
-  void on_connected(error_code, tcp::resolver::results_type::endpoint_type);
+  void on_connected(error_code);
   virtual void send_next();
   void on_data_received(error_code, std::size_t const);
   std::string hostname() const;
@@ -100,8 +97,7 @@ std::string socks5_https_socket_base_t<Derived, Proxy>::hostname() const {
 }
 
 template <typename Derived, typename Proxy>
-void socks5_https_socket_base_t<Derived, Proxy>::on_connected(
-    error_code ec, tcp::resolver::results_type::endpoint_type) {
+void socks5_https_socket_base_t<Derived, Proxy>::on_connected(error_code ec) {
   if (ec) {
     return reconnect();
   }
@@ -476,7 +472,6 @@ void socks5_https_socket_base_t<Derived, Proxy>::reconnect() {
 template <typename Derived, typename Proxy>
 void socks5_https_socket_base_t<Derived, Proxy>::choose_next_proxy(
     bool const is_first_request) {
-  send_count_ = 0;
   connect_count_ = 0;
   current_proxy_ = proxy_provider_.next_endpoint();
   if (!current_proxy_) {
@@ -510,11 +505,9 @@ void socks5_https_socket_base_t<Derived, Proxy>::connect() {
   }
   beast::get_lowest_layer(*ssl_stream_)
       .expires_after(std::chrono::milliseconds(utilities::TimeoutMilliseconds));
-  temp_list_ = {*current_proxy_};
   beast::get_lowest_layer(*ssl_stream_)
-      .async_connect(temp_list_, [=](auto const &ec, auto const &ep_type) {
-        on_connected(ec, ep_type);
-      });
+      .async_connect(*current_proxy_,
+                     [=](auto const &ec) { on_connected(ec); });
 }
 
 template <typename Derived, typename Proxy>
@@ -566,20 +559,10 @@ template <typename Derived, typename Proxy>
 void socks5_https_socket_base_t<Derived, Proxy>::on_data_sent(
     beast::error_code ec, std::size_t const s) {
   if (ec) {
-    // spdlog::error(ec.message());
-    return resend_http_request();
-  }
-  receive_data();
-}
-
-template <typename Derived, typename Proxy>
-void socks5_https_socket_base_t<Derived, Proxy>::resend_http_request() {
-  if (++send_count_ >= utilities::MaxRetries) {
     current_proxy_assign_prop(Proxy::Property::ProxyUnresponsive);
     return choose_next_proxy();
-  } else {
-    send_https_data();
   }
+  receive_data();
 }
 
 template <typename Derived, typename Proxy>

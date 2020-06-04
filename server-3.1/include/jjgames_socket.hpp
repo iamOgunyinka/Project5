@@ -29,7 +29,6 @@ public:
             ssl_context, std::forward<Args>(args)...} {}
 
   ~jjgames_socket() {}
-  void send_next() override;
   void prepare_request_data(bool use_auth = false);
   void data_received(beast::error_code, std::size_t const);
   std::string hostname() const;
@@ -125,26 +124,6 @@ void jjgames_socket<Proxy>::process_response(std::string const &message_body) {
   ++success_sent_count_;
   current_number_.clear();
   this->send_next();
-}
-
-template <typename Proxy> void jjgames_socket<Proxy>::send_next() {
-  if (this->stopped_) {
-    if (!current_number_.empty()) {
-      this->numbers_.push_back(current_number_);
-    }
-    current_number_.clear();
-    return;
-  }
-  try {
-    current_number_ = this->numbers_.get();
-    prepare_request_data();
-    if (success_sent_count_ == 20) {
-      success_sent_count_ = 0;
-      return this->choose_next_proxy();
-    }
-    this->send_https_data();
-  } catch (utilities::empty_container_exception_t &) {
-  }
 }
 
 template <typename Proxy>

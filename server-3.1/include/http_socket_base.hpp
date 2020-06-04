@@ -16,7 +16,6 @@ using tcp = boost::asio::ip::tcp;
 using utilities::search_result_type_e;
 
 template <typename DerivedClass, typename Proxy> class http_socket_base_t {
-protected:
   net::io_context &io_;
   std::optional<beast::tcp_stream> tcp_stream_;
   utilities::number_stream_t &numbers_;
@@ -24,15 +23,15 @@ protected:
   bool &stopped_;
 
   beast::flat_buffer buffer_{};
+  std::size_t connect_count_{};
+  int const scans_per_ip_;
+
+protected:
   http::request<http::string_body> request_{};
   http::response<http::string_body> response_{};
   std::string current_number_{};
   boost::signals2::signal<void(search_result_type_e, std::string_view)> signal_;
-  std::size_t connect_count_{};
-  std::vector<tcp::endpoint> temp_list_;
-  std::size_t send_count_{};
   typename Proxy::value_type current_proxy_{nullptr};
-  int const scans_per_ip_;
 
 protected:
   void close_socket();
@@ -40,7 +39,6 @@ protected:
   void receive_data();
   void reconnect();
   void close_stream();
-  void resend_http_request();
   void choose_next_proxy(bool is_first_request = false);
   void send_http_data();
   void set_authentication_header();
@@ -49,9 +47,8 @@ protected:
   void prepare_request_data(bool use_auth = false);
   void on_data_received(beast::error_code, std::size_t const);
   void send_first_request();
-  virtual void on_connected(beast::error_code,
-                            tcp::resolver::results_type::endpoint_type);
-  virtual void send_next();
+  virtual void on_connected(beast::error_code);
+  void send_next();
 
 public:
   http_socket_base_t(bool &stopped, net::io_context &, Proxy &,
@@ -81,16 +78,6 @@ void http_socket_base_t<DerivedClass, Proxy>::close_socket() {
 }
 
 template <typename DerivedClass, typename Proxy>
-void http_socket_base_t<DerivedClass, Proxy>::resend_http_request() {
-  if (++send_count_ >= utilities::MaxRetries) {
-    current_proxy_assign_prop(Proxy::Property::ProxyUnresponsive);
-    return choose_next_proxy();
-  } else {
-    send_http_data();
-  }
-}
-
-template <typename DerivedClass, typename Proxy>
 void http_socket_base_t<DerivedClass, Proxy>::send_http_data() {
   tcp_stream_->expires_after(
       std::chrono::milliseconds(utilities::TimeoutMilliseconds));
@@ -103,9 +90,10 @@ template <typename DerivedClass, typename Proxy>
 void http_socket_base_t<DerivedClass, Proxy>::on_data_sent(
     beast::error_code ec, std::size_t const s) {
   if (ec) {
-    resend_http_request();
-  } else
-    receive_data();
+    current_proxy_assign_prop(Proxy::Property::ProxyUnresponsive);
+    return choose_next_proxy();
+  }
+  receive_data();
 }
 
 template <typename DerivedClass, typename Proxy>
@@ -186,15 +174,14 @@ void http_socket_base_t<DerivedClass, Proxy>::connect() {
   }
   tcp_stream_->expires_after(
       std::chrono::milliseconds(utilities::TimeoutMilliseconds));
-  temp_list_ = {*current_proxy_};
   tcp_stream_->async_connect(
-      temp_list_,
+      *current_proxy_,
       beast::bind_front_handler(&http_socket_base_t::on_connected, this));
 }
 
 template <typename DerivedClass, typename Proxy>
 void http_socket_base_t<DerivedClass, Proxy>::on_connected(
-    beast::error_code ec, tcp::resolver::results_type::endpoint_type) {
+    beast::error_code ec) {
   if (ec)
     return reconnect();
   send_http_data();
@@ -208,7 +195,6 @@ void http_socket_base_t<DerivedClass, Proxy>::close_stream() {
 template <typename DerivedClass, typename Proxy>
 void http_socket_base_t<DerivedClass, Proxy>::choose_next_proxy(
     bool const is_first_request) {
-  send_count_ = 0;
   connect_count_ = 0;
   current_proxy_ = proxy_provider_.next_endpoint();
   if (!current_proxy_) {
