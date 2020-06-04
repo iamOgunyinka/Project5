@@ -20,8 +20,7 @@ void global_proxy_repo_t::background_proxy_fetcher(
     net::io_context &io_context) {
   using timed_socket = custom_timed_socket_t<http_result_t>;
   auto &promises = get_promise_container();
-  int const connect_timeout_sec = 15;
-  int const read_timeout_sec = 15;
+  int const timeout_sec = 15;
   std::time_t last_fetch_time = 0;
 
   while (true) {
@@ -38,9 +37,9 @@ void global_proxy_repo_t::background_proxy_fetcher(
     std::promise<http_result_t> http_result_promise{};
     auto result_future = http_result_promise.get_future();
 
-    std::optional<timed_socket> custom_socket{
-        std::in_place,       io_context,       info_posted.url,
-        connect_timeout_sec, read_timeout_sec, std::move(http_result_promise)};
+    std::optional<timed_socket> custom_socket{std::in_place, io_context,
+                                              info_posted.url, timeout_sec,
+                                              std::move(http_result_promise)};
     custom_socket->start();
     try {
       auto const status = result_future.wait_for(std::chrono::seconds(30));
@@ -198,7 +197,7 @@ void proxy_base_t::get_more_proxies() {
       if (status_code != 200) {
         has_error_ = true;
         return spdlog::error("server was kind enough to say: {}",
-                             result.response_body);
+                             response_body);
       }
       std::vector<std::string> ips;
       split_ips(ips, response_body);

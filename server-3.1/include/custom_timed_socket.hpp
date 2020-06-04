@@ -14,8 +14,7 @@ using net::ip::tcp;
 template <typename T> class custom_timed_socket_t {
   beast::tcp_stream http_tcp_socket_;
   net::ip::tcp::resolver resolver_;
-  int const connect_timeout_ms;
-  int const read_timeout_ms;
+  int const timeout_sec_;
   std::promise<T> promise_;
   beast::flat_buffer buffer_;
   utilities::uri const uri_;
@@ -24,19 +23,16 @@ template <typename T> class custom_timed_socket_t {
 
 public:
   custom_timed_socket_t(net::io_context &io_context, std::string url,
-                        int const connect_timeout_sec,
-                        int const read_timeout_sec, std::promise<T> &&prom)
+                        int const timeout_sec, std::promise<T> &&prom)
       : http_tcp_socket_(net::make_strand(io_context)), resolver_{io_context},
-        connect_timeout_ms{connect_timeout_sec * 1'000},
-        read_timeout_ms{read_timeout_sec * 1'000},
+        timeout_sec_{timeout_sec},
         promise_(std::move(prom)), uri_{std::move(url)} {}
 
   void start() { return get(); }
 
 private:
   void connect(net::ip::tcp::resolver::results_type const &resolves) {
-    http_tcp_socket_.expires_after(
-        std::chrono::milliseconds(connect_timeout_ms));
+    http_tcp_socket_.expires_after(std::chrono::seconds(timeout_sec_));
     http_tcp_socket_.async_connect(
         resolves, [=](beast::error_code ec, auto const &) {
           if (ec) {
@@ -51,7 +47,7 @@ private:
   }
 
   void receive_data() {
-    http_tcp_socket_.expires_after(std::chrono::milliseconds(read_timeout_ms));
+    http_tcp_socket_.expires_after(std::chrono::seconds(timeout_sec_));
     http::async_read(http_tcp_socket_, buffer_, http_response_,
                      [=](beast::error_code ec, std::size_t const) {
                        if (ec) {
@@ -69,7 +65,7 @@ private:
     http_request_.set(http::field::host, uri_.host());
     http_request_.set(http::field::user_agent, utilities::get_random_agent());
 
-    http_tcp_socket_.expires_after(std::chrono::milliseconds(10));
+    http_tcp_socket_.expires_after(std::chrono::seconds(5));
     http::async_write(http_tcp_socket_, http_request_,
                       [=](beast::error_code ec, std::size_t const) {
                         if (ec) {

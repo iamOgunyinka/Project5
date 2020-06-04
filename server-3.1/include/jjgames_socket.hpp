@@ -13,7 +13,6 @@ template <typename Proxy>
 class jjgames_socket
     : public socks5_https_socket_base_t<jjgames_socket<Proxy>, Proxy> {
   static std::string jjgames_hostname;
-  std::size_t success_sent_count_{};
   void process_response(std::string const &);
 
   using super_class = socks5_https_socket_base_t<jjgames_socket<Proxy>, Proxy>;
@@ -85,43 +84,40 @@ void jjgames_socket<Proxy>::prepare_request_data(
 
 template <typename Proxy>
 void jjgames_socket<Proxy>::process_response(std::string const &message_body) {
+  static char const *const already_registered{
+      "%E8%AF%A5%E6%89%8B%E6%9C%BA%E5%8F%B7%E5%B7%B2%E6%B3%A8%E5%86%8C%EF%"
+      "BC%8C%E8%AF%B7%E6%9B%B4%E6%8D%A2"};
+  static const char *const not_registered{
+      "%E5%B8%90%E6%88%B7%E5%8F%AF%E4%BB%A5%E4%BD%BF%E7%94%A8"};
+  static char const *const blocked{
+      "%E6%93%8D%E4%BD%9C%E5%BC%82%E5%B8%B8%EF%BC%8C%E8%AF%B7%E7%A8%8D%E5%"
+      "90%8E%E9%87%8D%E8%AF%95"};
+  static char const *const blocked_2{
+      "%E8%AE%BF%E9%97%AE%E5%BC%82%E5%B8%B8%EF%BC%8C%E8%AF%B7%E7%A8%8D%E5%"
+      "90%8E%E5%86%8D%E8%AF%95"};
+  static char const *const blocked_3{
+      "%E7%99%BB%E5%BD%95%E5%90%8D%E9%9D%9E%E6%B3%95"};
   try {
     // badly formed JSON response, blame the server
     json json_response = json::parse(message_body);
     json::object_t object = json_response.get<json::object_t>();
-    bool const status = object["REV"].get<json::boolean_t>();
-    if (status) {
+    std::string const msg = object["MSG"].get<json::string_t>();
+    if (msg.find(not_registered) != std::string::npos) {
       signal_(search_result_type_e::NotRegistered, current_number_);
-      // return get_form_hash();
+    } else if (msg.find(already_registered) != std::string::npos) {
+      signal_(search_result_type_e::Registered, current_number_);
+    } else if (msg.find(blocked) != std::string::npos ||
+               msg.find(blocked_2) != std::string::npos ||
+               msg.find(blocked_3) != std::string::npos) {
+      this->current_proxy_assign_prop(Proxy::Property::ProxyBlocked);
+      return this->choose_next_proxy();
     } else {
-      static char const *const already_registered{
-          "%E8%AF%A5%E6%89%8B%E6%9C%BA%E5%8F%B7%E5%B7%B2%E6%B3%A8%E5%86%8C%EF%"
-          "BC%8C%E8%AF%B7%E6%9B%B4%E6%8D%A2"};
-      static char const *const blocked{
-          "%E6%93%8D%E4%BD%9C%E5%BC%82%E5%B8%B8%EF%BC%8C%E8%AF%B7%E7%A8%8D%E5%"
-          "90%8E%E9%87%8D%E8%AF%95"};
-      static char const *const blocked_2{
-          "%E8%AE%BF%E9%97%AE%E5%BC%82%E5%B8%B8%EF%BC%8C%E8%AF%B7%E7%A8%8D%E5%"
-          "90%8E%E5%86%8D%E8%AF%95"};
-      static char const *const blocked_3{
-          "%E7%99%BB%E5%BD%95%E5%90%8D%E9%9D%9E%E6%B3%95"};
-      std::string const server_message = object["MSG"].get<json::string_t>();
-      if (server_message.find(already_registered) != std::string::npos) {
-        signal_(search_result_type_e::Registered, current_number_);
-      } else if (server_message.find(blocked) != std::string::npos ||
-                 server_message.find(blocked_2) != std::string::npos ||
-                 server_message.find(blocked_3) != std::string::npos) {
-        this->current_proxy_assign_prop(Proxy::Property::ProxyBlocked);
-        return this->choose_next_proxy();
-      } else {
-        return this->choose_next_proxy();
-      }
+      signal_(search_result_type_e::Unknown, current_number_);
     }
   } catch (std::exception const &e) {
-    return this->choose_next_proxy();
+    signal_(search_result_type_e::Unknown, current_number_);
   }
 
-  ++success_sent_count_;
   current_number_.clear();
   this->send_next();
 }
@@ -143,7 +139,6 @@ void jjgames_socket<Proxy>::data_received(beast::error_code ec,
 
   auto &response_body{response_.body()};
 
-  using utilities::search_result_type_e;
   std::size_t opening_brace_index = response_body.find_first_of('{');
   std::size_t closing_brace_index = response_body.find_last_of('}');
   if ((opening_brace_index == std::string::npos ||
