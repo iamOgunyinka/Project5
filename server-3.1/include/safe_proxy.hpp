@@ -41,7 +41,7 @@ struct proxy_configuration_t {
   std::string proxy_password{};
   std::string proxy_target{};
   std::string count_target{};
-  proxy_type_e proxy_protocol;
+  proxy_type_e proxy_protocol = proxy_type_e::http_https_proxy;
   int fetch_interval{};
   int share_proxy{};
   int max_socket{};

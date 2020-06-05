@@ -1,7 +1,7 @@
 #pragma once
 
 #include "protocol.hpp"
-#include "utilities.hpp"
+#include "sockets_interface.hpp"
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 #include <optional>
@@ -11,13 +11,12 @@ namespace beast = boost::beast;
 namespace net = boost::asio;
 namespace http = beast::http;
 
-using utilities::search_result_type_e;
-
-template <typename Derived, typename Proxy> class socks5_http_socket_base_t {
+template <typename Derived, typename Proxy>
+class socks5_http_socket_base_t : public sockets_interface {
   net::io_context &io_;
   std::optional<beast::tcp_stream> tcp_stream_;
 
-  utilities::number_stream_t &numbers_;
+  number_stream_t &numbers_;
   Proxy &proxy_provider_;
   bool &stopped_;
 
@@ -32,7 +31,6 @@ protected:
   http::request<http::string_body> request_{};
   http::response<http::string_body> response_{};
   std::string current_number_{};
-  boost::signals2::signal<void(search_result_type_e, std::string_view)> signal_;
 
 protected:
   void send_first_request();
@@ -65,22 +63,21 @@ protected:
 
 public:
   socks5_http_socket_base_t(bool &, net::io_context &, Proxy &,
-                            utilities::number_stream_t &, int);
-  void start_connect();
-  ~socks5_http_socket_base_t() {
+                            number_stream_t &, int);
+  void start_connect() override;
+  virtual ~socks5_http_socket_base_t() {
     signal_.disconnect_all_slots();
     close_socket();
   }
-  auto &signal() { return signal_; }
 };
 
 template <typename Derived, typename Proxy>
 socks5_http_socket_base_t<Derived, Proxy>::socks5_http_socket_base_t(
     bool &stopped, net::io_context &io_context, Proxy &proxy_provider,
-    utilities::number_stream_t &numbers, int const scans_per_ip)
-    : io_{io_context}, tcp_stream_{net::make_strand(io_)}, numbers_{numbers},
-      proxy_provider_{proxy_provider}, stopped_{stopped}, scans_per_ip_{
-                                                              scans_per_ip} {}
+    number_stream_t &numbers, int const scans_per_ip)
+    : sockets_interface{}, io_{io_context}, tcp_stream_{net::make_strand(io_)},
+      numbers_{numbers}, proxy_provider_{proxy_provider}, stopped_{stopped},
+      scans_per_ip_(scans_per_ip) {}
 
 template <typename Derived, typename ProxyProvider>
 std::string
@@ -353,7 +350,6 @@ void socks5_http_socket_base_t<Derived, ProxyProvider>::process_ipv4_response(
     return choose_next_proxy();
   }
 
-  using utilities::read_byte;
   char const *p1 = reinterpret_cast<char const *>(reply_buffer.data());
   BOOST_ASSERT(p1 != nullptr);
   read_byte<uint8_t>(p1); // version
@@ -399,7 +395,7 @@ void socks5_http_socket_base_t<Derived, ProxyProvider>::prepare_request_data(
 template <typename Derived, typename ProxyProvider>
 void socks5_http_socket_base_t<Derived, ProxyProvider>::reconnect() {
   ++connect_count_;
-  if (connect_count_ >= utilities::MaxRetries) {
+  if (connect_count_ >= socket_constants_e::max_retries) {
     current_proxy_assign_prop(ProxyProvider::Property::ProxyUnresponsive);
     return choose_next_proxy();
   }
@@ -440,7 +436,7 @@ void socks5_http_socket_base_t<Derived, ProxyProvider>::connect() {
     return;
   }
   tcp_stream_->expires_after(
-      std::chrono::milliseconds(utilities::TimeoutMilliseconds));
+      std::chrono::milliseconds(socket_constants_e::timeout_millisecs));
   tcp_stream_->async_connect(static_cast<tcp::endpoint>(*current_proxy_),
                              [=](auto const &ec) { on_connected(ec); });
 }
@@ -458,14 +454,14 @@ void socks5_http_socket_base_t<Derived, ProxyProvider>::send_first_request() {
     current_number_ = numbers_.get();
     prepare_request_data();
     connect();
-  } catch (utilities::empty_container_exception_t &) {
+  } catch (empty_container_exception_t &) {
   }
 }
 
 template <typename Derived, typename ProxyProvider>
 void socks5_http_socket_base_t<Derived, ProxyProvider>::receive_data() {
-  tcp_stream_->expires_after(
-      std::chrono::milliseconds(utilities::TimeoutMilliseconds * 4)); // 4*3secs
+  tcp_stream_->expires_after(std::chrono::milliseconds(
+      socket_constants_e::timeout_millisecs * 4)); // 4*3secs
   response_ = {};
   buffer_ = {};
   http::async_read(*tcp_stream_, buffer_, response_,
@@ -483,7 +479,7 @@ void socks5_http_socket_base_t<Derived, ProxyProvider>::start_connect() {
 template <typename Derived, typename ProxyProvider>
 void socks5_http_socket_base_t<Derived, ProxyProvider>::send_http_data() {
   tcp_stream_->expires_after(
-      std::chrono::milliseconds(utilities::TimeoutMilliseconds));
+      std::chrono::milliseconds(socket_constants_e::timeout_millisecs));
   http::async_write(*tcp_stream_, request_,
                     beast::bind_front_handler(
                         &socks5_http_socket_base_t::on_data_sent, this));
@@ -529,7 +525,7 @@ void socks5_http_socket_base_t<Derived, ProxyProvider>::send_next() {
     }
     ++current_proxy_->number_scanned;
     return send_http_data();
-  } catch (utilities::empty_container_exception_t &) {
+  } catch (empty_container_exception_t &) {
   }
 }
 

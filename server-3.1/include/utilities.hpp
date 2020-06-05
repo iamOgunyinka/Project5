@@ -34,19 +34,9 @@ enum class task_status_e {
   AutoStopped
 };
 
-enum class search_result_type_e {
-  Registered = 0xA,
-  NotRegistered = 0xB,
-  Unknown = 0XC,
-  RequestStop = 0xD,
-  Registered2 = 0xE // only for PPSports
-};
-
 enum constants_e {
-  MaxRetries = 2,
   SleepTimeoutSec = 5,
   LenUserAgents = 14,
-  TimeoutMilliseconds = 3'000
 };
 
 struct scheduled_task_t {
@@ -169,81 +159,7 @@ private:
   std::string query_;
 };
 
-struct empty_container_exception_t : public std::runtime_error {
-  empty_container_exception_t() : std::runtime_error("") {}
-};
-
-class number_stream_t {
-public:
-  number_stream_t(std::ifstream &file_stream);
-  std::string get() noexcept(false);
-  bool empty();
-  bool is_open();
-  void close();
-  decltype(std::declval<std::ifstream>().rdbuf()) dump_s();
-  std::vector<std::string> &dump();
-  void push_back(std::string const &);
-
-private:
-  std::ifstream &input_stream;
-  std::vector<std::string> temporaries_;
-  std::mutex mutex_;
-  bool closed_ = false;
-};
-
-template <typename T, typename Container = std::deque<T>, bool use_cv = false>
-struct threadsafe_container_t {
-private:
-  std::mutex mutex_{};
-  Container container_{};
-  std::size_t total_{};
-
-public:
-  threadsafe_container_t(Container &&container)
-      : container_{std::move(container)}, total_{container_.size()} {}
-  threadsafe_container_t() = default;
-  threadsafe_container_t(threadsafe_container_t &&vec)
-      : mutex_{std::move(vec.mutex_)},
-        container_{std::move(vec.container_)}, total_{vec.total_} {}
-  threadsafe_container_t &operator=(threadsafe_container_t &&) = delete;
-  threadsafe_container_t(threadsafe_container_t const &) = delete;
-  threadsafe_container_t &operator=(threadsafe_container_t const &) = delete;
-
-  T get() {
-    std::lock_guard<std::mutex> lock{mutex_};
-    if (container_.empty())
-      throw empty_container_exception_t{};
-    T value = container_.front();
-    container_.pop_front();
-    --total_;
-    return value;
-  }
-
-  void clear() {
-    std::lock_guard<std::mutex> lock{mutex_};
-    container_.clear();
-  }
-
-  Container container() const { return container_; }
-
-  template <typename U> void push_back(U &&data) {
-    std::lock_guard<std::mutex> lock_{mutex_};
-    container_.push_back(std::forward<U>(data));
-    total_ = container_.size();
-  }
-  bool empty() {
-    std::lock_guard<std::mutex> lock_{mutex_};
-    return container_.empty();
-  }
-  std::size_t get_total() const { return total_; }
-  std::size_t size() {
-    std::lock_guard<std::mutex> lock_{mutex_};
-    return container_.size();
-  }
-};
-
-template <typename T, typename Container>
-struct threadsafe_container_t<T, Container, true> {
+template <typename T, typename Container> struct threadsafe_container_t {
 private:
   std::mutex mutex_{};
   Container container_{};
@@ -318,18 +234,6 @@ bool any_of(Container const &container, IterList &&... iter_list) {
   return (... || (std::cend(container) == iter_list));
 }
 
-template <typename type, typename source> type read_byte(source &p) {
-  type ret = 0;
-  for (std::size_t i = 0; i < sizeof(type); i++)
-    ret = (ret << 8) | (static_cast<unsigned char>(*p++));
-  return ret;
-}
-
-template <typename type, typename target> void write_byte(type v, target &p) {
-  for (auto i = (int)sizeof(type) - 1; i >= 0; i--, p++)
-    *p = static_cast<unsigned char>((v >> (i * 8)) & 0xff);
-}
-
 template <typename T> using filter = bool (*)(std::string_view const, T &);
 
 template <typename T, typename Func>
@@ -348,7 +252,7 @@ void get_file_content(std::string const &filename, filter<T> filter,
 }
 
 template <typename T>
-using threadsafe_cv_container = threadsafe_container_t<T, std::deque<T>, true>;
+using threadsafe_cv_container = threadsafe_container_t<T, std::deque<T>>;
 
 std::vector<atomic_task_t> restart_tasks(std::vector<uint32_t> const &task_ids);
 std::string md5(std::string const &);

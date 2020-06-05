@@ -1,7 +1,8 @@
 #pragma once
 
+#include "number_stream.hpp"
 #include "protocol.hpp"
-#include "utilities.hpp"
+#include "sockets_interface.hpp"
 #include <boost/asio.hpp>
 #include <boost/asio/ssl/context.hpp>
 #include <boost/beast.hpp>
@@ -13,16 +14,15 @@ namespace net = boost::asio;
 namespace http = beast::http;
 namespace ssl = net::ssl;
 
-using utilities::search_result_type_e;
 using tcp = boost::asio::ip::tcp;
 using beast::error_code;
-using utilities::search_result_type_e;
 
-template <typename Derived, typename Proxy> class socks5_https_socket_base_t {
+template <typename Derived, typename Proxy>
+class socks5_https_socket_base_t : public sockets_interface {
   net::io_context &io_;
   ssl::context &ssl_context_;
   Proxy &proxy_provider_;
-  utilities::number_stream_t &numbers_;
+  number_stream_t &numbers_;
 
   std::optional<beast::ssl_stream<beast::tcp_stream>> ssl_stream_;
   std::optional<beast::flat_buffer> general_buffer_{};
@@ -37,7 +37,6 @@ protected:
   http::request<http::string_body> request_{};
   http::response<http::string_body> response_{};
   std::string current_number_{};
-  boost::signals2::signal<void(search_result_type_e, std::string_view)> signal_;
 
 protected:
   void send_first_request();
@@ -72,20 +71,18 @@ protected:
 
 public:
   socks5_https_socket_base_t(net::ssl::context &, bool &, net::io_context &,
-                             Proxy &, utilities::number_stream_t &, int);
-  void start_connect();
-  ~socks5_https_socket_base_t() {
+                             Proxy &, number_stream_t &, int);
+  void start_connect() override;
+  virtual ~socks5_https_socket_base_t() {
     signal_.disconnect_all_slots();
     close_socket();
   }
-  auto &signal() { return signal_; }
 };
 
 template <typename Derived, typename Proxy>
 socks5_https_socket_base_t<Derived, Proxy>::socks5_https_socket_base_t(
     net::ssl::context &ssl_context, bool &stopped, net::io_context &io_context,
-    Proxy &proxy_provider, utilities::number_stream_t &numbers,
-    int const per_ip)
+    Proxy &proxy_provider, number_stream_t &numbers, int const per_ip)
     : io_{io_context}, ssl_stream_{std::in_place, net::make_strand(io_),
                                    ssl_context},
       numbers_{numbers}, proxy_provider_{proxy_provider},
@@ -318,7 +315,6 @@ void socks5_https_socket_base_t<Derived, ProxyProvider>::
   char const *p1 = static_cast<char const *>(reply_buffer.data());
   BOOST_ASSERT(p1 != nullptr);
 
-  using utilities::read_byte;
   auto const version = read_byte<uint8_t>(p1);
   read_byte<uint8_t>(p1); // response, not needed
   read_byte<uint8_t>(p1); // reserved byte, not needed
@@ -379,7 +375,6 @@ void socks5_https_socket_base_t<Derived, ProxyProvider>::process_ipv4_response(
   char const *p1 = static_cast<char const *>(reply_buffer.data());
   BOOST_ASSERT(p1 != nullptr);
 
-  using utilities::read_byte;
   read_byte<uint8_t>(p1); // version
   auto const rep = read_byte<uint8_t>(p1);
   read_byte<uint8_t>(p1);
@@ -462,7 +457,7 @@ void socks5_https_socket_base_t<Derived, Proxy>::prepare_request_data(
 template <typename Derived, typename Proxy>
 void socks5_https_socket_base_t<Derived, Proxy>::reconnect() {
   ++connect_count_;
-  if (connect_count_ >= utilities::MaxRetries) {
+  if (connect_count_ >= socket_constants_e::max_retries) {
     current_proxy_assign_prop(Proxy::Property::ProxyUnresponsive);
     return choose_next_proxy();
   }
@@ -504,7 +499,8 @@ void socks5_https_socket_base_t<Derived, Proxy>::connect() {
     return;
   }
   beast::get_lowest_layer(*ssl_stream_)
-      .expires_after(std::chrono::milliseconds(utilities::TimeoutMilliseconds));
+      .expires_after(
+          std::chrono::milliseconds(socket_constants_e::timeout_millisecs));
   beast::get_lowest_layer(*ssl_stream_)
       .async_connect(*current_proxy_,
                      [=](auto const &ec) { on_connected(ec); });
@@ -523,7 +519,7 @@ void socks5_https_socket_base_t<Derived, Proxy>::send_first_request() {
     current_number_ = numbers_.get();
     prepare_request_data();
     connect();
-  } catch (utilities::empty_container_exception_t &) {
+  } catch (empty_container_exception_t &) {
   }
 }
 
@@ -598,7 +594,7 @@ void socks5_https_socket_base_t<Derived, Proxy>::send_next() {
     }
     ++current_proxy_->number_scanned;
     return send_https_data();
-  } catch (utilities::empty_container_exception_t &) {
+  } catch (empty_container_exception_t &) {
   }
 }
 

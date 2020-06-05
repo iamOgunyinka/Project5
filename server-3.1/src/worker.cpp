@@ -233,8 +233,8 @@ void run_completion_op(std::shared_ptr<database_connector_t> &db_connector,
   } else {
     std::ofstream out_file{"./erred_saving.txt", std::ios::out | std::ios::app};
     if (out_file) {
-      std::string const dump =
-          "{}.txt"_format(get_random_string(get_random_integer()));
+      auto const random_string = get_random_string(get_random_integer());
+      std::string const dump = random_string + ".txt";
       std::ofstream out_file_stream{dump};
       if (out_file_stream) {
         out_file_stream << bg_worker.number_stream()->dump_s();
@@ -285,12 +285,12 @@ void run_stopped_op(std::shared_ptr<database_connector_t> &db_connector,
 
   auto task_result_ptr = bg_worker.task_result();
   if (task_result_ptr->saving_state()) {
+    std::string random_name = get_random_string(get_random_integer()) + ".txt";
     std::filesystem::path filename =
-        "." / std::filesystem::path("stopped_files") /
-        "{}.txt"_format(get_random_string(get_random_integer()));
+        "." / std::filesystem::path("stopped_files") / random_name;
     while (std::filesystem::exists(filename)) {
-      filename = "." / std::filesystem::path("stopped_files") /
-                 "{}.txt"_format(get_random_string(get_random_integer()));
+      random_name = get_random_string(get_random_integer()) + ".txt";
+      filename = "." / std::filesystem::path("stopped_files") / random_name;
     }
     if (utilities::create_file_directory(filename) &&
         save_status_to_persistent_storage(filename.string(), bg_worker,
@@ -358,41 +358,5 @@ bool save_status_to_persistent_storage(
          db_connector->change_task_status(
              stopped_task.task_id, task_result_ptr->processed,
              task_result_ptr->ip_used, task_result_ptr->operation_status);
-}
-
-std::string get_shangai_time(net::io_context &context) {
-  net::ip::tcp::resolver resolver{context};
-  beast::tcp_stream http_tcp_stream(net::make_strand(context));
-  beast::http::request<beast::http::empty_body> http_request_;
-
-  try {
-    auto resolves = resolver.resolve("worldtimeapi.org", "http");
-    beast::tcp_stream http_tcp_stream(net::make_strand(context));
-    http_tcp_stream.connect(resolves);
-    beast::http::request<http::empty_body> http_request{};
-    http_request.method(http::verb::get);
-    http_request.target(R"(/api/timezone/Asia/Shanghai)");
-    http_request.version(11);
-    http_request.set(http::field::host, "worldtimeapi.org:80");
-    http_request.set(http::field::user_agent,
-                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:74.0) "
-                     "Gecko/20100101 Firefox/74.0");
-    http::write(http_tcp_stream, http_request);
-    beast::flat_buffer buffer{};
-    http::response<http::string_body> server_response{};
-    http::read(http_tcp_stream, buffer, server_response);
-    beast::error_code ec{};
-    if (server_response.result_int() != 200) {
-      spdlog::error("Server returned code: {}", server_response.result_int());
-      return {};
-    }
-    http_tcp_stream.cancel();
-    auto &response_body = server_response.body();
-    auto r = json::parse(response_body).get<json::object_t>();
-    return r["datetime"].get<json::string_t>();
-  } catch (std::exception const &e) {
-    spdlog::error("[get_shangai_time] {}", e.what());
-    return {};
-  }
 }
 } // namespace wudi_server

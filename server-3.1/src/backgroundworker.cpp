@@ -2,11 +2,64 @@
 #include "database_connector.hpp"
 #include <filesystem>
 
+#include "auto_home_http_sock.hpp"
+#include "auto_home_socks5_sock.hpp"
+#include "jjgames_socket.hpp"
+#include "pp_sports.hpp"
+#include "qunar_socket.hpp"
+#include "watch_home_http.hpp"
+#include "watch_home_socks5.hpp"
+
 namespace wudi_server {
 using utilities::atomic_task_t;
 using utilities::internal_task_result_t;
-using utilities::search_result_type_e;
 using utilities::task_status_e;
+
+template <typename... Args>
+std::unique_ptr<sockets_interface>
+get_socket(website_type_e web_type, ssl::context &ssl_context,
+           proxy_type_e const proxy_type, Args &&... args) {
+
+  using ah_https = auto_home_http_socket_t<proxy_provider_t>;
+  using ah_sk5 = auto_home_socks5_socket_t<proxy_provider_t>;
+  using pps_http = pp_sports_http_socket_t<proxy_provider_t>;
+  using pps_sk5 = pp_sports_socks5_socket_t<proxy_provider_t>;
+  using jjgames_sk5 = jjgames_socket<proxy_provider_t>;
+  using wh_http = watch_home_http_socket_t<proxy_provider_t>;
+  using wh_sk5 = watch_home_socks5_socket_t<proxy_provider_t>;
+  using qn_http = qunar_http_socket_t<proxy_provider_t>;
+  using qn_sk5 = qunar_socks5_socket_t<proxy_provider_t>;
+
+  if (proxy_type == proxy_type_e::http_https_proxy) {
+    switch (web_type) {
+    case website_type_e::AutoHomeRegister:
+      return std::make_unique<ah_https>(std::forward<Args>(args)...);
+    case website_type_e::JJGames:
+      return nullptr;
+    case website_type_e::PPSports:
+      return std::make_unique<pps_http>(std::forward<Args>(args)...);
+    case website_type_e::Qunar:
+      return std::make_unique<qn_http>(std::forward<Args>(args)...);
+    case website_type_e::WatchHome:
+      return std::make_unique<wh_http>(std::forward<Args>(args)...);
+    }
+  } else {
+    switch (web_type) {
+    case website_type_e::AutoHomeRegister:
+      return std::make_unique<ah_sk5>(ssl_context, std::forward<Args>(args)...);
+    case website_type_e::JJGames:
+      return std::make_unique<jjgames_sk5>(ssl_context,
+                                           std::forward<Args>(args)...);
+    case website_type_e::Qunar:
+      return std::make_unique<qn_sk5>(ssl_context, std::forward<Args>(args)...);
+    case website_type_e::PPSports:
+      return std::make_unique<pps_sk5>(std::forward<Args>(args)...);
+    case website_type_e::WatchHome:
+      return std::make_unique<wh_sk5>(std::forward<Args>(args)...);
+    }
+  }
+  throw std::runtime_error("specified socket type unknown");
+}
 
 background_worker_t::background_worker_t(
     website_result_t &&website, std::vector<upload_result_t> &&uploads,
@@ -25,9 +78,11 @@ background_worker_t::background_worker_t(
 
 background_worker_t::~background_worker_t() {
   signal_connector_.disconnect();
+  sockets_.clear();
+  proxy_provider_.reset();
+
   delete proxy_parameters_;
   proxy_parameters_ = nullptr;
-  sockets_.clear();
   io_context_.reset();
   spdlog::info("Closing all files");
 }
@@ -98,8 +153,9 @@ task_status_e background_worker_t::start_operations() {
 
   sockets_.reserve(static_cast<std::size_t>(proxy_config_->max_socket));
   for (int i = 0; i != proxy_config_->max_socket; ++i) {
-    auto c_socket = get_socket(proxy_type, is_stopped, *io_context_,
-                               *proxy_provider_, *number_stream_, per_ip);
+    auto c_socket =
+        get_socket(website_type_, ssl_context_, proxy_type, is_stopped,
+                   *io_context_, *proxy_provider_, *number_stream_, per_ip);
     if (!c_socket) {
       return task_status_e::AutoStopped;
     }
@@ -109,12 +165,8 @@ task_status_e background_worker_t::start_operations() {
     on_data_result_obtained(type, number);
   };
   for (auto &socket : sockets_) {
-    std::visit(
-        [=](auto &&sock) {
-          sock.signal().connect(callback);
-          sock.start_connect();
-        },
-        *socket);
+    socket->signal().connect(callback);
+    socket->start_connect();
   }
 
   io_context_->run();
@@ -309,7 +361,7 @@ task_status_e background_worker_t::continue_old_task() {
     spdlog::error("Could not open input file: {}", input_filename);
     return task_status_e::Erred;
   }
-  number_stream_ = std::make_unique<utilities::number_stream_t>(input_file);
+  number_stream_ = std::make_unique<number_stream_t>(input_file);
   return run_number_crawler();
 }
 
@@ -352,7 +404,7 @@ task_status_e background_worker_t::run_new_task() {
       spdlog::error("Could not open input_file");
       return task_status_e::Erred;
     }
-    number_stream_ = std::make_unique<utilities::number_stream_t>(input_file);
+    number_stream_ = std::make_unique<number_stream_t>(input_file);
   }
   return run_number_crawler();
 }

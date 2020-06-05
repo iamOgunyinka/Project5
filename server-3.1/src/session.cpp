@@ -135,8 +135,7 @@ void session_t::http_read_data() {
   buffer_.clear();
   empty_body_parser_.emplace();
   empty_body_parser_->body_limit(RequestBodySize);
-  beast::get_lowest_layer(tcp_stream_)
-      .expires_after(std::chrono::minutes(utilities::MaxRetries));
+  beast::get_lowest_layer(tcp_stream_).expires_after(std::chrono::minutes(5));
   http::async_read_header(tcp_stream_, buffer_, *empty_body_parser_,
                           beast::bind_front_handler(&session_t::on_header_read,
                                                     shared_from_this()));
