@@ -35,8 +35,11 @@ class Task(db.Model):
 	ok_count = db.Column(db.Integer, nullable=False, default=0, unique=False)
 	not_ok_count = db.Column(db.Integer, nullable=False, default=0, unique=False)
 	unknown_count = db.Column(db.Integer, nullable=False, default=0, unique=False)
+	per_ip = db.Column(db.Integer, nullable=False, default=0, unique=False)
+	ip_used = db.Column(db.Integer, nullable=False, default=0, unique=False)
 	input_filename = db.Column(db.String(128), nullable=True)
 	ok_file = db.Column(db.String(128), nullable=True)
+	ok2_file = db.Column(db.String(128), nullable=True)
 	not_ok_file = db.Column(db.String(128), nullable=True)
 	unknown_file = db.Column(db.String(128), nullable=True)
 

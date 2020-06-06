@@ -133,8 +133,7 @@ void pp_sports_http_socket_t<Proxy>::data_received(beast::error_code ec,
       this->signal_(search_result_type_e::Unknown, this->current_number_);
     }
   } catch (...) {
-    this->close_stream();
-    return this->choose_next_proxy();
+    this->signal_(search_result_type_e::Unknown, this->current_number_);
   }
   this->current_number_.clear();
   this->send_next();
