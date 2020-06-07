@@ -14,21 +14,20 @@ namespace wudi_server {
 using utilities::atomic_task_t;
 using utilities::internal_task_result_t;
 using utilities::task_status_e;
+using ah_https = auto_home_http_socket_t<proxy_provider_t>;
+using ah_sk5 = auto_home_socks5_socket_t<proxy_provider_t>;
+using pps_http = pp_sports_http_socket_t<proxy_provider_t>;
+using pps_sk5 = pp_sports_socks5_socket_t<proxy_provider_t>;
+using jjgames_sk5 = jjgames_socket<proxy_provider_t>;
+using wh_http = watch_home_http_socket_t<proxy_provider_t>;
+using wh_sk5 = watch_home_socks5_socket_t<proxy_provider_t>;
+using qn_http = qunar_http_socket_t<proxy_provider_t>;
+using qn_sk5 = qunar_socks5_socket_t<proxy_provider_t>;
 
 template <typename... Args>
 std::unique_ptr<sockets_interface>
 get_socket(website_type_e web_type, ssl::context &ssl_context,
            proxy_type_e const proxy_type, Args &&... args) {
-
-  using ah_https = auto_home_http_socket_t<proxy_provider_t>;
-  using ah_sk5 = auto_home_socks5_socket_t<proxy_provider_t>;
-  using pps_http = pp_sports_http_socket_t<proxy_provider_t>;
-  using pps_sk5 = pp_sports_socks5_socket_t<proxy_provider_t>;
-  using jjgames_sk5 = jjgames_socket<proxy_provider_t>;
-  using wh_http = watch_home_http_socket_t<proxy_provider_t>;
-  using wh_sk5 = watch_home_socks5_socket_t<proxy_provider_t>;
-  using qn_http = qunar_http_socket_t<proxy_provider_t>;
-  using qn_sk5 = qunar_socks5_socket_t<proxy_provider_t>;
 
   if (proxy_type == proxy_type_e::http_https_proxy) {
     switch (web_type) {
