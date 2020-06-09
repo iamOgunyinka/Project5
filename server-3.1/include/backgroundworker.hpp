@@ -23,7 +23,9 @@ enum class website_type_e {
   JJGames,
   PPSports,
   Qunar,
-  WatchHome
+  WatchHome,
+  Wines,
+  Xpuji
 };
 
 class background_worker_t {
