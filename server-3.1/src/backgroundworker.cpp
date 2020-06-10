@@ -41,8 +41,6 @@ get_socket(website_type_e web_type, ssl::context &ssl_context,
       return std::make_unique<ah_https>(std::forward<Args>(args)...);
     case website_type_e::JJGames:
       return nullptr;
-    case website_type_e::Xpuji:
-      return std::make_unique<xpuji_http>(std::forward<Args>(args)...);
     case website_type_e::PPSports:
       return std::make_unique<pps_http>(std::forward<Args>(args)...);
     case website_type_e::Qunar:
@@ -51,6 +49,8 @@ get_socket(website_type_e web_type, ssl::context &ssl_context,
       return std::make_unique<wh_http>(std::forward<Args>(args)...);
     case website_type_e::Wines:
       return std::make_unique<wines_http>(std::forward<Args>(args)...);
+    case website_type_e::Xpuji:
+      return std::make_unique<xpuji_http>(std::forward<Args>(args)...);
     }
   } else {
     switch (web_type) {
@@ -59,8 +59,6 @@ get_socket(website_type_e web_type, ssl::context &ssl_context,
     case website_type_e::JJGames:
       return std::make_unique<jjgames_sk5>(ssl_context,
                                            std::forward<Args>(args)...);
-    case website_type_e::Xpuji:
-      return std::make_unique<xpuji_sk5>(std::forward<Args>(args)...);
     case website_type_e::Qunar:
       return std::make_unique<qn_sk5>(ssl_context, std::forward<Args>(args)...);
     case website_type_e::PPSports:
@@ -69,6 +67,8 @@ get_socket(website_type_e web_type, ssl::context &ssl_context,
       return std::make_unique<wh_sk5>(std::forward<Args>(args)...);
     case website_type_e::Wines:
       return std::make_unique<wines_sk5>(std::forward<Args>(args)...);
+    case website_type_e::Xpuji:
+      return std::make_unique<xpuji_sk5>(std::forward<Args>(args)...);
     }
   }
   throw std::runtime_error("specified socket type unknown");
@@ -238,7 +238,6 @@ task_status_e background_worker_t::run_number_crawler() {
 void background_worker_t::on_data_result_obtained(search_result_type_e type,
                                                   std::string_view number) {
   auto &processed = task_result_ptr_->processed;
-  auto &total = task_result_ptr_->total_numbers;
   ++processed;
   switch (type) {
   case search_result_type_e::NotRegistered:
