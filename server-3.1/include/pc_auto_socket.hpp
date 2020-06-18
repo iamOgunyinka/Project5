@@ -2,6 +2,8 @@
 
 #include "http_socket_base.hpp"
 #include "socks5_https_socket_base.hpp"
+#include <fstream>
+#include <iostream>
 
 namespace wudi_server {
 namespace net = boost::asio;
@@ -10,9 +12,9 @@ using tcp = boost::asio::ip::tcp;
 using namespace fmt::v6::literals;
 
 template <typename Proxy>
-class qunar_http_socket_t
-    : public http_socket_base_t<qunar_http_socket_t<Proxy>, Proxy> {
-  using super_class = http_socket_base_t<qunar_http_socket_t<Proxy>, Proxy>;
+class pc_auto_http_socket_t
+    : public http_socket_base_t<pc_auto_http_socket_t<Proxy>, Proxy> {
+  using super_class = http_socket_base_t<pc_auto_http_socket_t<Proxy>, Proxy>;
 
   using super_class::current_number_;
   using super_class::request_;
@@ -25,21 +27,23 @@ public:
   void prepare_request_data(bool use_authentication_header);
 
   template <typename... Args>
-  qunar_http_socket_t<Proxy>(Args &&... args)
+  pc_auto_http_socket_t<Proxy>(Args &&... args)
       : super_class(std::forward<Args>(args)...) {}
-  ~qunar_http_socket_t() {}
+  ~pc_auto_http_socket_t() {}
   std::string hostname() const;
 };
 
 template <typename Proxy>
-std::string qunar_http_socket_t<Proxy>::hostname() const {
-  return "user.qunar.com";
+std::string pc_auto_http_socket_t<Proxy>::hostname() const {
+  return "passport3.pcauto.com.cn";
 }
 
 template <typename Proxy>
-void qunar_http_socket_t<Proxy>::prepare_request_data(
+void pc_auto_http_socket_t<Proxy>::prepare_request_data(
     bool use_authentication_header) {
-  char const *target = "https://user.qunar.com/ajax/validator.jsp";
+  std::string const target = "https://passport3.pcauto.com.cn/passport3/api/"
+                             "validate_mobile.jsp?mobile=" +
+                             current_number_ + "&req_enc=UTF-8";
   request_.clear();
   request_.method(http::verb::post);
   request_.version(11);
@@ -49,25 +53,21 @@ void qunar_http_socket_t<Proxy>::prepare_request_data(
                  "Basic bGFueHVhbjM2OUBnbWFpbC5jb206TGFueHVhbjk2Mw==");
   }
   request_.set(http::field::connection, "keep-alive");
-  request_.set(http::field::host, "user.qunar.com:443");
-  request_.set(http::field::cache_control, "no-cache");
+  request_.set(http::field::host, "passport3.pcauto.com.cn:443");
   request_.set(http::field::user_agent, utilities::get_random_agent());
-  request_.set(http::field::accept,
-               "application/json, text/javascript, */*; q=0.01");
-  request_.keep_alive(true);
-  request_.set(http::field::referer, "https://user.qunar.com/passport/"
-                                     "register.jsp?ret=https%3A%2F%2Fwww.qunar."
-                                     "com%2F%3Fex_track%3Dauto_4e0d874a");
-  request_.set("X-Requested-With", "XMLHttpRequest");
-  request_.set(http::field::content_type,
-               "application/x-www-form-urlencoded; charset=UTF-8");
-  request_.body() = "method={}&prenum=86&vcode=null"_format(current_number_);
+  request_.set(http::field::accept, "*/*");
+  request_.set(http::field::accept_encoding, "gzip, deflate, br");
+  request_.set(http::field::accept_language, "en-US,en;q=0.9");
+  request_.set(http::field::referer,
+               "https://my.pcauto.com.cn/passport/mobileRegister.jsp");
+  request_.set(http::field::content_type, "application/x-www-form-urlencoded");
+  request_.body() = "{}";
   request_.prepare_payload();
 }
 
 template <typename Proxy>
-void qunar_http_socket_t<Proxy>::data_received(beast::error_code ec,
-                                               std::size_t const) {
+void pc_auto_http_socket_t<Proxy>::data_received(beast::error_code ec,
+                                                 std::size_t const) {
   if (ec) {
     if (ec != http::error::end_of_stream) {
       this->current_proxy_assign_prop(Proxy::Property::ProxyUnresponsive);
@@ -89,18 +89,11 @@ void qunar_http_socket_t<Proxy>::data_received(beast::error_code ec,
     this->set_authentication_header();
     return this->connect();
   }
-
+  auto &body = response_.body();
   try {
-    json::object_t root_object = json::parse(response_.body());
-    auto const error_code =
-        root_object["errCode"].get<json::number_integer_t>();
-    if (error_code == 21017) {
-      this->current_proxy_assign_prop(Proxy::Property::ProxyToldToWait);
-      this->current_proxy_->time_last_used = std::time(nullptr);
-      return this->choose_next_proxy();
-    } else if (error_code == 21006) {
+    if (body.find("\"desc\":\"OK\"") != std::string::npos) {
       signal_(search_result_type_e::NotRegistered, current_number_);
-    } else if (error_code == 11009) {
+    } else if (body.find("\"status\":43") != std::string::npos) {
       signal_(search_result_type_e::Registered, current_number_);
     } else {
       signal_(search_result_type_e::Unknown, current_number_);
@@ -108,6 +101,7 @@ void qunar_http_socket_t<Proxy>::data_received(beast::error_code ec,
   } catch (std::exception const &) {
     signal_(search_result_type_e::Unknown, current_number_);
   }
+
   current_number_.clear();
   send_next();
 }
@@ -115,10 +109,10 @@ void qunar_http_socket_t<Proxy>::data_received(beast::error_code ec,
 //////////////////////////////////////////////////////////////
 
 template <typename Proxy>
-class qunar_socks5_socket_t
-    : public socks5_https_socket_base_t<qunar_socks5_socket_t<Proxy>, Proxy> {
+class pc_auto_socks5_socket_t
+    : public socks5_https_socket_base_t<pc_auto_socks5_socket_t<Proxy>, Proxy> {
   using super_class =
-      socks5_https_socket_base_t<qunar_socks5_socket_t<Proxy>, Proxy>;
+      socks5_https_socket_base_t<pc_auto_socks5_socket_t<Proxy>, Proxy>;
 
   using super_class::current_number_;
   using super_class::request_;
@@ -131,21 +125,23 @@ public:
   void prepare_request_data(bool use_authentication_header);
 
   template <typename... Args>
-  qunar_socks5_socket_t<Proxy>(Args &&... args)
+  pc_auto_socks5_socket_t<Proxy>(Args &&... args)
       : super_class(std::forward<Args>(args)...) {}
-  ~qunar_socks5_socket_t() {}
+  ~pc_auto_socks5_socket_t() {}
   std::string hostname() const;
 };
 
 template <typename Proxy>
-std::string qunar_socks5_socket_t<Proxy>::hostname() const {
-  return "user.qunar.com";
+std::string pc_auto_socks5_socket_t<Proxy>::hostname() const {
+  return "passport3.pcauto.com.cn";
 }
 
 template <typename Proxy>
-void qunar_socks5_socket_t<Proxy>::prepare_request_data(
+void pc_auto_socks5_socket_t<Proxy>::prepare_request_data(
     bool use_authentication_header) {
-  char const *target = "/ajax/validator.jsp";
+  std::string const target =
+      "/passport3/api/validate_mobile.jsp?mobile=" + current_number_ +
+      "&req_enc=UTF-8";
   request_.clear();
   request_.method(http::verb::post);
   request_.version(11);
@@ -155,24 +151,21 @@ void qunar_socks5_socket_t<Proxy>::prepare_request_data(
                  "Basic bGFueHVhbjM2OUBnbWFpbC5jb206TGFueHVhbjk2Mw==");
   }
   request_.set(http::field::connection, "keep-alive");
-  request_.set(http::field::host, "user.qunar.com");
-  request_.set(http::field::cache_control, "no-cache");
+  request_.set(http::field::host, "passport3.pcauto.com.cn");
   request_.set(http::field::user_agent, utilities::get_random_agent());
-  request_.set(http::field::accept,
-               "application/json, text/javascript, */*; q=0.01");
-  request_.set(http::field::referer, "https://user.qunar.com/passport/"
-                                     "register.jsp?ret=https%3A%2F%2Fwww.qunar."
-                                     "com%2F%3Fex_track%3Dauto_4e0d874a");
-  request_.set("X-Requested-With", "XMLHttpRequest");
-  request_.set(http::field::content_type,
-               "application/x-www-form-urlencoded; charset=UTF-8");
-  request_.body() = "method={}&prenum=86&vcode=null"_format(current_number_);
+  request_.set(http::field::accept, "*/*");
+  request_.set(http::field::accept_encoding, "gzip, deflate, br");
+  request_.set(http::field::accept_language, "en-US,en;q=0.9");
+  request_.set(http::field::referer,
+               "https://my.pcauto.com.cn/passport/mobileRegister.jsp");
+  request_.set(http::field::content_type, "application/x-www-form-urlencoded");
+  request_.body() = "{}";
   request_.prepare_payload();
 }
 
 template <typename Proxy>
-void qunar_socks5_socket_t<Proxy>::data_received(beast::error_code ec,
-                                                 std::size_t const) {
+void pc_auto_socks5_socket_t<Proxy>::data_received(beast::error_code ec,
+                                                   std::size_t const) {
 
   if (ec) {
     if (ec != http::error::end_of_stream) {
@@ -196,17 +189,11 @@ void qunar_socks5_socket_t<Proxy>::data_received(beast::error_code ec,
     return this->connect();
   }
 
+  auto &body = response_.body();
   try {
-    json::object_t root_object = json::parse(response_.body());
-    auto const error_code =
-        root_object["errCode"].get<json::number_integer_t>();
-    if (error_code == 21017) {
-      this->current_proxy_->time_last_used = std::time(nullptr);
-      this->current_proxy_assign_prop(Proxy::Property::ProxyToldToWait);
-      return this->choose_next_proxy();
-    } else if (error_code == 21006) {
+    if (body.find("\"desc\":\"OK\"") != std::string::npos) {
       signal_(search_result_type_e::NotRegistered, current_number_);
-    } else if (error_code == 11009) {
+    } else if (body.find("\"status\":43") != std::string::npos) {
       signal_(search_result_type_e::Registered, current_number_);
     } else {
       signal_(search_result_type_e::Unknown, current_number_);

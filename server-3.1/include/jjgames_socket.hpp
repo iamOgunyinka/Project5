@@ -65,7 +65,7 @@ void jjgames_socket<Proxy>::prepare_request_data(
   }
   request_.keep_alive(true);
   request_.set(http::field::host, jjgames_hostname);
-  request_.set(beast::http::field::user_agent, utilities::get_random_agent());
+  request_.set(http::field::user_agent, utilities::get_random_agent());
   request_.set("sec-fetch-dest", "script");
   request_.set(beast::http::field::accept, "*/*");
   request_.set(http::field::referer,

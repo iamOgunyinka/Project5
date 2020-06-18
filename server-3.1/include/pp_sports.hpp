@@ -233,7 +233,7 @@ void pp_sports_socks5_socket_t<Proxy>::prepare_request_data(
                  "Basic bGFueHVhbjM2OUBnbWFpbC5jb206TGFueHVhbjk2Mw==");
   }
   request_.keep_alive(true);
-  request_.set(http::field::host, hostname());
+  request_.set(http::field::host, "api.passport.pptv.com");
   request_.set(http::field::cache_control, "no-cache");
   request_.set(http::field::user_agent, utilities::get_random_agent());
   request_.set(http::field::accept, "*/*");

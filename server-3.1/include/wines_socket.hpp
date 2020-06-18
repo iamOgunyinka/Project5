@@ -49,7 +49,7 @@ void wines_http_socket_t<Proxy>::prepare_request_data(
     bool use_authentication_header) {
   std::string const target =
       "http://wnsr9488.com/Common/CheckData?DataType=telephone&DataContent=" +
-      current_number_ + "&_=" + std::to_string(std::time(nullptr) * 1000);
+      current_number_ + "&_=" + std::to_string(std::time(nullptr) * 1'000);
   request_.clear();
   request_.method(beast::http::verb::get);
   request_.version(11);
