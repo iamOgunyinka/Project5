@@ -25,7 +25,8 @@ enum class website_type_e {
   Qunar,
   WatchHome,
   Wines,
-  Xpuji
+  Xpuji,
+  PcAuto
 };
 
 class background_worker_t {

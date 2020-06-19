@@ -5,6 +5,7 @@
 #include "auto_home_http_sock.hpp"
 #include "auto_home_socks5_sock.hpp"
 #include "jjgames_socket.hpp"
+#include "pc_auto_socket.hpp"
 #include "pp_sports.hpp"
 #include "qunar_socket.hpp"
 #include "watch_home_http.hpp"
@@ -29,6 +30,8 @@ using wines_http = wines_http_socket_t<proxy_provider_t>;
 using wines_sk5 = wines_socks5_socket_t<proxy_provider_t>;
 using xpuji_sk5 = xpuji_socks5_socket_t<proxy_provider_t>;
 using xpuji_http = xpuji_http_socket_t<proxy_provider_t>;
+using pcauto_http = pc_auto_http_socket_t<proxy_provider_t>;
+using pcauto_sk5 = pc_auto_socks5_socket_t<proxy_provider_t>;
 
 template <typename... Args>
 std::unique_ptr<sockets_interface>
@@ -41,8 +44,6 @@ get_socket(website_type_e web_type, ssl::context &ssl_context,
       return std::make_unique<ah_https>(std::forward<Args>(args)...);
     case website_type_e::JJGames:
       return nullptr;
-    case website_type_e::Xpuji:
-      return std::make_unique<xpuji_http>(std::forward<Args>(args)...);
     case website_type_e::PPSports:
       return std::make_unique<pps_http>(std::forward<Args>(args)...);
     case website_type_e::Qunar:
@@ -51,6 +52,10 @@ get_socket(website_type_e web_type, ssl::context &ssl_context,
       return std::make_unique<wh_http>(std::forward<Args>(args)...);
     case website_type_e::Wines:
       return std::make_unique<wines_http>(std::forward<Args>(args)...);
+    case website_type_e::Xpuji:
+      return std::make_unique<xpuji_http>(std::forward<Args>(args)...);
+    case website_type_e::PcAuto:
+      return std::make_unique<pcauto_http>(std::forward<Args>(args)...);
     }
   } else {
     switch (web_type) {
@@ -59,8 +64,6 @@ get_socket(website_type_e web_type, ssl::context &ssl_context,
     case website_type_e::JJGames:
       return std::make_unique<jjgames_sk5>(ssl_context,
                                            std::forward<Args>(args)...);
-    case website_type_e::Xpuji:
-      return std::make_unique<xpuji_sk5>(std::forward<Args>(args)...);
     case website_type_e::Qunar:
       return std::make_unique<qn_sk5>(ssl_context, std::forward<Args>(args)...);
     case website_type_e::PPSports:
@@ -69,6 +72,11 @@ get_socket(website_type_e web_type, ssl::context &ssl_context,
       return std::make_unique<wh_sk5>(std::forward<Args>(args)...);
     case website_type_e::Wines:
       return std::make_unique<wines_sk5>(std::forward<Args>(args)...);
+    case website_type_e::Xpuji:
+      return std::make_unique<xpuji_sk5>(std::forward<Args>(args)...);
+    case website_type_e::PcAuto:
+      return std::make_unique<pcauto_sk5>(ssl_context,
+                                          std::forward<Args>(args)...);
     }
   }
   throw std::runtime_error("specified socket type unknown");
@@ -116,6 +124,8 @@ task_status_e background_worker_t::set_website_type() {
       website_type_ = website_type_e::Wines;
     } else if (website_info_.address.find("xpuji") != std::string::npos) {
       website_type_ = website_type_e::Xpuji;
+    } else if (website_info_.address.find("pcauto") != std::string::npos) {
+      website_type_ = website_type_e::PcAuto;
     } else {
       spdlog::error("Type not found");
       return task_status_e::Erred;
@@ -238,7 +248,6 @@ task_status_e background_worker_t::run_number_crawler() {
 void background_worker_t::on_data_result_obtained(search_result_type_e type,
                                                   std::string_view number) {
   auto &processed = task_result_ptr_->processed;
-  auto &total = task_result_ptr_->total_numbers;
   ++processed;
   switch (type) {
   case search_result_type_e::NotRegistered:
@@ -352,6 +361,8 @@ task_status_e background_worker_t::continue_old_task() {
     website_type_ = website_type_e::Wines;
   } else if (task.website_address.find("xpuji") != std::string::npos) {
     website_type_ = website_type_e::Xpuji;
+  } else if (task.website_address.find("pcauto") != std::string::npos) {
+    website_type_ = website_type_e::PcAuto;
   }
 
   input_filename = task.input_filename;
