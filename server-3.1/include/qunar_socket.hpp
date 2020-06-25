@@ -4,8 +4,8 @@
 #include "socks5_https_socket_base.hpp"
 
 namespace wudi_server {
-namespace net = boost::asio;
 
+namespace net = boost::asio;
 using tcp = boost::asio::ip::tcp;
 using namespace fmt::v6::literals;
 

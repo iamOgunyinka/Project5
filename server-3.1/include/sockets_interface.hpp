@@ -1,8 +1,17 @@
 #pragma once
+#include <array>
 #include <boost/signals2.hpp>
-#include <string_view>
+#include <nlohmann/json.hpp>
 
 namespace wudi_server {
+using nlohmann::json;
+
+struct time_data_t {
+  uint64_t current_time{};
+  uint64_t callback_number{};
+};
+
+time_data_t get_time_data();
 
 enum class search_result_type_e {
   Registered = 0xA,
@@ -29,6 +38,15 @@ template <typename type, typename source> type read_byte(source &p) {
 template <typename type, typename target> void write_byte(type v, target &p) {
   for (auto i = (int)sizeof(type) - 1; i >= 0; i--, p++)
     *p = static_cast<unsigned char>((v >> (i * 8)) & 0xff);
+}
+
+template <std::size_t N>
+bool status_in_codes(std::size_t const code,
+                     std::array<std::size_t, N> const &codes) {
+  for (auto const &stat_code : codes)
+    if (code == stat_code)
+      return true;
+  return false;
 }
 
 class sockets_interface {

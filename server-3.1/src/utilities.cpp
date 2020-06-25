@@ -99,13 +99,13 @@ std::string &HexToChar(std::string &s, std::vector<char> const &data) {
   return s;
 }
 
-std::string md5(std::string const &sInputData) {
+std::string md5(std::string const &input_data) {
   std::vector<char> vMd5;
   vMd5.resize(16);
 
   MD5_CTX ctx;
   MD5_Init(&ctx);
-  MD5_Update(&ctx, sInputData.c_str(), sInputData.size());
+  MD5_Update(&ctx, input_data.c_str(), input_data.size());
   MD5_Final((unsigned char *)&vMd5[0], &ctx);
 
   std::string sMd5;
@@ -126,18 +126,6 @@ bool create_file_directory(std::filesystem::path const &path) {
 std::time_t &proxy_fetch_interval() {
   static std::time_t interval_between_fetches{};
   return interval_between_fetches;
-}
-
-time_data_t get_time_data() {
-  static std::random_device rd{};
-  static std::mt19937 gen(rd());
-  static std::uniform_real_distribution<> dis(0.0, 1.0);
-  uint64_t const current_time = std::time(nullptr) * 1'000;
-  std::size_t const random_number =
-      static_cast<std::size_t>(std::round(1e3 * dis(gen)));
-  std::uint64_t const callback_number =
-      static_cast<std::size_t>(current_time + random_number);
-  return time_data_t{current_time, callback_number};
 }
 
 bool is_valid_number(std::string_view const number, std::string &buffer) {

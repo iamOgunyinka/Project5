@@ -10,24 +10,12 @@
 
 namespace wudi_server {
 
-class background_worker_t;
+enum class website_type_e;
 using utilities::task_status_e;
 using utilities::upload_result_t;
 using utilities::website_result_t;
 
 namespace asio = boost::asio;
-
-enum class website_type_e {
-  Unknown,
-  AutoHomeRegister,
-  JJGames,
-  PPSports,
-  Qunar,
-  WatchHome,
-  Wines,
-  Xpuji,
-  PcAuto
-};
 
 class background_worker_t {
 public:
@@ -44,7 +32,6 @@ public:
   void proxy_callback_signal(NewProxySignal *);
   void proxy_info_map(proxy_info_map_t *);
   task_status_e run();
-  website_type_e type() const { return website_type_; }
   auto &number_stream() { return number_stream_; }
   auto task_result() { return task_result_ptr_; }
   std::string filename() { return input_filename; }
@@ -61,7 +48,7 @@ private:
 
 private:
   asio::ssl::context &ssl_context_;
-  std::unique_ptr<proxy_provider_t> proxy_provider_;
+  std::unique_ptr<proxy_base_t> proxy_provider_;
   website_type_e website_type_;
   std::shared_ptr<number_stream_t> number_stream_;
   website_result_t website_info_;
@@ -79,4 +66,7 @@ private:
   boost::signals2::connection signal_connector_;
   std::optional<proxy_configuration_t> proxy_config_;
 };
+
+website_type_e get_website_type(std::string const &web_address);
+
 } // namespace wudi_server
