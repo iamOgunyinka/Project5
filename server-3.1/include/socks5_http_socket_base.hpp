@@ -11,6 +11,8 @@ namespace beast = boost::beast;
 namespace net = boost::asio;
 namespace http = beast::http;
 
+using tcp = boost::asio::ip::tcp;
+
 template <typename Derived, typename Proxy>
 class socks5_http_socket_base_t : public sockets_interface {
   net::io_context &io_;
@@ -540,4 +542,7 @@ void socks5_http_socket_base_t<Derived, ProxyProvider>::on_data_received(
     beast::error_code ec, std::size_t const s) {
   static_cast<Derived *>(this)->data_received(ec, s);
 }
+
+template <typename T, typename U>
+using socks5_http = socks5_http_socket_base_t<T, U>;
 } // namespace wudi_server

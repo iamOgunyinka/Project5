@@ -4,18 +4,17 @@
 #include <spdlog/fmt/fmt.h>
 
 namespace wudi_server {
-using namespace fmt::v6::literals;
+namespace utilities {
+std::string md5(std::string const &);
+}
 
-using utilities::request_handler;
 using namespace fmt::v6::literals;
 
 template <typename Proxy>
-class jjgames_socket
-    : public socks5_https_socket_base_t<jjgames_socket<Proxy>, Proxy> {
-  static std::string jjgames_hostname;
+class jjgames_socket_t : public socks5_https<jjgames_socket_t<Proxy>, Proxy> {
   void process_response(std::string const &);
 
-  using super_class = socks5_https_socket_base_t<jjgames_socket<Proxy>, Proxy>;
+  using super_class = socks5_https<jjgames_socket_t<Proxy>, Proxy>;
   using super_class::current_number_;
   using super_class::request_;
   using super_class::response_;
@@ -23,67 +22,65 @@ class jjgames_socket
 
 public:
   template <typename... Args>
-  jjgames_socket(ssl::context &ssl_context, Args &&... args)
-      : socks5_https_socket_base_t<jjgames_socket<Proxy>, Proxy>{
-            ssl_context, std::forward<Args>(args)...} {}
+  jjgames_socket_t(ssl::context &ssl_context, Args &&... args)
+      : super_class{ssl_context, std::forward<Args>(args)...} {}
 
-  ~jjgames_socket() {}
+  ~jjgames_socket_t() {}
   void prepare_request_data(bool use_auth = false);
   void data_received(beast::error_code, std::size_t const);
   std::string hostname() const;
 };
 
 template <typename Proxy>
-std::string jjgames_socket<Proxy>::jjgames_hostname{"a4.srv.jj.cn"};
-
-template <typename Proxy> std::string jjgames_socket<Proxy>::hostname() const {
-  return jjgames_hostname;
+std::string jjgames_socket_t<Proxy>::hostname() const {
+  return "a4.srv.jj.cn";
 }
 
 template <typename Proxy>
-void jjgames_socket<Proxy>::prepare_request_data(
+void jjgames_socket_t<Proxy>::prepare_request_data(
     bool use_authentication_header) {
-  auto const time_data = utilities::get_time_data();
+  auto const time_data = get_time_data();
   std::string const target =
       "/reg/check_loginname.php?regtype=2&t={}&n=1&loginname={}&callback="
       "JSONP_{}"_format(time_data.current_time, current_number_,
                         time_data.callback_number);
   std::string const md5_hash =
-      utilities::md5(std::to_string(time_data.current_time));
+      utilities::md5("{}"_format(time_data.current_time));
   auto const seconds = time_data.current_time / 1'000;
   std::string const cookie =
       "Hm_lvt_{}={}; visitorId=4460870697_{}; Hm_lpvt_{}={}"_format(
           md5_hash, seconds, time_data.current_time, md5_hash, seconds + 3);
 
+  using beast::http::field;
+  using beast::http::verb;
+
   request_.clear();
-  request_.method(beast::http::verb::get);
+  request_.method(verb::get);
   request_.version(11);
   request_.target(target);
   if (use_authentication_header) {
-    request_.set(http::field::proxy_authorization,
+    request_.set(field::proxy_authorization,
                  "Basic bGFueHVhbjM2OUBnbWFpbC5jb206TGFueHVhbjk2Mw==");
   }
-  request_.keep_alive(true);
-  request_.set(http::field::host, jjgames_hostname);
-  request_.set(http::field::user_agent, utilities::get_random_agent());
+  request_.set(field::host, "a4.srv.jj.cn");
+  request_.set(field::user_agent, utilities::get_random_agent());
   request_.set("sec-fetch-dest", "script");
-  request_.set(beast::http::field::accept, "*/*");
-  request_.set(http::field::referer,
-               "https://www.jj.cn/reg/reg.html?type=phone");
+  request_.set(field::accept, "*/*");
+  request_.set(field::referer, "https://www.jj.cn/reg/reg.html?type=phone");
   request_.set("sec-fetch-site", "same-site");
   request_.set("sec-fetch-mode", "no-cors");
-  request_.set(http::field::accept_language, "en-US,en;q=0.5 --compressed");
-  request_.set(http::field::cache_control, "no-cache");
-  request_.set(http::field::referer,
-               "https://www.jj.cn/reg/reg.html?type=phone");
-  request_.set(http::field::accept_language, "en-US,en;q=0.5 --compressed");
-  request_.set(http::field::cookie, cookie);
+  request_.set(field::accept_language, "en-US,en;q=0.5 --compressed");
+  request_.set(field::cache_control, "no-cache");
+  request_.set(field::referer, "https://www.jj.cn/reg/reg.html?type=phone");
+  request_.set(field::accept_language, "en-US,en;q=0.5 --compressed");
+  request_.set(field::cookie, cookie);
   request_.body() = {};
   request_.prepare_payload();
 }
 
 template <typename Proxy>
-void jjgames_socket<Proxy>::process_response(std::string const &message_body) {
+void jjgames_socket_t<Proxy>::process_response(
+    std::string const &message_body) {
   static char const *const already_registered{
       "%E8%AF%A5%E6%89%8B%E6%9C%BA%E5%8F%B7%E5%B7%B2%E6%B3%A8%E5%86%8C%EF%"
       "BC%8C%E8%AF%B7%E6%9B%B4%E6%8D%A2"};
@@ -123,8 +120,8 @@ void jjgames_socket<Proxy>::process_response(std::string const &message_body) {
 }
 
 template <typename Proxy>
-void jjgames_socket<Proxy>::data_received(beast::error_code ec,
-                                          std::size_t const) {
+void jjgames_socket_t<Proxy>::data_received(beast::error_code ec,
+                                            std::size_t const) {
   if (ec) {
     if (ec != http::error::end_of_stream) {
       this->current_proxy_assign_prop(Proxy::Property::ProxyUnresponsive);

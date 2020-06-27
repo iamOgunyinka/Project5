@@ -26,25 +26,25 @@ public:
 template <typename Proxy>
 void watch_home_http_socket_t<Proxy>::prepare_request_data(
     bool use_authentication_header) {
+
+  using beast::http::field;
+  using beast::http::verb;
+
   std::string const target = "http://www.xbiao.com/user/login";
   this->request_.clear();
-  this->request_.method(beast::http::verb::get);
+  this->request_.method(verb::get);
   this->request_.version(11);
   this->request_.target(target);
   if (use_authentication_header) {
-    this->request_.set(beast::http::field::proxy_authorization,
+    this->request_.set(field::proxy_authorization,
                        "Basic bGFueHVhbjM2OUBnbWFpbC5jb206TGFueHVhbjk2Mw==");
   }
-  this->request_.keep_alive(true);
-  this->request_.set(beast::http::field::host, "www.xbiao.com:80");
-  this->request_.set(beast::http::field::cache_control, "no-cache");
-  this->request_.set(beast::http::field::user_agent,
-                     utilities::get_random_agent());
-  this->request_.set(beast::http::field::accept, "*/*");
-  this->request_.set(beast::http::field::referer,
-                     "http://www.xbiao.com/user/login");
-  this->request_.set(beast::http::field::content_type,
-                     "application/x-www-form-urlencoded");
+  this->request_.set(field::host, "www.xbiao.com:80");
+  this->request_.set(field::cache_control, "no-cache");
+  this->request_.set(field::user_agent, utilities::get_random_agent());
+  this->request_.set(field::accept, "*/*");
+  this->request_.set(field::referer, "http://www.xbiao.com/user/login");
+  this->request_.set(field::content_type, "application/x-www-form-urlencoded");
   this->request_.body() = {};
   this->request_.prepare_payload();
 }

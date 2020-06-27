@@ -1,86 +1,12 @@
 #include "backgroundworker.hpp"
 #include "database_connector.hpp"
+#include "socket_factory.hpp"
 #include <filesystem>
-
-#include "auto_home_http_sock.hpp"
-#include "auto_home_socks5_sock.hpp"
-#include "jjgames_socket.hpp"
-#include "pc_auto_socket.hpp"
-#include "pp_sports.hpp"
-#include "qunar_socket.hpp"
-#include "watch_home_http.hpp"
-#include "watch_home_socks5.hpp"
-#include "wines_socket.hpp"
-#include "xpuji_socket.hpp"
 
 namespace wudi_server {
 using utilities::atomic_task_t;
 using utilities::internal_task_result_t;
 using utilities::task_status_e;
-using ah_https = auto_home_http_socket_t<proxy_provider_t>;
-using ah_sk5 = auto_home_socks5_socket_t<proxy_provider_t>;
-using pps_http = pp_sports_http_socket_t<proxy_provider_t>;
-using pps_sk5 = pp_sports_socks5_socket_t<proxy_provider_t>;
-using jjgames_sk5 = jjgames_socket<proxy_provider_t>;
-using wh_http = watch_home_http_socket_t<proxy_provider_t>;
-using wh_sk5 = watch_home_socks5_socket_t<proxy_provider_t>;
-using qn_http = qunar_http_socket_t<proxy_provider_t>;
-using qn_sk5 = qunar_socks5_socket_t<proxy_provider_t>;
-using wines_http = wines_http_socket_t<proxy_provider_t>;
-using wines_sk5 = wines_socks5_socket_t<proxy_provider_t>;
-using xpuji_sk5 = xpuji_socks5_socket_t<proxy_provider_t>;
-using xpuji_http = xpuji_http_socket_t<proxy_provider_t>;
-using pcauto_http = pc_auto_http_socket_t<proxy_provider_t>;
-using pcauto_sk5 = pc_auto_socks5_socket_t<proxy_provider_t>;
-
-template <typename... Args>
-std::unique_ptr<sockets_interface>
-get_socket(website_type_e web_type, ssl::context &ssl_context,
-           proxy_type_e const proxy_type, Args &&... args) {
-
-  if (proxy_type == proxy_type_e::http_https_proxy) {
-    switch (web_type) {
-    case website_type_e::AutoHomeRegister:
-      return std::make_unique<ah_https>(std::forward<Args>(args)...);
-    case website_type_e::JJGames:
-      return nullptr;
-    case website_type_e::PPSports:
-      return std::make_unique<pps_http>(std::forward<Args>(args)...);
-    case website_type_e::Qunar:
-      return std::make_unique<qn_http>(std::forward<Args>(args)...);
-    case website_type_e::WatchHome:
-      return std::make_unique<wh_http>(std::forward<Args>(args)...);
-    case website_type_e::Wines:
-      return std::make_unique<wines_http>(std::forward<Args>(args)...);
-    case website_type_e::Xpuji:
-      return std::make_unique<xpuji_http>(std::forward<Args>(args)...);
-    case website_type_e::PcAuto:
-      return std::make_unique<pcauto_http>(std::forward<Args>(args)...);
-    }
-  } else {
-    switch (web_type) {
-    case website_type_e::AutoHomeRegister:
-      return std::make_unique<ah_sk5>(ssl_context, std::forward<Args>(args)...);
-    case website_type_e::JJGames:
-      return std::make_unique<jjgames_sk5>(ssl_context,
-                                           std::forward<Args>(args)...);
-    case website_type_e::Qunar:
-      return std::make_unique<qn_sk5>(ssl_context, std::forward<Args>(args)...);
-    case website_type_e::PPSports:
-      return std::make_unique<pps_sk5>(std::forward<Args>(args)...);
-    case website_type_e::WatchHome:
-      return std::make_unique<wh_sk5>(std::forward<Args>(args)...);
-    case website_type_e::Wines:
-      return std::make_unique<wines_sk5>(std::forward<Args>(args)...);
-    case website_type_e::Xpuji:
-      return std::make_unique<xpuji_sk5>(std::forward<Args>(args)...);
-    case website_type_e::PcAuto:
-      return std::make_unique<pcauto_sk5>(ssl_context,
-                                          std::forward<Args>(args)...);
-    }
-  }
-  throw std::runtime_error("specified socket type unknown");
-}
 
 background_worker_t::background_worker_t(
     website_result_t &&website, std::vector<upload_result_t> &&uploads,
@@ -110,23 +36,8 @@ background_worker_t::~background_worker_t() {
 
 task_status_e background_worker_t::set_website_type() {
   if (website_type_ == website_type_e::Unknown) {
-    if (website_info_.address.find("jjgames") != std::string::npos) {
-      website_type_ = website_type_e::JJGames;
-    } else if (website_info_.address.find("autohome") != std::string::npos) {
-      website_type_ = website_type_e::AutoHomeRegister;
-    } else if (website_info_.address.find("ppsports") != std::string::npos) {
-      website_type_ = website_type_e::PPSports;
-    } else if (website_info_.address.find("watch") != std::string::npos) {
-      website_type_ = website_type_e::WatchHome;
-    } else if (website_info_.address.find("qunar") != std::string::npos) {
-      website_type_ = website_type_e::Qunar;
-    } else if (website_info_.address.find("wines") != std::string::npos) {
-      website_type_ = website_type_e::Wines;
-    } else if (website_info_.address.find("xpuji") != std::string::npos) {
-      website_type_ = website_type_e::Xpuji;
-    } else if (website_info_.address.find("pcauto") != std::string::npos) {
-      website_type_ = website_type_e::PcAuto;
-    } else {
+    website_type_ = get_website_type(website_info_.address);
+    if (website_type_ == website_type_e::Unknown) {
       spdlog::error("Type not found");
       return task_status_e::Erred;
     }
@@ -180,9 +91,9 @@ task_status_e background_worker_t::start_operations() {
 
   sockets_.reserve(static_cast<std::size_t>(proxy_config_->max_socket));
   for (int i = 0; i != proxy_config_->max_socket; ++i) {
-    auto c_socket =
-        get_socket(website_type_, ssl_context_, proxy_type, is_stopped,
-                   *io_context_, *proxy_provider_, *number_stream_, per_ip);
+    auto c_socket = socket_factory_t::get_socket(
+        website_type_, ssl_context_, proxy_type, is_stopped, *io_context_,
+        *proxy_provider_, *number_stream_, per_ip);
     if (!c_socket) {
       return task_status_e::AutoStopped;
     }
@@ -345,26 +256,12 @@ bool background_worker_t::open_output_files() {
 }
 
 task_status_e background_worker_t::continue_old_task() {
-
   auto &task = atomic_task_.value();
-  if (task.website_address.find("autohome") != std::string::npos) {
-    website_type_ = website_type_e::AutoHomeRegister;
-  } else if (task.website_address.find("jjgames") != std::string::npos) {
-    website_type_ = website_type_e::JJGames;
-  } else if (task.website_address.find("ppsports") != std::string::npos) {
-    website_type_ = website_type_e::PPSports;
-  } else if (task.website_address.find("watch") != std::string::npos) {
-    website_type_ = website_type_e::WatchHome;
-  } else if (task.website_address.find("qunar") != std::string::npos) {
-    website_type_ = website_type_e::Qunar;
-  } else if (task.website_address.find("wines") != std::string::npos) {
-    website_type_ = website_type_e::Wines;
-  } else if (task.website_address.find("xpuji") != std::string::npos) {
-    website_type_ = website_type_e::Xpuji;
-  } else if (task.website_address.find("pcauto") != std::string::npos) {
-    website_type_ = website_type_e::PcAuto;
+  website_type_ = get_website_type(task.website_address);
+  if (website_type_ == website_type_e::Unknown) {
+    spdlog::error("Type not found");
+    return task_status_e::Erred;
   }
-
   input_filename = task.input_filename;
   if (task_result_ptr_->total_numbers == 0) {
     if (atomic_task_->total == 0) {
@@ -398,46 +295,46 @@ task_status_e background_worker_t::continue_old_task() {
 }
 
 task_status_e background_worker_t::run_new_task() {
-  {
-    input_filename = "./{}.txt"_format(
-        utilities::get_random_string(utilities::get_random_integer()));
-    std::ofstream out_file{input_filename};
-    if (!out_file) {
-      spdlog::error("Could not open out_file");
-      input_filename.clear();
-      task_result_ptr_->operation_status = task_status_e::Erred;
-      return task_result_ptr_->operation_status;
-    }
-    for (std::size_t index = 0; index != uploads_info_.size(); ++index) {
-      spdlog::info("name on disk: {}", uploads_info_[index].name_on_disk);
-      std::ifstream in_file{uploads_info_[index].name_on_disk};
-      if (!in_file)
-        continue;
-      out_file << in_file.rdbuf();
-    }
-    out_file.close();
-    {
-      using utilities::get_file_content;
-      using utilities::is_valid_number;
-
-      task_result_ptr_->total_numbers = 0;
-      get_file_content<std::string>(input_filename, is_valid_number,
-                                    [this](std::string_view) mutable {
-                                      ++task_result_ptr_->total_numbers;
-                                    });
-      if (task_result_ptr_->total_numbers == 0)
-        return task_status_e::Erred;
-    }
-    input_file.open(input_filename, std::ios::in);
-    if (!input_file) {
-      if (std::filesystem::exists(input_filename)) {
-        std::filesystem::remove(input_filename);
-      }
-      spdlog::error("Could not open input_file");
-      return task_status_e::Erred;
-    }
-    number_stream_ = std::make_unique<number_stream_t>(input_file);
+  input_filename =
+      "." + utilities::get_random_string(utilities::get_random_integer()) +
+      ".txt";
+  std::ofstream out_file{input_filename};
+  if (!out_file) {
+    spdlog::error("Could not open out_file");
+    input_filename.clear();
+    task_result_ptr_->operation_status = task_status_e::Erred;
+    return task_result_ptr_->operation_status;
   }
+  for (std::size_t index = 0; index != uploads_info_.size(); ++index) {
+    spdlog::info("name on disk: {}", uploads_info_[index].name_on_disk);
+    std::ifstream in_file{uploads_info_[index].name_on_disk};
+    if (!in_file)
+      continue;
+    out_file << in_file.rdbuf();
+  }
+  out_file.close();
+  {
+    using utilities::get_file_content;
+    using utilities::is_valid_number;
+
+    task_result_ptr_->total_numbers = 0;
+    get_file_content<std::string>(input_filename, is_valid_number,
+                                  [this](std::string_view) mutable {
+                                    ++task_result_ptr_->total_numbers;
+                                  });
+    if (task_result_ptr_->total_numbers == 0)
+      return task_status_e::Erred;
+  }
+  input_file.open(input_filename, std::ios::in);
+  if (!input_file) {
+    if (std::filesystem::exists(input_filename)) {
+      std::filesystem::remove(input_filename);
+    }
+    spdlog::error("Could not open input_file");
+    return task_status_e::Erred;
+  }
+  number_stream_ = std::make_unique<number_stream_t>(input_file);
+
   return run_number_crawler();
 }
 
@@ -455,4 +352,30 @@ void background_worker_t::proxy_callback_signal(NewProxySignal *signal) {
 void background_worker_t::proxy_info_map(proxy_info_map_t *proxy_map) {
   proxy_info_map_ = proxy_map;
 }
+
+website_type_e get_website_type(std::string const &web_address) {
+  if (web_address.find("jjgames") != std::string::npos) {
+    return website_type_e::JJGames;
+  } else if (web_address.find("autohome") != std::string::npos) {
+    return website_type_e::AutoHomeRegister;
+  } else if (web_address.find("ppsports") != std::string::npos) {
+    return website_type_e::PPSports;
+  } else if (web_address.find("watch") != std::string::npos) {
+    return website_type_e::WatchHome;
+  } else if (web_address.find("qunar") != std::string::npos) {
+    return website_type_e::Qunar;
+  } else if (web_address.find("wines") != std::string::npos) {
+    return website_type_e::Wines;
+  } else if (web_address.find("xpuji") != std::string::npos) {
+    return website_type_e::Xpuji;
+  } else if (web_address.find("pcauto") != std::string::npos) {
+    return website_type_e::PcAuto;
+  } else if (web_address.find("lbm.") != std::string::npos) {
+    return website_type_e::LisboaMacau;
+  } else if (web_address.find("chm.") != std::string::npos) {
+    return website_type_e::ChineseMacau;
+  }
+  return website_type_e::Unknown;
+}
+
 } // namespace wudi_server

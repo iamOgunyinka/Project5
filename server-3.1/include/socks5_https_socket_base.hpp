@@ -609,4 +609,6 @@ void socks5_https_socket_base_t<Derived, Proxy>::on_data_received(
   static_cast<Derived *>(this)->data_received(ec, s);
 }
 
+template <typename T, typename U>
+using socks5_https = socks5_https_socket_base_t<T, U>;
 } // namespace wudi_server

@@ -89,8 +89,7 @@ void wines_http_socket_t<Proxy>::data_received(beast::error_code ec,
   }
 
   auto &body{this->response_.body()};
-  std::cout << body << std::endl;
-
+  
   json document;
   try {
     document = json::parse(body);

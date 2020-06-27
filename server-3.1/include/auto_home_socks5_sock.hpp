@@ -3,10 +3,13 @@
 #include "socks5_https_socket_base.hpp"
 
 namespace wudi_server {
+namespace utilities {
+std::string get_random_agent();
+}
+
 namespace net = boost::asio;
 
 using tcp = boost::asio::ip::tcp;
-using namespace fmt::v6::literals;
 
 template <typename Proxy>
 class auto_home_socks5_socket_t
@@ -42,25 +45,25 @@ void auto_home_socks5_socket_t<Proxy>::prepare_request_data(
     bool use_authentication_header) {
   char const *target = "/AccountApi/CheckPhone";
   request_.clear();
-  request_.method(beast::http::verb::post);
+  request_.method(http::verb::post);
   request_.version(11);
   request_.target(target);
   if (use_authentication_header) {
-    request_.set(beast::http::field::proxy_authorization,
+    request_.set(http::field::proxy_authorization,
                  "Basic bGFueHVhbjM2OUBnbWFpbC5jb206TGFueHVhbjk2Mw==");
   }
-  request_.set(beast::http::field::connection, "keep-alive");
-  request_.set(beast::http::field::host, hostname());
-  request_.set(beast::http::field::cache_control, "no-cache");
-  request_.set(beast::http::field::user_agent, utilities::get_random_agent());
-  request_.set(beast::http::field::accept, "*/*");
+  request_.set(http::field::connection, "keep-alive");
+  request_.set(http::field::host, hostname());
+  request_.set(http::field::cache_control, "no-cache");
+  request_.set(http::field::user_agent, utilities::get_random_agent());
+  request_.set(http::field::accept, "*/*");
   request_.set(http::field::referer,
                "https://account.autohome.com.cn/register");
   request_.keep_alive(true);
-  request_.set(beast::http::field::content_type,
+  request_.set(http::field::content_type,
                "application/x-www-form-urlencoded; charset=UTF-8");
   request_.body() =
-      "isOverSea=0&phone={}&validcodetype=1&"_format(current_number_);
+      "isOverSea=0&phone=" + current_number_ + "&validcodetype=1&";
   request_.prepare_payload();
 }
 
@@ -79,7 +82,7 @@ void auto_home_socks5_socket_t<Proxy>::data_received(beast::error_code ec,
 
   std::size_t const status_code = response_.result_int();
   // check if we've been redirected, most likely due to IP ban
-  if (utilities::status_in_codes(status_code, redirect_codes)) {
+  if (status_in_codes(status_code, redirect_codes)) {
     this->current_proxy_assign_prop(Proxy::Property::ProxyBlocked);
     return this->choose_next_proxy();
   }

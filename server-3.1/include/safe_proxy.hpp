@@ -233,7 +233,4 @@ struct socks5_proxy_t final : proxy_base_t {
   socks5_proxy_t(proxy_base_params_t &);
   ~socks5_proxy_t() {}
 };
-
-using proxy_provider_t = proxy_base_t;
-
 } // namespace wudi_server

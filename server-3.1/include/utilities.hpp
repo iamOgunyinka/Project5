@@ -19,11 +19,6 @@ namespace wudi_server {
 using nlohmann::json;
 struct database_connector_t;
 
-struct time_data_t {
-  uint64_t current_time{};
-  uint64_t callback_number{};
-};
-
 namespace utilities {
 enum class task_status_e {
   NotStarted,
@@ -220,15 +215,6 @@ public:
   }
 };
 
-template <std::size_t N>
-bool status_in_codes(std::size_t const code,
-                     std::array<std::size_t, N> const &codes) {
-  for (auto const &stat_code : codes)
-    if (code == stat_code)
-      return true;
-  return false;
-}
-
 template <typename Container, typename... IterList>
 bool any_of(Container const &container, IterList &&... iter_list) {
   return (... || (std::cend(container) == iter_list));
@@ -281,7 +267,6 @@ std::string get_random_string(std::size_t);
 std::size_t get_random_integer();
 bool create_file_directory(std::filesystem::path const &path);
 std::time_t &proxy_fetch_interval();
-time_data_t get_time_data();
 std::vector<boost::string_view> split_string_view(boost::string_view const &str,
                                                   char const *delimeter);
 bool operator<(internal_task_result_t const &task_1,

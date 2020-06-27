@@ -1,18 +1,16 @@
 #pragma once
 
 #include "http_socket_base.hpp"
-#include "socks5_https_socket_base.hpp"
+#include "socks5_http_socket_base.hpp"
 
 namespace wudi_server {
 namespace net = boost::asio;
 
-using tcp = boost::asio::ip::tcp;
-using namespace fmt::v6::literals;
-
 template <typename Proxy>
-class pc_auto_http_socket_t
-    : public http_socket_base_t<pc_auto_http_socket_t<Proxy>, Proxy> {
-  using super_class = http_socket_base_t<pc_auto_http_socket_t<Proxy>, Proxy>;
+class chinese_macau_http_socket_t
+    : public http_socket_base_t<chinese_macau_http_socket_t<Proxy>, Proxy> {
+  using super_class =
+      http_socket_base_t<chinese_macau_http_socket_t<Proxy>, Proxy>;
 
   using super_class::current_number_;
   using super_class::request_;
@@ -25,47 +23,48 @@ public:
   void prepare_request_data(bool use_authentication_header);
 
   template <typename... Args>
-  pc_auto_http_socket_t<Proxy>(Args &&... args)
+  chinese_macau_http_socket_t<Proxy>(Args &&... args)
       : super_class(std::forward<Args>(args)...) {}
-  ~pc_auto_http_socket_t() {}
+  ~chinese_macau_http_socket_t() {}
   std::string hostname() const;
 };
 
 template <typename Proxy>
-std::string pc_auto_http_socket_t<Proxy>::hostname() const {
-  return "passport3.pcauto.com.cn";
+std::string chinese_macau_http_socket_t<Proxy>::hostname() const {
+  return "18850i.com";
 }
 
 template <typename Proxy>
-void pc_auto_http_socket_t<Proxy>::prepare_request_data(
+void chinese_macau_http_socket_t<Proxy>::prepare_request_data(
     bool use_authentication_header) {
-  std::string const target = "https://passport3.pcauto.com.cn/passport3/api/"
-                             "validate_mobile.jsp?mobile=" +
-                             current_number_ + "&req_enc=UTF-8";
+  using http::field;
+
+  char const *const target = "https://18850i.com/?c=Register&a=Verify";
   request_.clear();
   request_.method(http::verb::post);
   request_.version(11);
   request_.target(target);
   if (use_authentication_header) {
-    request_.set(http::field::proxy_authorization,
+    request_.set(field::proxy_authorization,
                  "Basic bGFueHVhbjM2OUBnbWFpbC5jb206TGFueHVhbjk2Mw==");
   }
-  request_.set(http::field::connection, "keep-alive");
-  request_.set(http::field::host, "passport3.pcauto.com.cn:443");
-  request_.set(http::field::user_agent, utilities::get_random_agent());
-  request_.set(http::field::accept, "*/*");
-  request_.set(http::field::accept_encoding, "gzip, deflate, br");
-  request_.set(http::field::accept_language, "en-US,en;q=0.9");
-  request_.set(http::field::referer,
-               "https://my.pcauto.com.cn/passport/mobileRegister.jsp");
-  request_.set(http::field::content_type, "application/x-www-form-urlencoded");
-  request_.body() = "{}";
+  request_.set(field::connection, "keep-alive");
+  request_.set(field::host, "18850i.com:80");
+  request_.set(field::origin, "http://18850i.com");
+  request_.set(field::accept_language, "en-US,en;q=0.9");
+  request_.set(field::user_agent, utilities::get_random_agent());
+  request_.set(field::accept, "application/json, text/javascript, */*; q=0.01");
+  request_.set(field::referer, "http://18850i.com/?c=Register");
+  request_.set(field::content_type,
+               "application/x-www-form-urlencoded; charset=UTF-8");
+  request_.set("X-Requested-With", "XMLHttpRequest");
+  request_.body() = "v=" + current_number_ + "&type=telphone";
   request_.prepare_payload();
 }
 
 template <typename Proxy>
-void pc_auto_http_socket_t<Proxy>::data_received(beast::error_code ec,
-                                                 std::size_t const) {
+void chinese_macau_http_socket_t<Proxy>::data_received(beast::error_code ec,
+                                                       std::size_t const) {
   if (ec) {
     if (ec != http::error::end_of_stream) {
       this->current_proxy_assign_prop(Proxy::Property::ProxyUnresponsive);
@@ -87,11 +86,11 @@ void pc_auto_http_socket_t<Proxy>::data_received(beast::error_code ec,
     this->set_authentication_header();
     return this->connect();
   }
-  auto &body = response_.body();
+
   try {
-    if (body.find("\"desc\":\"OK\"") != std::string::npos) {
+    if (response_.body().find("\"200\"") != std::string::npos) {
       signal_(search_result_type_e::NotRegistered, current_number_);
-    } else if (body.find("\"status\":43") != std::string::npos) {
+    } else if (response_.body().find("\"300\"") != std::string::npos) {
       signal_(search_result_type_e::Registered, current_number_);
     } else {
       signal_(search_result_type_e::Unknown, current_number_);
@@ -99,7 +98,6 @@ void pc_auto_http_socket_t<Proxy>::data_received(beast::error_code ec,
   } catch (std::exception const &) {
     signal_(search_result_type_e::Unknown, current_number_);
   }
-
   current_number_.clear();
   send_next();
 }
@@ -107,10 +105,9 @@ void pc_auto_http_socket_t<Proxy>::data_received(beast::error_code ec,
 //////////////////////////////////////////////////////////////
 
 template <typename Proxy>
-class pc_auto_socks5_socket_t
-    : public socks5_https_socket_base_t<pc_auto_socks5_socket_t<Proxy>, Proxy> {
-  using super_class =
-      socks5_https_socket_base_t<pc_auto_socks5_socket_t<Proxy>, Proxy>;
+class chinese_macau_socks5_socket_t
+    : public socks5_http<chinese_macau_socks5_socket_t<Proxy>, Proxy> {
+  using super_class = socks5_http<chinese_macau_socks5_socket_t<Proxy>, Proxy>;
 
   using super_class::current_number_;
   using super_class::request_;
@@ -123,47 +120,49 @@ public:
   void prepare_request_data(bool use_authentication_header);
 
   template <typename... Args>
-  pc_auto_socks5_socket_t<Proxy>(Args &&... args)
+  chinese_macau_socks5_socket_t<Proxy>(Args &&... args)
       : super_class(std::forward<Args>(args)...) {}
-  ~pc_auto_socks5_socket_t() {}
+  ~chinese_macau_socks5_socket_t() {}
   std::string hostname() const;
 };
 
 template <typename Proxy>
-std::string pc_auto_socks5_socket_t<Proxy>::hostname() const {
-  return "passport3.pcauto.com.cn";
+std::string chinese_macau_socks5_socket_t<Proxy>::hostname() const {
+  return "18850i.com";
 }
 
 template <typename Proxy>
-void pc_auto_socks5_socket_t<Proxy>::prepare_request_data(
+void chinese_macau_socks5_socket_t<Proxy>::prepare_request_data(
     bool use_authentication_header) {
-  std::string const target =
-      "/passport3/api/validate_mobile.jsp?mobile=" + current_number_ +
-      "&req_enc=UTF-8";
+  using http::field;
+  using http::verb;
+
+  char const *const target = "/?c=Register&a=Verify";
   request_.clear();
-  request_.method(http::verb::post);
+  request_.method(verb::post);
   request_.version(11);
   request_.target(target);
   if (use_authentication_header) {
-    request_.set(http::field::proxy_authorization,
+    request_.set(field::proxy_authorization,
                  "Basic bGFueHVhbjM2OUBnbWFpbC5jb206TGFueHVhbjk2Mw==");
   }
-  request_.set(http::field::connection, "keep-alive");
-  request_.set(http::field::host, "passport3.pcauto.com.cn");
-  request_.set(http::field::user_agent, utilities::get_random_agent());
-  request_.set(http::field::accept, "*/*");
-  request_.set(http::field::accept_encoding, "gzip, deflate, br");
-  request_.set(http::field::accept_language, "en-US,en;q=0.9");
-  request_.set(http::field::referer,
-               "https://my.pcauto.com.cn/passport/mobileRegister.jsp");
-  request_.set(http::field::content_type, "application/x-www-form-urlencoded");
-  request_.body() = "{}";
+  request_.set(field::connection, "keep-alive");
+  request_.set(field::host, "18850i.com");
+  request_.set(field::origin, "http://18850i.com");
+  request_.set(field::accept_language, "en-US,en;q=0.9");
+  request_.set(field::user_agent, utilities::get_random_agent());
+  request_.set(field::accept, "application/json, text/javascript, */*; q=0.01");
+  request_.set(field::referer, "http://18850i.com/?c=Register");
+  request_.set(field::content_type,
+               "application/x-www-form-urlencoded; charset=UTF-8");
+  request_.set("X-Requested-With", "XMLHttpRequest");
+  request_.body() = "v=" + current_number_ + "&type=telphone";
   request_.prepare_payload();
 }
 
 template <typename Proxy>
-void pc_auto_socks5_socket_t<Proxy>::data_received(beast::error_code ec,
-                                                   std::size_t const) {
+void chinese_macau_socks5_socket_t<Proxy>::data_received(beast::error_code ec,
+                                                         std::size_t const) {
 
   if (ec) {
     if (ec != http::error::end_of_stream) {
@@ -187,11 +186,10 @@ void pc_auto_socks5_socket_t<Proxy>::data_received(beast::error_code ec,
     return this->connect();
   }
 
-  auto &body = response_.body();
   try {
-    if (body.find("\"desc\":\"OK\"") != std::string::npos) {
+    if (response_.body().find("\"200\"") != std::string::npos) {
       signal_(search_result_type_e::NotRegistered, current_number_);
-    } else if (body.find("\"status\":43") != std::string::npos) {
+    } else if (response_.body().find("\"300\"") != std::string::npos) {
       signal_(search_result_type_e::Registered, current_number_);
     } else {
       signal_(search_result_type_e::Unknown, current_number_);
