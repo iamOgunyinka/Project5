@@ -1,6 +1,6 @@
 #include "backgroundworker.hpp"
 #include "database_connector.hpp"
-#include "socket_factory.hpp"
+#include "http_instantiator.hpp"
 #include <filesystem>
 
 namespace wudi_server {
@@ -91,7 +91,7 @@ task_status_e background_worker_t::start_operations() {
 
   sockets_.reserve(static_cast<std::size_t>(proxy_config_->max_socket));
   for (int i = 0; i != proxy_config_->max_socket; ++i) {
-    auto c_socket = socket_factory_t::get_socket(
+    auto c_socket = socket_instantiator::get_socket(
         website_type_, ssl_context_, proxy_type, is_stopped, *io_context_,
         *proxy_provider_, *number_stream_, per_ip);
     if (!c_socket) {
@@ -360,8 +360,6 @@ website_type_e get_website_type(std::string const &web_address) {
     return website_type_e::AutoHomeRegister;
   } else if (web_address.find("ppsports") != std::string::npos) {
     return website_type_e::PPSports;
-  } else if (web_address.find("watch") != std::string::npos) {
-    return website_type_e::WatchHome;
   } else if (web_address.find("qunar") != std::string::npos) {
     return website_type_e::Qunar;
   } else if (web_address.find("wines") != std::string::npos) {
@@ -374,6 +372,12 @@ website_type_e get_website_type(std::string const &web_address) {
     return website_type_e::LisboaMacau;
   } else if (web_address.find("chm.") != std::string::npos) {
     return website_type_e::ChineseMacau;
+  } else if (web_address.find("grandl") != std::string::npos) {
+    return website_type_e::GrandLisboa;
+  } else if (web_address.find("suncity") != std::string::npos) {
+    return website_type_e::SunCity;
+  } else if (web_address.find("baccarat") != std::string::npos) {
+    return website_type_e::MacauBaccarat;
   }
   return website_type_e::Unknown;
 }

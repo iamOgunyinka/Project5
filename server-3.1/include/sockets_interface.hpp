@@ -59,4 +59,5 @@ public:
   virtual void start_connect() = 0;
   auto &signal() { return signal_; }
 };
+
 } // namespace wudi_server
