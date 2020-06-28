@@ -1,16 +1,25 @@
 #pragma once
 
-#include "number_stream.hpp"
 #include "safe_proxy.hpp"
-#include "sockets_interface.hpp"
 #include "utilities.hpp"
-#include <boost/asio/ssl/context.hpp>
 #include <fstream>
 #include <optional>
 
+namespace boost {
+namespace asio {
+namespace ssl {
+class context;
+}
+} // namespace asio
+} // namespace boost
+
 namespace wudi_server {
 
+class number_stream_t;
+class sockets_interface;
 enum class website_type_e;
+enum class search_result_type_e;
+
 using utilities::task_status_e;
 using utilities::upload_result_t;
 using utilities::website_result_t;

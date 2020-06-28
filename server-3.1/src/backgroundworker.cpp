@@ -1,7 +1,10 @@
 #include "backgroundworker.hpp"
 #include "database_connector.hpp"
-#include "http_instantiator.hpp"
+#include "number_stream.hpp"
+#include "sockets_instantiator.hpp"
+#include "sockets_interface.hpp"
 #include <filesystem>
+#include <random>
 
 namespace wudi_server {
 using utilities::atomic_task_t;
@@ -380,6 +383,18 @@ website_type_e get_website_type(std::string const &web_address) {
     return website_type_e::MacauBaccarat;
   }
   return website_type_e::Unknown;
+}
+
+time_data_t get_time_data() {
+  static std::random_device rd{};
+  static std::mt19937 gen(rd());
+  static std::uniform_real_distribution<> dis(0.0, 1.0);
+  uint64_t const current_time = std::time(nullptr) * 1'000;
+  std::size_t const random_number =
+      static_cast<std::size_t>(std::round(1e3 * dis(gen)));
+  std::uint64_t const callback_number =
+      static_cast<std::size_t>(current_time + random_number);
+  return time_data_t{current_time, callback_number};
 }
 
 } // namespace wudi_server

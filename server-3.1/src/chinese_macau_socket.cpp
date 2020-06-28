@@ -1,5 +1,3 @@
-#pragma once
-
 #include "chinese_macau_socket.hpp"
 
 namespace wudi_server {

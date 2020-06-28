@@ -1,4 +1,4 @@
-#include "http_instantiator.hpp"
+#include "sockets_instantiator.hpp"
 
 #include "auto_home_http_sock.hpp"
 #include "auto_home_socks5_sock.hpp"
@@ -52,7 +52,7 @@ std::unique_ptr<sockets_interface> socket_instantiator::get_socket(
                                                   io_context, proxy_provider,
                                                   number_stream, per_ip);
   }
-  return socks5_instantiator::get_socks5_socket(
+  return socks5_socket_factory_t::get_socks5_socket(
       web_type, ssl_context, is_stopped, io_context, proxy_provider,
       number_stream, per_ip);
 }
@@ -98,7 +98,7 @@ std::unique_ptr<sockets_interface> http_socket_factory_t::get_http_socket(
   return nullptr;
 }
 
-std::unique_ptr<sockets_interface> socks5_instantiator::get_socks5_socket(
+std::unique_ptr<sockets_interface> socks5_socket_factory_t::get_socks5_socket(
     website_type_e web_type, ssl::context &ssl_context, bool &is_stopped,
     net::io_context &io_context, proxy_base_t &proxy_provider,
     number_stream_t &number_stream, int per_ip) {
@@ -143,17 +143,4 @@ std::unique_ptr<sockets_interface> socks5_instantiator::get_socks5_socket(
   }
   return nullptr;
 }
-
-time_data_t get_time_data() {
-  static std::random_device rd{};
-  static std::mt19937 gen(rd());
-  static std::uniform_real_distribution<> dis(0.0, 1.0);
-  uint64_t const current_time = std::time(nullptr) * 1'000;
-  std::size_t const random_number =
-      static_cast<std::size_t>(std::round(1e3 * dis(gen)));
-  std::uint64_t const callback_number =
-      static_cast<std::size_t>(current_time + random_number);
-  return time_data_t{current_time, callback_number};
-}
-
 } // namespace wudi_server

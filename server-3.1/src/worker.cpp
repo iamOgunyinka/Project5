@@ -1,6 +1,7 @@
 #include "worker.hpp"
 #include "backgroundworker.hpp"
 #include "database_connector.hpp"
+#include "number_stream.hpp"
 #include <boost/algorithm/string.hpp>
 
 namespace wudi_server {

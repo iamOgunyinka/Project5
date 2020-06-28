@@ -50,7 +50,7 @@ class http_socket_factory_t {
                   number_stream_t &, int);
 };
 
-class socks5_instantiator {
+class socks5_socket_factory_t {
   friend struct socket_instantiator;
 
   static std::unique_ptr<sockets_interface>

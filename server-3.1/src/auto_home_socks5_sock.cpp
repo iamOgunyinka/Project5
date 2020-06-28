@@ -1,7 +1,4 @@
-#pragma once
-
 #include "auto_home_socks5_sock.hpp"
-#include "safe_proxy.hpp"
 
 namespace wudi_server {
 std::string auto_home_socks5_socket_t::hostname() const {
