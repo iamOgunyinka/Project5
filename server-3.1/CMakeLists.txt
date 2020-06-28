@@ -63,14 +63,28 @@ message("${PROJECT_NAME}: CURR BIN DIR: ${CMAKE_CURRENT_BINARY_DIR}")
 
 # Source Files
 set(SRC_FILES
+    ./src/auto_home_http_sock.cpp
+    ./src/auto_home_socks5_sock.cpp
     ./src/backgroundworker.cpp
+    ./src/chinese_macau_socket.cpp
     ./src/database_connector.cpp
-    ./number_stream.cpp
+    ./src/grand_lisboa_socket.cpp
+    ./src/jjgames_socket.cpp
+    ./src/lisboa_macau_socket.cpp
+    ./src/macau_baccarat_socket.cpp
+    ./src/number_stream.cpp
+    ./src/pc_auto_socket.cpp
+    ./src/pp_sports.cpp
+    ./src/qunar_socket.cpp
     ./src/safe_proxy.cpp
     ./src/server.cpp
     ./src/session.cpp
+    ./src/sun_city_socket.cpp
     ./src/utilities.cpp
+    ./src/wines_socket.cpp
+    ./src/xpuji_socket.cpp
     ./src/worker.cpp
+    ./src/sockets_instantiator.cpp
     ./main.cpp
 )
 source_group("Sources" FILES ${SRC_FILES})
@@ -96,8 +110,6 @@ set(HEADERS_FILES
     ./include/socks5_http_socket_base.hpp
     ./include/socks5_https_socket_base.hpp
     ./include/utilities.hpp
-    ./include/watch_home_http.hpp
-    ./include/watch_home_socks5.hpp
     ./include/worker.hpp
 )
 source_group("Headers" FILES ${HEADERS_FILES})
