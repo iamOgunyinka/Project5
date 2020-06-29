@@ -48,7 +48,7 @@ void fix_database_problem(std::vector<int> const &task_ids) {
 
     for (auto const &filename : {task.not_ok_filename, task.ok_filename,
                                  task.ok2_filename, task.unknown_filename}) {
-      std::string const command = "sort -u " + filename;
+      std::string const command = "sort -u \"" + filename + "\"";
       std::string out_filename = filename + "_";
       try {
         bp::system(command, bp::std_out > out_filename);

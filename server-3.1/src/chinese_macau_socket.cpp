@@ -132,7 +132,6 @@ void chinese_macau_socks5_socket_t::data_received(beast::error_code ec,
     this->set_authentication_header();
     return this->connect();
   }
-
   try {
     if (response_.body().find("\"200\"") != std::string::npos) {
       signal_(search_result_type_e::NotRegistered, current_number_);

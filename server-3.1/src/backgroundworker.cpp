@@ -190,8 +190,9 @@ void background_worker_t::on_data_result_obtained(search_result_type_e type,
     task_result_ptr_->operation_status = task_status_e::AutoStopped;
     return;
   }
-
-  bool const signallable = (processed % proxy_config_->max_socket) == 0;
+  uint32_t const mod =
+      (proxy_config_->max_socket < 25) ? 25 : proxy_config_->max_socket;
+  bool const signallable = (processed % mod) == 0;
   if (signallable) {
     db_connector->update_task_progress(*task_result_ptr_,
                                        proxy_provider_->total_used());

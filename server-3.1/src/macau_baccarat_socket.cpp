@@ -6,7 +6,7 @@ void macau_baccarat_http_socket_t::prepare_request_data(
     bool use_authentication_header) {
   using http::field;
 
-  auto target = "https://55222077.com:8080/Common/CheckData?DataType="
+  auto target = "https://55222077.com/Common/CheckData?DataType="
                 "telephone&DataContent=" +
                 current_number_ +
                 "&_=" + std::to_string(std::time(nullptr) * 1'000);
@@ -19,11 +19,11 @@ void macau_baccarat_http_socket_t::prepare_request_data(
                  "Basic bGFueHVhbjM2OUBnbWFpbC5jb206TGFueHVhbjk2Mw==");
   }
   request_.set(field::connection, "keep-alive");
-  request_.set(field::host, "55222077.com:8080");
+  request_.set(field::host, "55222077.com:443");
   request_.set(field::accept_language, "en-US,en;q=0.9");
   request_.set(field::user_agent, utilities::get_random_agent());
   request_.set(field::accept, "application/json, text/javascript, */*; q=0.01");
-  request_.set(field::referer, "https://55222077.com:8080/PageRegister?uid=");
+  request_.set(field::referer, "https://55222077.com/PageRegister?uid=");
   request_.set("X-Requested-With", "XMLHttpRequest");
   request_.body() = {};
   request_.prepare_payload();
@@ -88,11 +88,11 @@ void macau_baccarat_socks5_socket_t::prepare_request_data(
                  "Basic bGFueHVhbjM2OUBnbWFpbC5jb206TGFueHVhbjk2Mw==");
   }
   request_.set(field::connection, "keep-alive");
-  request_.set(field::host, "55222077.com:8080");
+  request_.set(field::host, "55222077.com");
   request_.set(field::accept_language, "en-US,en;q=0.9");
   request_.set(field::user_agent, utilities::get_random_agent());
   request_.set(field::accept, "application/json, text/javascript, */*; q=0.01");
-  request_.set(field::referer, "https://55222077.com:8080/PageRegister?uid=");
+  request_.set(field::referer, "https://55222077.com/PageRegister?uid=");
   request_.set("X-Requested-With", "XMLHttpRequest");
   request_.body() = {};
   request_.prepare_payload();

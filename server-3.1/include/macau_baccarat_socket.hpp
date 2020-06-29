@@ -34,7 +34,7 @@ public:
       : base_class(std::forward<Args>(args)...) {}
   ~macau_baccarat_socks5_socket_t() {}
   std::string hostname() const { return "55222077.com"; }
-  uint16_t port() const override { return 8080; }
+  uint16_t port() const override { return 443; }
 };
 
 } // namespace wudi_server

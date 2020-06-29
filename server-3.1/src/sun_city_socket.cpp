@@ -2,32 +2,27 @@
 
 namespace wudi_server {
 
-std::string sun_city_http_socket_t::hostname() const { return "2707000.com"; }
+std::string sun_city_http_socket_t::hostname() const {
+  return "www.hyi680.com";
+}
 
 void sun_city_http_socket_t::prepare_request_data(
     bool use_authentication_header) {
   using http::field;
 
-  auto target = "https://2707000.com/Common/CheckData?DataType="
-                "telephone&DataContent=" +
-                current_number_ +
-                "&_=" + std::to_string(std::time(nullptr) * 1'000);
   request_.clear();
-  request_.method(http::verb::get);
+  request_.method(http::verb::post);
   request_.version(11);
-  request_.target(target);
+  request_.target("https://www.hyi680.com/verifyphone.jhtml");
   if (use_authentication_header) {
     request_.set(field::proxy_authorization,
                  "Basic bGFueHVhbjM2OUBnbWFpbC5jb206TGFueHVhbjk2Mw==");
   }
-  request_.set(field::connection, "keep-alive");
-  request_.set(field::host, "2707000.com:443");
-  request_.set(field::accept_language, "en-US,en;q=0.9");
+  request_.set(field::host, "www.hyi680.com:443");
   request_.set(field::user_agent, utilities::get_random_agent());
-  request_.set(field::accept, "application/json, text/javascript, */*; q=0.01");
-  request_.set(field::referer, "https://2707000.com/PageRegister?uid=");
-  request_.set("X-Requested-With", "XMLHttpRequest");
-  request_.body() = {};
+  request_.set(field::accept, "*/*");
+  request_.set(field::content_type, "application/x-www-form-urlencoded");
+  request_.body() = "phone=" + current_number_;
   request_.prepare_payload();
 }
 
@@ -56,8 +51,8 @@ void sun_city_http_socket_t::data_received(beast::error_code ec,
   }
 
   try {
-    static char const *const not_registered = "\"success\":true,\"Code\":1";
-    static char const *const registered = "\"success\":true,\"Code\":0";
+    static char const *const not_registered = "true";
+    static char const *const registered = "false";
     if (response_.body().find(not_registered) != std::string::npos) {
       signal_(search_result_type_e::NotRegistered, current_number_);
     } else if (response_.body().find(registered) != std::string::npos) {
@@ -74,33 +69,30 @@ void sun_city_http_socket_t::data_received(beast::error_code ec,
 
 //////////////////////////////////////////////////////////////
 
-std::string sun_city_socks5_socket_t::hostname() const { return "2707000.com"; }
+std::string sun_city_socks5_socket_t::hostname() const {
+  return "www.hyi680.com";
+}
 
 void sun_city_socks5_socket_t::prepare_request_data(
     bool use_authentication_header) {
   using http::field;
   using http::verb;
 
-  auto const target =
-      "/Common/CheckData?DataType=telephone&DataContent=" + current_number_ +
-      "&_=" + std::to_string(std::time(nullptr) * 1'000);
+  auto const target = "/verifyphone.jhtml";
 
   request_.clear();
-  request_.method(verb::get);
+  request_.method(verb::post);
   request_.version(11);
   request_.target(target);
   if (use_authentication_header) {
     request_.set(field::proxy_authorization,
                  "Basic bGFueHVhbjM2OUBnbWFpbC5jb206TGFueHVhbjk2Mw==");
   }
-  request_.set(field::connection, "keep-alive");
-  request_.set(field::host, "2707000.com");
-  request_.set(field::accept_language, "en-US,en;q=0.9");
+  request_.set(field::host, "www.hyi680.com");
   request_.set(field::user_agent, utilities::get_random_agent());
-  request_.set(field::accept, "application/json, text/javascript, */*; q=0.01");
-  request_.set(field::referer, "https://2707000.com/PageRegister?uid=");
-  request_.set("X-Requested-With", "XMLHttpRequest");
-  request_.body() = {};
+  request_.set(field::accept, "*/*");
+  request_.set(field::content_type, "application/x-www-form-urlencoded");
+  request_.body() = "phone=" + current_number_;
   request_.prepare_payload();
 }
 
@@ -129,8 +121,9 @@ void sun_city_socks5_socket_t::data_received(beast::error_code ec,
     return this->connect();
   }
   try {
-    static char const *const not_registered = "\"success\":true,\"Code\":1";
-    static char const *const registered = "\"success\":true,\"Code\":0";
+    static char const *const not_registered = "true";
+    static char const *const registered = "false";
+
     if (response_.body().find(not_registered) != std::string::npos) {
       signal_(search_result_type_e::NotRegistered, current_number_);
     } else if (response_.body().find(registered) != std::string::npos) {
