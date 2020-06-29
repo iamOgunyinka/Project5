@@ -85,6 +85,7 @@ set(SRC_FILES
     ./src/xpuji_socket.cpp
     ./src/worker.cpp
     ./src/sockets_instantiator.cpp
+    ./src/socks_initiator.cpp
     ./main.cpp
 )
 source_group("Sources" FILES ${SRC_FILES})

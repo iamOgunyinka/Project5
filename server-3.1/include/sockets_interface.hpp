@@ -60,4 +60,20 @@ public:
   auto &signal() { return signal_; }
 };
 
+enum class website_type_e {
+  Unknown,
+  AutoHomeRegister,
+  JJGames,
+  PPSports,
+  Qunar,
+  Wines,
+  Xpuji,
+  PcAuto,
+  LisboaMacau,
+  ChineseMacau,
+  MacauBaccarat,
+  SunCity,
+  GrandLisboa
+};
+
 } // namespace wudi_server
