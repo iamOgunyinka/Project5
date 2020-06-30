@@ -16,7 +16,7 @@ std::filesystem::path const download_path =
 
 rule_t::rule_t(std::initializer_list<http::verb> &&verbs, callback_t callback)
     : num_verbs_{verbs.size()}, route_callback_{std::move(callback)} {
-  if (verbs.size() > 5)
+  if (verbs.size() > 3)
     throw std::runtime_error{"maximum number of verbs is 5"};
   for (int i = 0; i != verbs.size(); ++i) {
     verbs_[i] = *(verbs.begin() + i);
