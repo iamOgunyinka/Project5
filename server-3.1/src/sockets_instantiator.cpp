@@ -11,7 +11,6 @@
 #include "pp_sports.hpp"
 #include "qunar_socket.hpp"
 #include "sockets_interface.hpp"
-#include "socks_initiator.hpp"
 #include "sun_city_socket.hpp"
 #include "wines_socket.hpp"
 #include "xpuji_socket.hpp"
@@ -39,7 +38,7 @@ std::unique_ptr<sockets_interface> socket_instantiator::get_socket(
                                                   io_context, proxy_provider,
                                                   number_stream, per_ip);
   }
-  return socks5_socket_factory_t::get_socks5_socket(
+  return http_socket_factory_t::get_socks5_https_socket(
       web_type, ssl_context, is_stopped, io_context, proxy_provider,
       number_stream, per_ip);
 }

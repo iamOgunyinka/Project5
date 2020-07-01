@@ -34,5 +34,14 @@ class http_socket_factory_t {
   static std::unique_ptr<sockets_interface>
   get_http_socket(website_type_e, bool &, net::io_context &, proxy_base_t &,
                   number_stream_t &, int);
+
+  static std::unique_ptr<sockets_interface>
+  get_socks5_https_socket(website_type_e, ssl::context &, bool &,
+                          net::io_context &, proxy_base_t &, number_stream_t &,
+                          int);
+
+  static std::unique_ptr<sockets_interface>
+  get_socks5_http_socket(website_type_e, bool &, net::io_context &,
+                         proxy_base_t &, number_stream_t &, int);
 };
 } // namespace wudi_server
