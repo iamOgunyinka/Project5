@@ -190,15 +190,17 @@ void socks5_https_socket_base_t<Derived>::on_first_handshake_response_received(
 
     auto &username = current_proxy_->username();
     auto &password = current_proxy_->password();
-    std::size_t const buffers_to_write = username.size() + password.size() + 3;
+    auto const username_length = static_cast<uint8_t>(username.size());
+    auto const password_length = static_cast<uint8_t>(password.size());
+    std::size_t const buffers_to_write = username_length + password_length + 3;
 
     handshake_buffer.reserve(buffers_to_write);
 
     handshake_buffer.push_back(0x01); // auth version
-    handshake_buffer.push_back(username.size());
+    handshake_buffer.push_back(username_length);
     std::copy(username.cbegin(), username.cend(),
               std::back_inserter(handshake_buffer));
-    handshake_buffer.push_back(password.size());
+    handshake_buffer.push_back(password_length);
     std::copy(password.cbegin(), password.cend(),
               std::back_inserter(handshake_buffer));
     return beast::get_lowest_layer(*ssl_stream_)
@@ -268,7 +270,7 @@ void socks5_https_socket_base_t<Derived>::perform_sock5_second_handshake() {
   handshake_buffer.push_back(SOCKS_CMD_CONNECT);
   handshake_buffer.push_back(0x00);
   handshake_buffer.push_back(SOCKS5_ATYP_DOMAINNAME);
-  handshake_buffer.push_back(host_name.size());
+  handshake_buffer.push_back(static_cast<uint8_t>(host_name.size()));
   std::copy(host_name.cbegin(), host_name.cend(),
             std::back_inserter(handshake_buffer));
 

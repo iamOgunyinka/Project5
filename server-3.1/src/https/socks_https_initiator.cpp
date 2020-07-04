@@ -1,6 +1,7 @@
 #include "sockets_instantiator.hpp"
 
 #include "auto_home_socks5_sock.hpp"
+#include "digit_casinos_socks5_https.hpp"
 #include "grand_lisboa_socket.hpp"
 #include "jjgames_socket.hpp"
 #include "lisboa_macau_socket.hpp"
@@ -53,10 +54,19 @@ http_socket_factory_t::get_socks5_https_socket(
     return std::make_unique<mbs_sk5>(ssl_context, is_stopped, io_context,
                                      proxy_provider, number_stream, per_ip);
 
-  case website_type_e::PPSports:
-  case website_type_e::Wines:
-  case website_type_e::Xpuji:
-  case website_type_e::ChineseMacau:
+  case website_type_e::VNS:
+    return std::make_unique<vns_socket_socks5_t>(ssl_context, is_stopped,
+                                                 io_context, proxy_provider,
+                                                 number_stream, per_ip);
+  case website_type_e::Lottery81:
+    return std::make_unique<lottery81_socket_socks5_t>(
+        ssl_context, is_stopped, io_context, proxy_provider, number_stream,
+        per_ip);
+  case website_type_e::DragonFish:
+    return std::make_unique<dragon_fish_socket_socks5_t>(
+        ssl_context, is_stopped, io_context, proxy_provider, number_stream,
+        per_ip);
+  default:
     return get_socks5_http_socket(web_type, is_stopped, io_context,
                                   proxy_provider, number_stream, per_ip);
   }

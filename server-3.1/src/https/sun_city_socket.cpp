@@ -1,4 +1,5 @@
 #include "sun_city_socket.hpp"
+#include <iostream>
 
 namespace wudi_server {
 
@@ -120,6 +121,8 @@ void sun_city_socks5_socket_t::data_received(beast::error_code ec,
     this->set_authentication_header();
     return this->connect();
   }
+  std::cout << response_.body() << std::endl;
+
   try {
     static char const *const not_registered = "true";
     static char const *const registered = "false";

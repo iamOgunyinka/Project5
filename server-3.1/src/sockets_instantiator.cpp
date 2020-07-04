@@ -3,6 +3,7 @@
 #include "auto_home_http_sock.hpp"
 #include "auto_home_socks5_sock.hpp"
 #include "chinese_macau_socket.hpp"
+#include "digit_casinos_http_base.hpp"
 #include "grand_lisboa_socket.hpp"
 #include "jjgames_socket.hpp"
 #include "lisboa_macau_socket.hpp"
@@ -80,6 +81,39 @@ std::unique_ptr<sockets_interface> http_socket_factory_t::get_http_socket(
   case website_type_e::MacauBaccarat:
     return std::make_unique<mbs_http>(is_stopped, io_context, proxy_provider,
                                       number_stream, per_ip);
+  case website_type_e::DevilsHorn:
+    return std::make_unique<devils_horn_socket_http_t>(
+        is_stopped, io_context, proxy_provider, number_stream, per_ip);
+  case website_type_e::DragonFish:
+    return std::make_unique<dragon_fish_socket_http_t>(
+        is_stopped, io_context, proxy_provider, number_stream, per_ip);
+  case website_type_e::FourtyFour:
+    return std::make_unique<fourty_four_socket_http_t>(
+        is_stopped, io_context, proxy_provider, number_stream, per_ip);
+  case website_type_e::JSThree:
+    return std::make_unique<js_three_socket_http_t>(
+        is_stopped, io_context, proxy_provider, number_stream, per_ip);
+  case website_type_e::Lebo:
+    return std::make_unique<lebo_socket_http_t>(
+        is_stopped, io_context, proxy_provider, number_stream, per_ip);
+  case website_type_e::Lottery81:
+    return std::make_unique<lottery81_socket_http_t>(
+        is_stopped, io_context, proxy_provider, number_stream, per_ip);
+  case website_type_e::SugarRaise:
+    return std::make_unique<sugar_raise_socket_http_t>(
+        is_stopped, io_context, proxy_provider, number_stream, per_ip);
+  case website_type_e::TigerFortress:
+    return std::make_unique<tiger_fortress_socket_http_t>(
+        is_stopped, io_context, proxy_provider, number_stream, per_ip);
+  case website_type_e::Vip5:
+    return std::make_unique<vip5_socket_http_t>(
+        is_stopped, io_context, proxy_provider, number_stream, per_ip);
+  case website_type_e::VNS:
+    return std::make_unique<vns_socket_http_t>(
+        is_stopped, io_context, proxy_provider, number_stream, per_ip);
+  case website_type_e::Zed3:
+    return std::make_unique<zed_three_socket_http_t>(
+        is_stopped, io_context, proxy_provider, number_stream, per_ip);
   }
   return nullptr;
 }
