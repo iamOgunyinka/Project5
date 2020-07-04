@@ -73,7 +73,18 @@ enum class website_type_e {
   ChineseMacau,
   MacauBaccarat,
   SunCity,
-  GrandLisboa
+  GrandLisboa,
+  VNS,
+  Lottery81,
+  Vip5,
+  DevilsHorn,
+  FourtyFour,
+  Zed3,
+  JSThree,
+  SugarRaise,
+  TigerFortress,
+  DragonFish,
+  Lebo
 };
 
 } // namespace wudi_server

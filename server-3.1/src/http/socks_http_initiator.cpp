@@ -1,6 +1,7 @@
 #include "sockets_instantiator.hpp"
 
 #include "chinese_macau_socket.hpp"
+#include "digit_casinos_socks5_http.hpp"
 #include "pp_sports.hpp"
 #include "sockets_interface.hpp"
 #include "wines_socket.hpp"
@@ -18,7 +19,6 @@ http_socket_factory_t::get_socks5_http_socket(
     website_type_e web_type, bool &is_stopped, net::io_context &io_context,
     proxy_base_t &proxy_provider, number_stream_t &number_stream, int per_ip) {
   switch (web_type) {
-
   case website_type_e::PPSports:
     return std::make_unique<pps_sk5>(is_stopped, io_context, proxy_provider,
                                      number_stream, per_ip);
@@ -31,6 +31,30 @@ http_socket_factory_t::get_socks5_http_socket(
   case website_type_e::ChineseMacau:
     return std::make_unique<chm_sk5>(is_stopped, io_context, proxy_provider,
                                      number_stream, per_ip);
+  case website_type_e::DevilsHorn:
+    return std::make_unique<devils_horn_socket_socks5_t>(
+        is_stopped, io_context, proxy_provider, number_stream, per_ip);
+  case website_type_e::FourtyFour:
+    return std::make_unique<fourty_four_socket_socks5_t>(
+        is_stopped, io_context, proxy_provider, number_stream, per_ip);
+  case website_type_e::JSThree:
+    return std::make_unique<js_three_socket_socks5_t>(
+        is_stopped, io_context, proxy_provider, number_stream, per_ip);
+  case website_type_e::Lebo:
+    return std::make_unique<lebo_socket_socks5_t>(
+        is_stopped, io_context, proxy_provider, number_stream, per_ip);
+  case website_type_e::SugarRaise:
+    return std::make_unique<sugar_raise_socket_socks5_t>(
+        is_stopped, io_context, proxy_provider, number_stream, per_ip);
+  case website_type_e::TigerFortress:
+    return std::make_unique<tiger_fortress_socket_socks5_t>(
+        is_stopped, io_context, proxy_provider, number_stream, per_ip);
+  case website_type_e::Vip5:
+    return std::make_unique<vip5_socket_socks5_t>(
+        is_stopped, io_context, proxy_provider, number_stream, per_ip);
+  case website_type_e::Zed3:
+    return std::make_unique<zed_three_socket_socks5_t>(
+        is_stopped, io_context, proxy_provider, number_stream, per_ip);
   }
   return nullptr;
 }

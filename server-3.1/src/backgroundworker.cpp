@@ -382,7 +382,30 @@ website_type_e get_website_type(std::string const &web_address) {
     return website_type_e::SunCity;
   } else if (web_address.find("baccarat") != std::string::npos) {
     return website_type_e::MacauBaccarat;
+  } else if (web_address.find("vns") != std::string::npos) {
+    return website_type_e::VNS;
+  } else if (web_address.find("lottery") != std::string::npos) {
+    return website_type_e::Lottery81;
+  } else if (web_address.find("vip5") != std::string::npos) {
+    return website_type_e::Vip5;
+  } else if (web_address.find("zed3") != std::string::npos) {
+    return website_type_e::Zed3;
+  } else if (web_address.find("devil") != std::string::npos) {
+    return website_type_e::DevilsHorn;
+  } else if (web_address.find("fourty") != std::string::npos) {
+    return website_type_e::FourtyFour;
+  } else if (web_address.find("js3") != std::string::npos) {
+    return website_type_e::JSThree;
+  } else if (web_address.find("sugar") != std::string::npos) {
+    return website_type_e::SugarRaise;
+  } else if (web_address.find("tiger") != std::string::npos) {
+    return website_type_e::TigerFortress;
+  } else if (web_address.find("dragon") != std::string::npos) {
+    return website_type_e::DragonFish;
+  } else if (web_address.find("lebo") != std::string::npos) {
+    return website_type_e::Lebo;
   }
+
   return website_type_e::Unknown;
 }
 
