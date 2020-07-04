@@ -4,20 +4,15 @@
 #include "auto_home_socks5_sock.hpp"
 #include "chinese_macau_socket.hpp"
 #include "digit_casinos_http_base.hpp"
-#include "grand_lisboa_socket.hpp"
 #include "jjgames_socket.hpp"
-#include "lisboa_macau_socket.hpp"
 #include "macau_baccarat_socket.hpp"
 #include "pc_auto_socket.hpp"
 #include "pp_sports.hpp"
 #include "qunar_socket.hpp"
 #include "sockets_interface.hpp"
 #include "sun_city_socket.hpp"
-#include "wines_socket.hpp"
-#include "xpuji_socket.hpp"
 
 namespace wudi_server {
-
 using ah_http = auto_home_http_socket_t;
 using pps_http = pp_sports_http_socket_t;
 using qn_http = qunar_http_socket_t;

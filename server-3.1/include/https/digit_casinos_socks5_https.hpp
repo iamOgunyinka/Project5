@@ -45,4 +45,19 @@ public:
   std::string fqn() const override { return "https://55222077.com"; }
 };
 
+class grand_lisboa_socks5_socket_t : public digit_casinos_ssocks5_base_t {
+public:
+  using digit_casinos_ssocks5_base_t::digit_casinos_ssocks5_base_t;
+  std::string hostname() const override { return "11333xpj.com"; }
+  uint16_t port() const override { return 8787; }
+  std::string fqn() const override { return "https://11333xpj.com:8787"; }
+};
+
+class lisboa_macau_socks5_socket_t : public digit_casinos_ssocks5_base_t {
+public:
+  using digit_casinos_ssocks5_base_t::digit_casinos_ssocks5_base_t;
+  std::string hostname() const override { return "yy99345.am"; }
+  std::string fqn() const override { return "https://yy99345.am"; }
+};
+
 } // namespace wudi_server

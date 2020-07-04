@@ -2,9 +2,7 @@
 
 #include "auto_home_socks5_sock.hpp"
 #include "digit_casinos_socks5_https.hpp"
-#include "grand_lisboa_socket.hpp"
 #include "jjgames_socket.hpp"
-#include "lisboa_macau_socket.hpp"
 #include "macau_baccarat_socket.hpp"
 #include "pc_auto_socket.hpp"
 #include "qunar_socket.hpp"
