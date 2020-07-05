@@ -127,4 +127,11 @@ public:
   std::string fqn() const override { return "http://s32689.net"; }
 };
 
+class macau_baccarat_http_socket_t : public digit_casinos_http_base_t {
+public:
+  using digit_casinos_http_base_t::digit_casinos_http_base_t;
+  std::string hostname() const override { return "55222077.com:443"; }
+  std::string fqn() const override { return "https://55222077.com"; }
+};
+
 } // namespace wudi_server

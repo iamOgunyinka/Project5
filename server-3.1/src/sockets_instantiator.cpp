@@ -5,7 +5,6 @@
 #include "chinese_macau_socket.hpp"
 #include "digit_casinos_http_base.hpp"
 #include "jjgames_socket.hpp"
-#include "macau_baccarat_socket.hpp"
 #include "pc_auto_socket.hpp"
 #include "pp_sports.hpp"
 #include "qunar_socket.hpp"
@@ -78,9 +77,6 @@ std::unique_ptr<sockets_interface> http_socket_factory_t::get_http_socket(
                                       number_stream, per_ip);
   case website_type_e::DevilsHorn:
     return std::make_unique<devils_horn_socket_http_t>(
-        is_stopped, io_context, proxy_provider, number_stream, per_ip);
-  case website_type_e::DragonFish:
-    return std::make_unique<dragon_fish_socket_http_t>(
         is_stopped, io_context, proxy_provider, number_stream, per_ip);
   case website_type_e::FourtyFour:
     return std::make_unique<fourty_four_socket_http_t>(

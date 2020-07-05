@@ -62,20 +62,20 @@ void digit_casinos_socks5_base_t::data_received(beast::error_code ec,
     std::size_t const closing_brace_index = body.find_last_of('}');
 
     if (status_code != 200 || opening_brace_index == std::string::npos) {
-      signal_(search_result_type_e::Unknown, current_number_);
-      return send_next();
+      current_proxy_assign_prop(proxy_base_t::Property::ProxyUnresponsive);
+      return this->choose_next_proxy();
     } else {
       if (closing_brace_index == std::string::npos) {
-        signal_(search_result_type_e::Unknown, current_number_);
-        return send_next();
+        current_proxy_assign_prop(proxy_base_t::Property::ProxyUnresponsive);
+        return choose_next_proxy();
       } else {
         body = std::string(body.begin() + opening_brace_index,
                            body.begin() + closing_brace_index + 1);
         try {
           document = json::parse(body);
         } catch (std::exception const &) {
-          signal_(search_result_type_e::Unknown, current_number_);
-          return send_next();
+          current_proxy_assign_prop(proxy_base_t::Property::ProxyUnresponsive);
+          return this->choose_next_proxy();
         }
       }
     }

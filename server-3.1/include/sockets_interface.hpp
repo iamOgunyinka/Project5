@@ -83,7 +83,6 @@ enum class website_type_e {
   JSThree,
   SugarRaise,
   TigerFortress,
-  DragonFish,
   Lebo
 };
 

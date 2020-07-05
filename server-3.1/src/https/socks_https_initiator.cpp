@@ -3,7 +3,6 @@
 #include "auto_home_socks5_sock.hpp"
 #include "digit_casinos_socks5_https.hpp"
 #include "jjgames_socket.hpp"
-#include "macau_baccarat_socket.hpp"
 #include "pc_auto_socket.hpp"
 #include "qunar_socket.hpp"
 #include "sockets_interface.hpp"
@@ -58,10 +57,6 @@ http_socket_factory_t::get_socks5_https_socket(
                                                  number_stream, per_ip);
   case website_type_e::Lottery81:
     return std::make_unique<lottery81_socket_socks5_t>(
-        ssl_context, is_stopped, io_context, proxy_provider, number_stream,
-        per_ip);
-  case website_type_e::DragonFish:
-    return std::make_unique<dragon_fish_socket_socks5_t>(
         ssl_context, is_stopped, io_context, proxy_provider, number_stream,
         per_ip);
   default:
