@@ -12,7 +12,7 @@
         "per_fetch": 10,
         "protocol": 0,
         "share": true,
-        "socket_count": 5,
+        "socket_count": 1,
         "target": "http://pandavip.xiongmaodaili.com/xiongmao-web/vip/gbip?secret=396fa68ee02931067d5634656f24b07c&orderNo=VGB20200617173021FieohvtL&count=10&isTxt=1&proxyType=2",
         "username": ""
     },

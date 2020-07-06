@@ -99,4 +99,39 @@ public:
   std::string fqn() const override { return "http://302409.com"; }
 };
 
+class grand_lisboa_http_socket_t : public digit_casinos_http_base_t {
+public:
+  using digit_casinos_http_base_t::digit_casinos_http_base_t;
+  std::string hostname() const override { return "11333xpj.com:8787"; }
+  std::string fqn() const override { return "https://11333xpj.com:8787"; }
+};
+
+class lisboa_macau_http_socket_t : public digit_casinos_http_base_t {
+public:
+  using digit_casinos_http_base_t::digit_casinos_http_base_t;
+  std::string hostname() const override { return "yy99345.am:443"; }
+  std::string fqn() const override { return "https://yy99345.am"; }
+};
+
+class wines_http_socket_t : public digit_casinos_http_base_t {
+public:
+  using digit_casinos_http_base_t::digit_casinos_http_base_t;
+  std::string hostname() const override { return "wnsr9488.com:80"; }
+  std::string fqn() const override { return "http://wnsr9488.com"; }
+};
+
+class xpuji_http_socket_t : public digit_casinos_http_base_t {
+public:
+  using digit_casinos_http_base_t::digit_casinos_http_base_t;
+  std::string hostname() const override { return "s32689.net:80"; }
+  std::string fqn() const override { return "http://s32689.net"; }
+};
+
+class macau_baccarat_http_socket_t : public digit_casinos_http_base_t {
+public:
+  using digit_casinos_http_base_t::digit_casinos_http_base_t;
+  std::string hostname() const override { return "55222077.com:443"; }
+  std::string fqn() const override { return "https://55222077.com"; }
+};
+
 } // namespace wudi_server

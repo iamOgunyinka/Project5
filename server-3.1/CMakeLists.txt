@@ -63,53 +63,41 @@ message("${PROJECT_NAME}: CURR BIN DIR: ${CMAKE_CURRENT_BINARY_DIR}")
 
 # Source Files
 set(SRC_FILES
-    ./src/auto_home_http_sock.cpp
-    ./src/auto_home_socks5_sock.cpp
+    ./src/http/auto_home_http_sock.cpp
+    ./src/http/digit_casinos_http_base.cpp
+    ./src/http/digit_casinos_socks5_http.cpp
+    ./src/http/pp_sports.cpp
+    ./src/https/auto_home_socks5_sock.cpp
+    ./src/https/chinese_macau_socket.cpp
+    ./src/https/digit_casinos_socks5_https.cpp
+    ./src/https/jjgames_socket.cpp
+    ./src/https/macau_baccarat_socket.cpp
+    ./src/https/pc_auto_socket.cpp
+    ./src/https/qunar_socket.cpp
+    ./src/https/sun_city_socket.cpp
     ./src/backgroundworker.cpp
-    ./src/chinese_macau_socket.cpp
     ./src/database_connector.cpp
-    ./src/grand_lisboa_socket.cpp
-    ./src/jjgames_socket.cpp
-    ./src/lisboa_macau_socket.cpp
-    ./src/macau_baccarat_socket.cpp
     ./src/number_stream.cpp
-    ./src/pc_auto_socket.cpp
-    ./src/pp_sports.cpp
-    ./src/qunar_socket.cpp
     ./src/safe_proxy.cpp
     ./src/server.cpp
     ./src/session.cpp
-    ./src/sun_city_socket.cpp
     ./src/utilities.cpp
-    ./src/wines_socket.cpp
-    ./src/xpuji_socket.cpp
     ./src/worker.cpp
     ./src/sockets_instantiator.cpp
-    ./src/socks_initiator.cpp
+    ./src/https/socks_https_initiator.cpp
+    ./src/http/socks_http_initiator.cpp
     ./main.cpp
 )
 source_group("Sources" FILES ${SRC_FILES})
 
 # Header Files
 set(HEADERS_FILES
-    ./include/auto_home_http_sock.hpp
-    ./include/auto_home_socks5_sock.hpp
     ./include/backgroundworker.hpp
-    ./include/custom_timed_socket.hpp
     ./include/database_connector.hpp
-    ./include/fields_alloc.hpp
-    ./include/http_socket_base.hpp
-    ./include/jjgames_socket.hpp
     ./include/number_stream.hpp
-    ./include/pp_sports.hpp
-    ./include/protocol.hpp
-    ./include/qunar_socket.hpp
     ./include/safe_proxy.hpp
     ./include/server.hpp
     ./include/session.hpp
-    ./include/sockets_interface.hpp
-    ./include/socks5_http_socket_base.hpp
-    ./include/socks5_https_socket_base.hpp
     ./include/utilities.hpp
     ./include/worker.hpp
 )

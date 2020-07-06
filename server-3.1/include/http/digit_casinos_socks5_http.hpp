@@ -79,4 +79,18 @@ public:
   std::string fqn() const override { return "http://302409.com.com"; }
 };
 
+class wines_socks5_socket_t : public digit_casinos_socks5_base_t {
+public:
+  using digit_casinos_socks5_base_t::digit_casinos_socks5_base_t;
+  std::string hostname() const override { return "wnsr9488.com"; }
+  std::string fqn() const override { return "http://wnsr9488.com"; }
+};
+
+class xpuji_socks5_socket_t : public digit_casinos_socks5_base_t {
+public:
+  using digit_casinos_socks5_base_t::digit_casinos_socks5_base_t;
+  std::string hostname() const override { return "s32689.net"; }
+  std::string fqn() const override { return "http://s32689.net"; }
+};
+
 } // namespace wudi_server

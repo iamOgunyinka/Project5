@@ -400,8 +400,6 @@ website_type_e get_website_type(std::string const &web_address) {
     return website_type_e::SugarRaise;
   } else if (web_address.find("tiger") != std::string::npos) {
     return website_type_e::TigerFortress;
-  } else if (web_address.find("dragon") != std::string::npos) {
-    return website_type_e::DragonFish;
   } else if (web_address.find("lebo") != std::string::npos) {
     return website_type_e::Lebo;
   }

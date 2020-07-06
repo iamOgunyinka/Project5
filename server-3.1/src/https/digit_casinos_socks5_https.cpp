@@ -55,13 +55,49 @@ void digit_casinos_ssocks5_base_t::data_received(beast::error_code ec,
     return this->connect();
   }
 
-  static char const *const not_registered = "\"success\":true,\"Code\":1";
-  static char const *const registered = "\"success\":true,\"Code\":0";
-  if (response_.body().find(not_registered) != std::string::npos) {
-    signal_(search_result_type_e::NotRegistered, current_number_);
-  } else if (response_.body().find(registered) != std::string::npos) {
-    signal_(search_result_type_e::Registered, current_number_);
-  } else {
+  auto &body{response_.body()};
+  json document;
+  try {
+    document = json::parse(body);
+  } catch (std::exception const &) {
+    std::size_t const opening_brace_index = body.find_last_of('{');
+    std::size_t const closing_brace_index = body.find_last_of('}');
+
+    if (status_code != 200 || opening_brace_index == std::string::npos) {
+      current_proxy_assign_prop(proxy_base_t::Property::ProxyUnresponsive);
+      return this->choose_next_proxy();
+    } else {
+      if (closing_brace_index == std::string::npos) {
+        current_proxy_assign_prop(proxy_base_t::Property::ProxyUnresponsive);
+        return choose_next_proxy();
+      } else {
+        body = std::string(body.begin() + opening_brace_index,
+                           body.begin() + closing_brace_index + 1);
+        try {
+          document = json::parse(body);
+        } catch (std::exception const &) {
+          current_proxy_assign_prop(proxy_base_t::Property::ProxyUnresponsive);
+          return this->choose_next_proxy();
+        }
+      }
+    }
+  }
+  try {
+    auto object = document.get<json::object_t>();
+    bool const succeeded = object["success"].get<json::boolean_t>();
+    auto const code = object["Code"].get<json::number_integer_t>();
+    if (succeeded) {
+      if (code == 1) {
+        signal_(search_result_type_e::NotRegistered, current_number_);
+      } else if (code == 0) {
+        signal_(search_result_type_e::Registered, current_number_);
+      } else {
+        signal_(search_result_type_e::Unknown, current_number_);
+      }
+    } else {
+      signal_(search_result_type_e::Unknown, current_number_);
+    }
+  } catch (std::exception const &) {
     signal_(search_result_type_e::Unknown, current_number_);
     current_proxy_assign_prop(proxy_base_t::Property::ProxyUnresponsive);
     return this->choose_next_proxy();

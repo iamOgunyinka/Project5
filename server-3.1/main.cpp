@@ -38,7 +38,7 @@ int main(int argc, char *argv[]) {
 
   global_proxy_repo_t global_proxy_provider{};
   boost::asio::ssl::context ssl_context(
-      boost::asio::ssl::context::tlsv11_client);
+      boost::asio::ssl::context::tlsv12_client);
   ssl_context.set_default_verify_paths();
   ssl_context.set_verify_mode(boost::asio::ssl::verify_none);
   {
