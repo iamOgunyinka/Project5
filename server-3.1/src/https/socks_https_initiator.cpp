@@ -2,6 +2,7 @@
 
 #include "auto_home_socks5_sock.hpp"
 #include "digit_casinos_socks5_https.hpp"
+#include "fafa77_socks5_socket.hpp"
 #include "jjgames_socket.hpp"
 #include "pc_auto_socket.hpp"
 #include "qunar_socket.hpp"
@@ -18,6 +19,7 @@ using lbm_sk5 = lisboa_macau_socks5_socket_t;
 using glsb_sk5 = grand_lisboa_socks5_socket_t;
 using sun_city_sk5 = sun_city_socks5_socket_t;
 using mbs_sk5 = macau_baccarat_socks5_socket_t;
+using fafa_sk5 = fafa77_socks5_socket_t;
 
 std::unique_ptr<sockets_interface>
 http_socket_factory_t::get_socks5_https_socket(
@@ -59,6 +61,9 @@ http_socket_factory_t::get_socks5_https_socket(
     return std::make_unique<lottery81_socket_socks5_t>(
         ssl_context, is_stopped, io_context, proxy_provider, number_stream,
         per_ip);
+  case website_type_e::Fafa77:
+    return std::make_unique<fafa_sk5>(ssl_context, is_stopped, io_context,
+                                      proxy_provider, number_stream, per_ip);
   default:
     return get_socks5_http_socket(web_type, is_stopped, io_context,
                                   proxy_provider, number_stream, per_ip);

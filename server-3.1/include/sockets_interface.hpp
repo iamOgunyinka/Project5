@@ -83,7 +83,8 @@ enum class website_type_e {
   JSThree,
   SugarRaise,
   TigerFortress,
-  Lebo
+  Lebo,
+  Fafa77
 };
 
 } // namespace wudi_server

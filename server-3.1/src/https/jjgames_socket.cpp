@@ -1,5 +1,4 @@
 #include "jjgames_socket.hpp"
-#include <spdlog/spdlog.h>
 
 namespace wudi_server {
 using namespace fmt::v6::literals;

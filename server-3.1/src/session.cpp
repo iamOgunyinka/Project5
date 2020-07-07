@@ -497,10 +497,12 @@ void session_t::download_handler(string_request_t const &request,
     std::vector<uint32_t> website_ids{};
     task_ids.reserve(user_task_ids.size());
     for (auto const &user_task_id : user_task_ids) {
-      task_ids.push_back(user_task_id.get<json::number_integer_t>());
+      task_ids.push_back(
+          static_cast<uint32_t>(user_task_id.get<json::number_integer_t>()));
     }
     for (auto const &user_website_id : user_website_ids) {
-      website_ids.push_back(user_website_id.get<json::number_integer_t>());
+      website_ids.push_back(
+          static_cast<uint32_t>(user_website_id.get<json::number_integer_t>()));
     }
     if (!(db_connector->get_stopped_tasks(task_ids, tasks) &&
           db_connector->get_completed_tasks(task_ids, tasks))) {
@@ -620,7 +622,8 @@ void session_t::remove_tasks_handler(string_request_t const &req,
     std::vector<uint32_t> tasks{};
     tasks.reserve(user_specified_tasks.size());
     for (auto const &task : user_specified_tasks) {
-      tasks.emplace_back(task.get<json::number_integer_t>());
+      tasks.emplace_back(
+          static_cast<uint32_t>(task.get<json::number_integer_t>()));
     }
     [[maybe_unused]] auto stopped_tasks = stop_running_tasks_impl(tasks, false);
     delete_stopped_tasks_impl(tasks);
@@ -648,10 +651,10 @@ void session_t::proxy_config_handler(string_request_t const &request,
       // if this throws, the JSON file is not valid.
       json::object_t root = json::parse(request.body()).get<json::object_t>();
       json::object_t proxy_object = root["proxy"].get<json::object_t>();
-      int const interval_between_fetch =
-          proxy_object["fetch_interval"].get<json::number_integer_t>();
-      int const software_version =
-          root["client_version"].get<json::number_integer_t>();
+      int const interval_between_fetch = static_cast<int>(
+          proxy_object["fetch_interval"].get<json::number_integer_t>());
+      int const software_version = static_cast<int>(
+          root["client_version"].get<json::number_integer_t>());
       auto &current_interval = utilities::proxy_fetch_interval();
       if (current_interval != interval_between_fetch) {
         current_interval = interval_between_fetch;
@@ -828,7 +831,8 @@ void session_t::restart_tasks_handler(string_request_t const &request,
     std::vector<uint32_t> task_list{};
     task_list.reserve(user_task_list.size());
     for (auto const &user_task_id : user_task_list) {
-      task_list.push_back(user_task_id.get<json::number_integer_t>());
+      task_list.push_back(
+          static_cast<uint32_t>(user_task_id.get<json::number_integer_t>()));
     }
     using utilities::restart_tasks;
 
@@ -864,8 +868,8 @@ void session_t::schedule_task_handler(string_request_t const &request,
       auto &tasks{get_scheduled_tasks()};
       using utilities::atomic_task_t;
       utilities::scheduled_task_t task{};
-      task.total_numbers = total;
-      task.scans_per_ip = per_ip;
+      task.total_numbers = static_cast<uint32_t>(total);
+      task.scans_per_ip = static_cast<uint32_t>(per_ip);
       task.scheduled_dt =
           static_cast<int>(task_object["date"].get<json::number_integer_t>());
       task.scheduler_id = static_cast<int>(
@@ -875,7 +879,8 @@ void session_t::schedule_task_handler(string_request_t const &request,
             static_cast<int>(number_id.get<json::number_integer_t>()));
       }
       for (auto const &website_id : websites_ids) {
-        task.website_id = website_id.get<json::number_integer_t>();
+        task.website_id =
+            static_cast<uint32_t>(website_id.get<json::number_integer_t>());
         if (!database_connector_t::s_get_db_connector()->add_task(task)) {
           return error_handler(server_error(
               "unable to schedule task", error_type_e::ServerError, request));
