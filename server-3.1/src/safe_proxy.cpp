@@ -37,12 +37,12 @@ void global_proxy_repo_t::background_proxy_fetcher(
     std::promise<http_result_t> http_result_promise{};
     auto result_future = http_result_promise.get_future();
 
-    std::optional<timed_socket> custom_socket{std::in_place, io_context,
-                                              info_posted.url, timeout_sec,
-                                              std::move(http_result_promise)};
+    auto custom_socket =
+        std::make_unique<timed_socket>(io_context, info_posted.url, timeout_sec,
+                                       std::move(http_result_promise));
     custom_socket->start();
     try {
-      auto const status = result_future.wait_for(std::chrono::seconds(30));
+      auto const status = result_future.wait_for(std::chrono::seconds(60));
 
       if (status == std::future_status::timeout) {
         custom_socket.reset();
@@ -120,15 +120,15 @@ extraction_data_t proxy_base_t::get_remain_count() {
       // for unknown and most likely insane reasons, the server returns some
       // data as both integers and strings
       try {
-        data.connect_remain =
-            data_item["remain_connect"].get<json::number_integer_t>();
+        data.connect_remain = static_cast<int>(
+            data_item["remain_connect"].get<json::number_integer_t>());
       } catch (std::exception const &) {
         data.connect_remain =
             std::stoi(data_item["remain_connect"].get<json::string_t>());
       }
       try {
-        data.extract_remain =
-            data_item["remain_extract"].get<json::number_integer_t>();
+        data.extract_remain = static_cast<int>(
+            data_item["remain_extract"].get<json::number_integer_t>());
       } catch (std::exception const &) {
         data.extract_remain =
             std::stoi(data_item["remain_extract"].get<json::string_t>());
@@ -137,7 +137,8 @@ extraction_data_t proxy_base_t::get_remain_count() {
         data.product_remain =
             std::stoi(data_item["remain"].get<json::string_t>());
       } catch (std::exception const &) {
-        data.product_remain = data_item["remain"].get<json::number_integer_t>();
+        data.product_remain =
+            static_cast<int>(data_item["remain"].get<json::number_integer_t>());
       }
       proxy_extract_info.push_back(data);
     }
@@ -173,25 +174,25 @@ void split_ips(std::vector<std::string> &out, std::string const &str) {
 
 void proxy_base_t::get_more_proxies() {
 
-  auto &promises = global_proxy_repo_t::get_promise_container();
+  auto &post_office = global_proxy_repo_t::get_promise_container();
   std::vector<custom_endpoint_t> new_eps{};
 
   try {
     if (!confirm_count_ || current_extracted_data_.extract_remain > 0) {
 
-      posted_data_t post_office{param_.config_.proxy_target, {}};
-      auto future = post_office.promise.get_future();
-      promises.push_back(std::move(post_office));
+      posted_data_t letter{param_.config_.proxy_target, {}};
+      auto future = letter.promise.get_future();
+      post_office.push_back(std::move(letter));
 
-      // wait for 2 minutes, 30 seconds max
-      auto const wait_status = future.wait_for(std::chrono::seconds(150));
+      // wait for 5 minutes max
+      auto const wait_status = future.wait_for(std::chrono::minutes(5));
       if (wait_status == std::future_status::timeout) {
         has_error_ = true;
         return;
       }
 
       auto const result = future.get();
-      int const status_code = result.status_code;
+      auto const status_code = result.status_code;
       auto &response_body = result.response_body;
 
       if (status_code != 200) {
@@ -481,8 +482,8 @@ std::optional<proxy_configuration_t> read_proxy_configuration() {
     auto available_protocols =
         proxy_field["#available_protocols"].get<json::array_t>();
 
-    proxy_config->software_version =
-        root_object["client_version"].get<json::number_integer_t>();
+    proxy_config->software_version = static_cast<int>(
+        root_object["client_version"].get<json::number_integer_t>());
     std::size_t const highest_index = available_protocols.size();
     std::size_t const protocol_index =
         proxy_field["protocol"].get<json::number_integer_t>();
@@ -494,12 +495,12 @@ std::optional<proxy_configuration_t> read_proxy_configuration() {
     proxy_config->proxy_password =
         proxy_field["password"].get<json::string_t>();
     proxy_config->share_proxy = proxy_field["share"].get<json::boolean_t>();
-    proxy_config->max_socket =
-        proxy_field["socket_count"].get<json::number_integer_t>();
-    proxy_config->fetch_once =
-        proxy_field["per_fetch"].get<json::number_integer_t>();
-    proxy_config->fetch_interval =
-        proxy_field["fetch_interval"].get<json::number_integer_t>();
+    proxy_config->max_socket = static_cast<int>(
+        proxy_field["socket_count"].get<json::number_integer_t>());
+    proxy_config->fetch_once = static_cast<int>(
+        proxy_field["per_fetch"].get<json::number_integer_t>());
+    proxy_config->fetch_interval = static_cast<int>(
+        proxy_field["fetch_interval"].get<json::number_integer_t>());
     if (protocol_index >= highest_index)
       return std::nullopt;
     switch (protocol_index) {

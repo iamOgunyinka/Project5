@@ -162,8 +162,8 @@ void swap(custom_endpoint_t &a, custom_endpoint_t &b);
 
 class global_proxy_repo_t {
   struct proxy_unique_info {
-    std::uint32_t web_id{};
-    std::uint32_t proxy_count{};
+    std::size_t web_id{};
+    std::size_t proxy_count{};
   };
 
 public:

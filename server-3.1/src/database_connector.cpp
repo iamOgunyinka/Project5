@@ -218,7 +218,7 @@ bool database_connector_t::add_task(utilities::scheduled_task_t &task) {
 
 bool database_connector_t::update_task_progress(
     utilities::internal_task_result_t const &task,
-    uint32_t const total_ip_used) {
+    std::size_t const total_ip_used) {
   std::string const sql_statement =
       "UPDATE tb_tasks SET status={}, processed={}, ok_count={}, "
       "not_ok_count={}, unknown_count={}, ip_used={} WHERE "

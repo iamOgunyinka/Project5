@@ -121,7 +121,8 @@ task_status_e background_worker_t::start_operations() {
       task_result_ptr_->operation_status = task_status_e::Stopped;
     }
   }
-  task_result_ptr_->ip_used = proxy_provider_->total_used();
+  task_result_ptr_->ip_used =
+      static_cast<uint32_t>(proxy_provider_->total_used());
   return task_result_ptr_->operation_status;
 }
 
@@ -402,6 +403,8 @@ website_type_e get_website_type(std::string const &web_address) {
     return website_type_e::TigerFortress;
   } else if (web_address.find("lebo") != std::string::npos) {
     return website_type_e::Lebo;
+  } else if (web_address.find("fafa77") != std::string::npos) {
+    return website_type_e::Fafa77;
   }
 
   return website_type_e::Unknown;
