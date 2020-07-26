@@ -1,5 +1,9 @@
 #include "digit_casinos_http_base.hpp"
 
+#ifdef _DEBUG
+#include <iostream>
+#endif
+
 namespace wudi_server {
 
 void digit_casinos_http_base_t::prepare_request_data(
@@ -55,6 +59,11 @@ void digit_casinos_http_base_t::data_received(beast::error_code ec,
   }
 
   auto &body{response_.body()};
+
+#ifdef _DEBUG
+  std::cout << body << std::endl;
+#endif //  _DEBUG
+
   json document;
   try {
     document = json::parse(body);
