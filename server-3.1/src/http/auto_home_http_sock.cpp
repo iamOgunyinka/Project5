@@ -1,10 +1,11 @@
-#include "auto_home_http_sock.hpp"
+﻿#include "auto_home_http_sock.hpp"
 #include "safe_proxy.hpp"
 
 namespace wudi_server {
 void auto_home_http_socket_t::prepare_request_data(
     bool use_authentication_header) {
-  char const *address = "https://account.autohome.com.cn/AccountApi/CheckPhone";
+  char const *address =
+      "https://account.autohome.com.cn/password/checkusername";
   request_.clear();
   request_.method(http::verb::post);
   request_.version(11);
@@ -18,13 +19,14 @@ void auto_home_http_socket_t::prepare_request_data(
   request_.set(http::field::cache_control, "no-cache");
   request_.set(http::field::user_agent, utilities::get_random_agent());
   request_.set(http::field::accept, "*/*");
-  request_.set(http::field::referer,
-               "https://account.autohome.com.cn/register");
+  request_.set(
+      http::field::referer,
+      "https://account.autohome.com.cn/password/find?backurl=https%253A"
+      "%252F%252Fwww.autohome.com.cn%252Fbeijing%252F");
   request_.keep_alive(true);
   request_.set(http::field::content_type,
                "application/x-www-form-urlencoded; charset=UTF-8");
-  request_.body() =
-      "isOverSea=0&phone=" + current_number_ + "&validcodetype=1&";
+  request_.body() = "username=" + current_number_ + "&usertype=2&";
   request_.prepare_payload();
 }
 
@@ -83,23 +85,15 @@ void auto_home_http_socket_t::data_received(beast::error_code ec,
     }
   }
 
-  try {
-    json::object_t object = document.get<json::object_t>();
-    if (object.find("success") != object.end()) {
-      std::string const msg = object["Msg"].get<json::string_t>();
-      if (msg == "Msg.MobileExist" || msg == "MobileExist") {
-        signal_(search_result_type_e::Registered, current_number_);
-      } else if (msg == "Msg.MobileSuccess" || msg == "MobileSuccess") {
-        signal_(search_result_type_e::NotRegistered, current_number_);
-      } else if (msg == "Msg.MobileNotExist" || msg == "MobileNotExist") {
-        signal_(search_result_type_e::Registered, current_number_);
-      } else {
-        signal_(search_result_type_e::Registered, current_number_);
-      }
-    } else {
-      signal_(search_result_type_e::Unknown, current_number_);
-    }
-  } catch (...) {
+  static auto const not_found_str =
+      u8"\"returncode\":2010203,\"message\":\"该用户名不存在\"";
+  static char const *const found_str = "\"returncode\":0";
+
+  if (body.find(not_found_str) != std::string::npos) {
+    signal_(search_result_type_e::NotRegistered, current_number_);
+  } else if (body.find(found_str) != std::string::npos) {
+    signal_(search_result_type_e::Registered, current_number_);
+  } else {
     signal_(search_result_type_e::Unknown, current_number_);
   }
   current_number_.clear();

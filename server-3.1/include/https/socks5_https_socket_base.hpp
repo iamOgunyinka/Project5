@@ -192,7 +192,8 @@ void socks5_https_socket_base_t<Derived>::on_first_handshake_response_received(
     auto &password = current_proxy_->password();
     auto const username_length = static_cast<uint8_t>(username.size());
     auto const password_length = static_cast<uint8_t>(password.size());
-    std::size_t const buffers_to_write = username_length + password_length + 3;
+    std::size_t const buffers_to_write = (std::size_t)username_length + 
+        password_length + 3;
 
     handshake_buffer.reserve(buffers_to_write);
 
