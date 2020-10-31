@@ -11,7 +11,6 @@ void auto_home_socks5_socket_t::prepare_request_data(
   request_.version(11);
   request_.set(http::field::connection, "keep-alive");
   request_.set(http::field::host, hostname());
-  request_.set(http::field::cache_control, "no-cache");
   request_.set(http::field::accept, "*/*");
   if (user_agent.empty()) {
     user_agent = utilities::get_random_agent();
@@ -62,14 +61,15 @@ void auto_home_socks5_socket_t::data_received(beast::error_code ec,
   }
 
   std::size_t const status_code = response_.result_int();
+
   // check if we've been redirected, most likely due to IP ban
   if (status_in_codes(status_code, redirect_codes)) {
-    request_type = request_type_e::GetRequest;
     this->current_proxy_assign_prop(proxy_base_t::Property::ProxyBlocked);
     return this->choose_next_proxy();
   }
   if (status_code == 400) {
-    return signal_(search_result_type_e::RequestStop, current_number_);
+    return this->choose_next_proxy();
+    //return signal_(search_result_type_e::RequestStop, current_number_);
   }
   if (status_code == 407) {
     this->set_authentication_header();
@@ -77,7 +77,8 @@ void auto_home_socks5_socket_t::data_received(beast::error_code ec,
   }
 
   if (request_type == request_type_e::GetRequest) {
-    return process_get_response(response_[http::field::set_cookie]);
+    auto const cookie = response_[http::field::set_cookie];
+    return process_get_response(cookie);
   }
   auto &body{response_.body()};
   return process_post_response(body);
@@ -128,6 +129,10 @@ void auto_home_socks5_socket_t::process_get_response(
     user_agent.clear();
     session_id.clear();
     this->current_proxy_assign_prop(proxy_base_t::Property::ProxyBlocked);
+    if (request_.method() == http::verb::post) {
+      request_type = request_type_e::GetRequest;
+      prepare_request_data(false);
+    }
     return this->choose_next_proxy();
   }
   ++session_id_request_count;
