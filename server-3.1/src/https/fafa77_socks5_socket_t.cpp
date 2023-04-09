@@ -87,7 +87,7 @@ void fafa77_socks5_socket_t::extract_bearer_token(std::string const &str) {
   auto const bearer_token_end = str.find('"', content_index);
   bearer_token = std::string(str.cbegin() + content_index,
                              str.cbegin() + bearer_token_end);
-  session_cookie = response_[http::field::set_cookie].to_string();
+  session_cookie = response_[http::field::set_cookie];
   auto const first_cookie_pos = session_cookie.find(';');
   if (first_cookie_pos != std::string::npos) {
     session_cookie.erase(session_cookie.begin() + first_cookie_pos,

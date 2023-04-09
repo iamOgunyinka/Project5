@@ -209,8 +209,9 @@ void proxy_base_t::get_more_proxies() {
       new_eps.reserve(param_.config_.fetch_once);
       spdlog::info("Grabbed {} proxies", ips.size());
       for (auto const &line : ips) {
-        if (line.empty())
+        if (line.empty()){
           continue;
+	}
         std::istringstream ss{line};
         std::string ip_address{};
         std::string username{};

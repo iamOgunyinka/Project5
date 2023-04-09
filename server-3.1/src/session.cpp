@@ -267,7 +267,7 @@ void session_t::login_handler(string_request_t const &request,
   }
 
   try {
-    auto const software_version = request["X-Version-Number"].to_string();
+    std::string const software_version = request["X-Version-Number"];
     if (software_version.empty()) {
       return error_handler(upgrade_required(request));
     }

@@ -192,8 +192,8 @@ void socks5_https_socket_base_t<Derived>::on_first_handshake_response_received(
     auto &password = current_proxy_->password();
     auto const username_length = static_cast<uint8_t>(username.size());
     auto const password_length = static_cast<uint8_t>(password.size());
-    std::size_t const buffers_to_write = (std::size_t)username_length + 
-        password_length + 3;
+    std::size_t const buffers_to_write =
+        (std::size_t)username_length + password_length + 3;
 
     handshake_buffer.reserve(buffers_to_write);
 
@@ -425,9 +425,16 @@ void socks5_https_socket_base_t<Derived>::perform_ssl_handshake() {
 }
 
 template <typename Derived>
-void socks5_https_socket_base_t<Derived>::on_ssl_handshake(error_code ec) {
+void socks5_https_socket_base_t<Derived>::on_ssl_handshake(
+    error_code const ec) {
   if (ec.category() == net::error::get_ssl_category() &&
-      ec.value() == ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SHORT_READ)) {
+#ifdef SSL_R_SHORT_READ
+      ec.value() == ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SHORT_READ)
+#else
+      // OpenSSL 1.1.0
+      ec.value() == boost::asio::ssl::error::stream_truncated
+#endif
+  ) {
     return send_https_data();
   }
   if (ec) {

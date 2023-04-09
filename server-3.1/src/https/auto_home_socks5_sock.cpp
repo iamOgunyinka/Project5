@@ -69,7 +69,7 @@ void auto_home_socks5_socket_t::data_received(beast::error_code ec,
   }
   if (status_code == 400) {
     return this->choose_next_proxy();
-    //return signal_(search_result_type_e::RequestStop, current_number_);
+    // return signal_(search_result_type_e::RequestStop, current_number_);
   }
   if (status_code == 407) {
     this->set_authentication_header();
@@ -146,8 +146,7 @@ void auto_home_socks5_socket_t::process_get_response(
     return this->choose_next_proxy();
   }
   auto const end_of_cookie_index = session_id_cookie.find(';', index + length);
-  session_id =
-      session_id_cookie.substr(index, end_of_cookie_index - index).to_string();
+  session_id = session_id_cookie.substr(index, end_of_cookie_index - index);
 
   request_type = request_type_e::PostRequest;
   prepare_request_data(false);
