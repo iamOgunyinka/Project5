@@ -82,7 +82,7 @@ message("${PROJECT_NAME}: CURR BIN DIR: ${CMAKE_CURRENT_BINARY_DIR}")
 
 
 link_directories(/usr/lib)
-link_libraries(pthread ssl crypto odbc z stdc++fs zip)
+link_libraries(pthread ssl crypto odbc z stdc++fs)
 
 # Outputs
 set(OUTPUT_DEBUG ${PROJECT_DIR}/bin)
