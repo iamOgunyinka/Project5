@@ -2,46 +2,44 @@
 
 #include <memory>
 
-namespace boost {
-namespace asio {
+namespace boost::asio {
 class io_context;
 namespace ssl {
-
 class context;
-}
-} // namespace asio
-} // namespace boost
+} // namespace ssl
+} // namespace boost::asio
 
-namespace wudi_server {
-namespace ssl = boost::asio::ssl;
+namespace woody_server {
 namespace net = boost::asio;
+namespace ssl = net::ssl;
 
-enum class website_type_e;
-
+// forward declarations
+enum class supported_websites_e;
 enum class proxy_type_e;
+
 class proxy_base_t;
 class number_stream_t;
-class sockets_interface;
+class socket_interface_t;
 
-struct socket_instantiator {
-  static std::unique_ptr<sockets_interface>
-  get_socket(website_type_e, ssl::context &, proxy_type_e, bool &,
+struct socket_instantiator_t {
+  static std::unique_ptr<socket_interface_t>
+  get_socket(supported_websites_e, ssl::context &, proxy_type_e, bool &,
              net::io_context &, proxy_base_t &, number_stream_t &, int);
 };
 
 class http_socket_factory_t {
-  friend struct socket_instantiator;
-  static std::unique_ptr<sockets_interface>
-  get_http_socket(website_type_e, bool &, net::io_context &, proxy_base_t &,
-                  number_stream_t &, int);
+  friend struct socket_instantiator_t;
+  static std::unique_ptr<socket_interface_t>
+  get_http_socket(supported_websites_e, bool &, net::io_context &,
+                  proxy_base_t &, number_stream_t &, int);
 
-  static std::unique_ptr<sockets_interface>
-  get_socks5_https_socket(website_type_e, ssl::context &, bool &,
+  static std::unique_ptr<socket_interface_t>
+  get_socks5_https_socket(supported_websites_e, ssl::context &, bool &,
                           net::io_context &, proxy_base_t &, number_stream_t &,
                           int);
 
-  static std::unique_ptr<sockets_interface>
-  get_socks5_http_socket(website_type_e, bool &, net::io_context &,
+  static std::unique_ptr<socket_interface_t>
+  get_socks5_http_socket(supported_websites_e, bool &, net::io_context &,
                          proxy_base_t &, number_stream_t &, int);
 };
-} // namespace wudi_server
+} // namespace woody_server

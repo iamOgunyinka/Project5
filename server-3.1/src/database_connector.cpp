@@ -1,10 +1,10 @@
 #include "database_connector.hpp"
+#include "file_utils.hpp"
+#include <spdlog/spdlog.h>
 
-namespace wudi_server {
+namespace woody_server {
 
 using namespace fmt::v6::literals;
-using utilities::atomic_task_t;
-using utilities::task_result_t;
 
 otl_stream &operator>>(otl_stream &os, task_result_t &item) {
   return os >> item.id >> item.total >> item.task_status >>
@@ -13,12 +13,12 @@ otl_stream &operator>>(otl_stream &os, task_result_t &item) {
          item.ip_used;
 }
 
-otl_stream &operator>>(otl_stream &os, utilities::upload_result_t &item) {
+otl_stream &operator>>(otl_stream &os, upload_result_t &item) {
   return os >> item.upload_id >> item.filename >> item.total_numbers >>
          item.upload_date >> item.name_on_disk >> item.status;
 }
 
-otl_stream &operator>>(otl_stream &os, utilities::website_result_t &web) {
+otl_stream &operator>>(otl_stream &os, website_result_t &web) {
   return os >> web.id >> web.address >> web.alias;
 }
 
@@ -31,8 +31,8 @@ void log_sql_error(otl_exception const &exception) {
 
 db_config_t parse_database_file(std::string const &filename,
                                 std::string const &config_name) {
-  using utilities::split_string_view;
-  using utilities::view_to_string;
+  using utilities::splitStringView;
+  using utilities::stringViewToString;
 
   std::ifstream in_file{filename};
   if (!in_file)
@@ -41,7 +41,7 @@ db_config_t parse_database_file(std::string const &filename,
   bool found = false;
   db_config_t db_config{};
   while (std::getline(in_file, line)) {
-    if (line.size() < 1)
+    if (line.empty())
       continue;
     if (line[0] == '#' && line[1] == '~') { // new config
       if (found)
@@ -49,11 +49,11 @@ db_config_t parse_database_file(std::string const &filename,
       found = config_name == line.c_str() + 2;
       continue;
     } else if (found) {
-      auto name_pair = split_string_view(line, ":");
+      auto name_pair = splitStringView(line, ":");
       if (name_pair.size() != 2)
         continue;
 
-      std::string value = view_to_string(name_pair[1]);
+      std::string value = stringViewToString(name_pair[1]);
 
       if (name_pair[0] == "username")
         db_config.username = std::move(value);
@@ -156,17 +156,17 @@ database_connector_t::get_login_role(std::string_view const username,
   return id_role_pair;
 }
 
-bool database_connector_t::add_upload(
-    utilities::upload_request_t const &upload_request) {
-  using utilities::bv2sv;
+bool database_connector_t::add_upload(upload_request_t const &upload_request) {
+  using utilities::boostViewToStdStringView;
   std::string const sql_statement{
       "insert into tb_uploads (uploader_id, filename, upload_date, status,"
       "total_numbers, name_on_disk) VALUES( {}, \"{}\", \"{}\", 0, {}, "
-      "\"{}\" )"_format(bv2sv(upload_request.uploader_id),
-                        bv2sv(upload_request.upload_filename),
-                        bv2sv(upload_request.upload_date),
-                        upload_request.total_numbers,
-                        bv2sv(upload_request.name_on_disk))};
+      "\"{}\" )"_format(
+          boostViewToStdStringView(upload_request.uploader_id),
+          boostViewToStdStringView(upload_request.upload_filename),
+          boostViewToStdStringView(upload_request.upload_date),
+          upload_request.total_numbers,
+          boostViewToStdStringView(upload_request.name_on_disk))};
   try {
     {
       std::lock_guard<std::mutex> lock_g{db_mutex_};
@@ -180,12 +180,12 @@ bool database_connector_t::add_upload(
   }
 }
 
-bool database_connector_t::add_task(utilities::scheduled_task_t &task) {
-  using utilities::intlist_to_string;
-  using utilities::task_status_e;
-  using utilities::timet_to_string;
+bool database_connector_t::add_task(scheduled_task_t &task) {
+  using utilities::integerListToString;
+  using utilities::unixTimeToString;
+
   std::string time_str{};
-  std::size_t const count = timet_to_string(time_str, task.scheduled_dt);
+  std::size_t const count = unixTimeToString(time_str, task.scheduled_dt);
   if (count != std::string::npos) {
     time_str.resize(count);
   } else {
@@ -198,9 +198,8 @@ bool database_connector_t::add_task(utilities::scheduled_task_t &task) {
       "unknown_count, status, per_ip, ip_used) VALUES( {}, \"{}\", {},"
       "\"{}\", 0, {}, 0, 0, 0, {}, {}, 0)"_format(
           task.scheduler_id, time_str, task.website_id,
-          intlist_to_string(task.number_ids), task.total_numbers,
-          static_cast<int>(utilities::task_status_e::NotStarted),
-          task.scans_per_ip)};
+          integerListToString(task.number_ids), task.total_numbers,
+          static_cast<int>(task_status_e::NotStarted), task.scans_per_ip)};
   try {
     {
       std::lock_guard<std::mutex> lock_g{db_mutex_};
@@ -217,8 +216,7 @@ bool database_connector_t::add_task(utilities::scheduled_task_t &task) {
 }
 
 bool database_connector_t::update_task_progress(
-    utilities::internal_task_result_t const &task,
-    std::size_t const total_ip_used) {
+    internal_task_result_t const &task, std::size_t const total_ip_used) {
   std::string const sql_statement =
       "UPDATE tb_tasks SET status={}, processed={}, ok_count={}, "
       "not_ok_count={}, unknown_count={}, ip_used={} WHERE "
@@ -239,7 +237,7 @@ bool database_connector_t::update_task_progress(
 bool database_connector_t::save_stopped_task(atomic_task_t const &task) {
   std::string const sql_statement =
       "UPDATE tb_tasks SET ok_file='{}', ok2_file='{}', not_ok_file='{}', "
-      "unknown_file='{}', input_filename='{}', ok_count={}, not_ok_count={},"
+      "unknown_file='{}', inputFilename='{}', ok_count={}, not_ok_count={},"
       "unknown_count={} WHERE id={}"_format(
           task.ok_filename, task.ok2_filename, task.not_ok_filename,
           task.unknown_filename, task.input_filename, task.ok_count,
@@ -260,7 +258,7 @@ bool database_connector_t::save_stopped_task(atomic_task_t const &task) {
 bool database_connector_t::change_task_status(uint32_t const task_id,
                                               uint32_t const processed,
                                               uint32_t const ip_used,
-                                              utilities::task_status_e status) {
+                                              task_status_e status) {
   std::string const sql_statement =
       "UPDATE tb_tasks SET status={}, processed={}, ip_used={} WHERE "
       "id={}"_format(status, processed, ip_used, task_id);
@@ -277,12 +275,12 @@ bool database_connector_t::change_task_status(uint32_t const task_id,
 
 bool database_connector_t::add_erred_task(atomic_task_t &task) {
   std::string const task_sql_statement =
-      "UPDATE tb_tasks SET ok_file='{}', input_filename='{}',"
+      "UPDATE tb_tasks SET ok_file='{}', inputFilename='{}',"
       "not_ok_file='{}', unknown_file='{}', status={}, processed={}, "
       "ok2_file='{}' WHERE id={}"_format(
           task.ok_filename, task.input_filename, task.not_ok_filename,
-          task.unknown_filename, utilities::task_status_e::Erred,
-          task.processed, task.ok2_filename, task.task_id);
+          task.unknown_filename, task_status_e::Erred, task.processed,
+          task.ok2_filename, task.task_id);
   try {
     std::lock_guard<std::mutex> llock{db_mutex_};
     otl_cursor::direct_exec(otl_connector_, task_sql_statement.c_str(),
@@ -294,7 +292,7 @@ bool database_connector_t::add_erred_task(atomic_task_t &task) {
   }
 }
 
-std::vector<utilities::task_result_t> database_connector_t::get_all_tasks(
+std::vector<task_result_t> database_connector_t::get_all_tasks(
     boost::string_view user_id,
     std::vector<boost::string_view> const &task_ids) {
   std::string sql_statement{};
@@ -308,13 +306,13 @@ std::vector<utilities::task_result_t> database_connector_t::get_all_tasks(
         "SELECT id, total_numbers, status, date_scheduled, website_id, "
         "uploads, processed, not_ok_count, unknown_count, per_ip, ip_used "
         "FROM tb_tasks WHERE scheduler_id ={} AND id IN ({})"_format(
-            user_id.to_string(), utilities::svector_to_string(task_ids));
+            user_id.to_string(), utilities::stringListToString(task_ids));
   }
   std::lock_guard<std::mutex> lock_g{db_mutex_};
-  std::vector<utilities::task_result_t> result{};
+  std::vector<task_result_t> result{};
   try {
     otl_stream db_stream(1'000, sql_statement.c_str(), otl_connector_);
-    utilities::task_result_t item{};
+    task_result_t item{};
     while (db_stream >> item) {
       result.push_back(std::move(item));
     }
@@ -328,9 +326,9 @@ std::vector<utilities::task_result_t> database_connector_t::get_all_tasks(
 bool database_connector_t::save_unstarted_task(
     atomic_task_t const &stopped_task) {
   std::string const task_sql_stement =
-      "UPDATE tb_tasks SET status={}, input_filename='{}', ok_file='{}', "
+      "UPDATE tb_tasks SET status={}, inputFilename='{}', ok_file='{}', "
       "unknown_file='{}', not_ok_file='{}', ok2_file='{}' WHERE id={}"_format(
-          utilities::task_status_e::NotStarted, stopped_task.input_filename,
+          task_status_e::NotStarted, stopped_task.input_filename,
           stopped_task.ok_filename, stopped_task.unknown_filename,
           stopped_task.not_ok_filename, stopped_task.ok2_filename,
           stopped_task.task_id);
@@ -351,14 +349,14 @@ bool database_connector_t::set_input_files(std::string input_filename,
                                            std::string not_ok_filename,
                                            std::string unknown_filename,
                                            uint32_t const task_id) {
-  using utilities::replace_special_chars;
-  replace_special_chars(input_filename);
-  replace_special_chars(ok_filename);
-  replace_special_chars(not_ok_filename);
-  replace_special_chars(unknown_filename);
+  using utilities::replaceSpecialChars;
+  replaceSpecialChars(input_filename);
+  replaceSpecialChars(ok_filename);
+  replaceSpecialChars(not_ok_filename);
+  replaceSpecialChars(unknown_filename);
 
   std::string const sql_statement =
-      "UPDATE tb_tasks SET input_filename='{}', ok_file='{}', not_ok_file='{}',"
+      "UPDATE tb_tasks SET inputFilename='{}', ok_file='{}', not_ok_file='{}',"
       "unknown_file='{}', ok2_file='{}' WHERE id={}"_format(
           input_filename, ok_filename, not_ok_filename, unknown_filename,
           ok2_filename, task_id);
@@ -377,7 +375,7 @@ void database_connector_t::delete_stopped_tasks(
     std::vector<uint32_t> const &task_ids) {
   std::string const sql_statement =
       "DELETE FROM tb_tasks WHERE id in ({})"_format(
-          utilities::intlist_to_string(task_ids));
+          utilities::integerListToString(task_ids));
   try {
     otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
                             otl_exception::enabled);
@@ -390,10 +388,10 @@ bool database_connector_t::get_stopped_tasks(
     std::vector<uint32_t> const &tasks,
     std::vector<atomic_task_t> &stopped_tasks) {
   std::string const sql_statement =
-      "SELECT id, website_id, processed, total_numbers, input_filename, "
+      "SELECT id, website_id, processed, total_numbers, inputFilename, "
       "ok_file, not_ok_file, unknown_file, ok2_file, ok_count, not_ok_count, "
       "unknown_count, per_ip, ip_used FROM tb_tasks WHERE id IN ({})"_format(
-          utilities::intlist_to_string(tasks));
+          utilities::integerListToString(tasks));
   try {
     std::lock_guard<std::mutex> lock_g{db_mutex_};
 
@@ -406,7 +404,7 @@ bool database_connector_t::get_stopped_tasks(
            stopped_task.ok2_filename >> stopped_task.ok_count >>
            stopped_task.not_ok_count >> stopped_task.unknown_count >>
            stopped_task.scans_per_ip >> stopped_task.ip_used) {
-      stopped_task.type_ = stopped_task.stopped;
+      stopped_task.task_type = task_type_e::stopped;
       stopped_tasks.push_back(stopped_task);
     }
     return true;
@@ -421,8 +419,8 @@ bool database_connector_t::get_completed_tasks(
   std::string const sql_statement =
       "SELECT id, website_id, ok_file, ok2_file, not_ok_file, unknown_file "
       "FROM tb_tasks WHERE status={} AND id in ({})"_format(
-          static_cast<uint32_t>(utilities::task_status_e::Completed),
-          utilities::intlist_to_string(task_ids));
+          static_cast<uint32_t>(task_status_e::Completed),
+          utilities::integerListToString(task_ids));
   try {
     std::lock_guard<std::mutex> lock_g{db_mutex_};
 
@@ -444,7 +442,7 @@ bool database_connector_t::remove_filtered_tasks(
     boost::string_view const user_id, std::vector<uint32_t> const &ids) {
   std::string const sql_statement =
       "DELETE FROM tb_tasks WHERE scheduler_id={} AND id in "
-      "({})"_format(user_id.to_string(), utilities::intlist_to_string(ids));
+      "({})"_format(user_id.to_string(), utilities::integerListToString(ids));
   try {
     std::lock_guard<std::mutex> lock_g{db_mutex_};
     otl_cursor::direct_exec(otl_connector_, sql_statement.c_str(),
@@ -458,11 +456,11 @@ bool database_connector_t::remove_filtered_tasks(
 
 bool database_connector_t::remove_uploads(
     std::vector<boost::string_view> const &ids) {
-  using utilities::svector_to_string;
+  using utilities::stringListToString;
   std::string sql_statement;
   if (!ids.empty()) {
     sql_statement = "UPDATE tb_uploads SET status=1 WHERE id in ({})"_format(
-        svector_to_string(ids));
+        stringListToString(ids));
   } else {
     sql_statement = "UPDATE tb_uploads SET status=1 WHERE id >= 1";
   }
@@ -479,22 +477,22 @@ bool database_connector_t::remove_uploads(
   }
 }
 
-std::vector<utilities::website_result_t>
+std::vector<website_result_t>
 database_connector_t::get_websites(std::vector<uint32_t> const &ids) {
   std::string sql_statement{};
-  using utilities::intlist_to_string;
+  using utilities::integerListToString;
 
   if (ids.empty()) {
     sql_statement = "SELECT id, address, nickname FROM tb_websites";
   } else {
     sql_statement =
         "SELECT id, address, nickname FROM tb_websites WHERE ID in ({})"_format(
-            intlist_to_string(ids));
+            integerListToString(ids));
   }
-  std::vector<utilities::website_result_t> results{};
+  std::vector<website_result_t> results{};
   try {
     otl_stream db_stream(1'000, sql_statement.c_str(), otl_connector_);
-    utilities::website_result_t website_info{};
+    website_result_t website_info{};
     {
       std::lock_guard<std::mutex> lock_g{db_mutex_};
       while (db_stream >> website_info) {
@@ -507,16 +505,16 @@ database_connector_t::get_websites(std::vector<uint32_t> const &ids) {
   return results;
 }
 
-std::optional<utilities::website_result_t>
+std::optional<website_result_t>
 database_connector_t::get_website(uint32_t const id) {
   std::string sql_statement{
       "SELECT id, address, nickname FROM tb_websites WHERE ID={}"_format(id)};
-  using utilities::intlist_to_string;
+  using utilities::integerListToString;
 
   try {
     std::lock_guard<std::mutex> lock_g{db_mutex_};
     otl_stream db_stream(5, sql_statement.c_str(), otl_connector_);
-    utilities::website_result_t website_info{};
+    website_result_t website_info{};
     db_stream >> website_info;
     return website_info;
   } catch (otl_exception const &e) {
@@ -543,4 +541,4 @@ bool database_connector_t::add_website(std::string_view const address,
   }
 }
 
-} // namespace wudi_server
+} // namespace woody_server

@@ -1,21 +1,21 @@
 #include "number_stream.hpp"
 #include <string>
 
-namespace wudi_server {
+namespace woody_server {
 number_stream_t::number_stream_t(std::ifstream &file_stream)
-    : input_stream{file_stream}, mutex_{} {}
+    : m_inputStream{file_stream}, m_mutex{} {}
 
 std::string number_stream_t::get() noexcept(false) {
-  if (closed_)
+  if (m_closed)
     throw empty_container_exception_t{};
   std::string number{};
-  std::lock_guard<std::mutex> lock_g{mutex_};
-  if (!temporaries_.empty()) {
-    std::string temp = temporaries_.front();
-    temporaries_.erase(temporaries_.begin());
+  std::lock_guard<std::mutex> lock_g{m_mutex};
+  if (!m_temporaries.empty()) {
+    std::string temp = m_temporaries.front();
+    m_temporaries.erase(m_temporaries.begin());
     return temp;
   }
-  while (std::getline(input_stream, number)) {
+  while (std::getline(m_inputStream, number)) {
     if (number.empty())
       continue;
     return number;
@@ -24,24 +24,24 @@ std::string number_stream_t::get() noexcept(false) {
 }
 
 void number_stream_t::close() {
-  input_stream.close();
-  closed_ = true;
+  m_inputStream.close();
+  m_closed = true;
 }
 
-bool number_stream_t::is_open() { return input_stream.is_open(); }
+bool number_stream_t::isOpen() { return m_inputStream.is_open(); }
 
 bool number_stream_t::empty() {
-  return closed_ || !input_stream || input_stream.eof();
+  return m_closed || !m_inputStream || m_inputStream.eof();
 }
 
-decltype(std::declval<std::ifstream>().rdbuf()) number_stream_t::dump_s() {
-  return input_stream.rdbuf();
+decltype(std::declval<std::ifstream>().rdbuf()) number_stream_t::dumpS() {
+  return m_inputStream.rdbuf();
 }
 
-std::vector<std::string> &number_stream_t::dump() { return temporaries_; }
+std::vector<std::string> &number_stream_t::dump() { return m_temporaries; }
 
-void number_stream_t::push_back(std::string const &str) {
-  temporaries_.push_back(str);
+void number_stream_t::append(std::string const &str) {
+  m_temporaries.push_back(str);
 }
 
-} // namespace wudi_server
+} // namespace woody_server

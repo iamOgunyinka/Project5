@@ -1,91 +1,86 @@
 #pragma once
 
-#include "utilities.hpp"
-#include <boost/asio.hpp>
+#include <boost/asio/ip/tcp.hpp>
 #include <boost/signals2/signal.hpp>
 #include <ctime>
+#include <future>
 #include <memory>
 #include <optional>
 #include <set>
+#include <utility>
 #include <vector>
 
-namespace wudi_server {
+#include "container.hpp"
+#include "enumerations.hpp"
+
 namespace net = boost::asio;
 namespace ip = net::ip;
 namespace signals2 = boost::signals2;
 
+namespace woody_server {
 using tcp = ip::tcp;
 
-net::io_context &get_network_context();
-
-enum class proxy_property_e {
-  ProxyActive,
-  ProxyBlocked,
-  ProxyMaxedOut,
-  ProxyToldToWait,
-  ProxyUnresponsive
-};
-
-enum class proxy_type_e : int { socks5 = 0, http_https_proxy = 1 };
+net::io_context &getNetworkContext();
 
 struct extraction_data_t {
-  std::time_t expire_time{};
-  int product_remain{};
-  int connect_remain{};
-  int extract_remain{};
-  bool is_available{false};
+  std::time_t expireTime{};
+  int productRemain{};
+  int connectRemain{};
+  int extractRemain{};
+  bool isAvailable{false};
 };
 
 struct proxy_configuration_t {
-  std::string proxy_username{};
-  std::string proxy_password{};
-  std::string proxy_target{};
-  std::string count_target{};
-  proxy_type_e proxy_protocol = proxy_type_e::http_https_proxy;
-  int fetch_interval{};
-  int share_proxy{};
-  int max_socket{};
-  int fetch_once{};
-  int software_version{};
+  std::string proxyUsername{};
+  std::string proxyPassword{};
+  std::string proxyTarget{};
+  std::string countTarget{};
+  proxy_type_e proxyProtocol = proxy_type_e::http_https_proxy;
+  int fetchInterval{};
+  int shareProxy{};
+  int maxSocket{};
+  int fetchOnce{};
+  int softwareVersion{};
 };
 
-std::optional<proxy_configuration_t> read_proxy_configuration();
+std::optional<proxy_configuration_t> readProxyConfiguration();
 
 struct custom_endpoint_t {
-  tcp::endpoint endpoint_{};
-  std::string user_name_{};
-  std::string password_{};
-  int number_scanned{};
-  std::time_t time_last_used{};
+  tcp::endpoint endpoint{};
+  std::string username{};
+  std::string password{};
+  int numberScanned{};
+  std::time_t timeLastUsed{};
 
   proxy_property_e property{proxy_property_e::ProxyActive};
 
-  custom_endpoint_t(tcp::endpoint &&ep, std::string const &username,
-                    std::string const &password)
-      : endpoint_(std::move(ep)), user_name_{username}, password_{password} {}
-  operator tcp::endpoint() const { return endpoint_; }
+  custom_endpoint_t(tcp::endpoint &&ep, std::string username_,
+                    std::string password_)
+      : endpoint(std::move(ep)), username{std::move(username_)},
+        password{std::move(password_)} {}
 
-  std::string &username() { return user_name_; }
-  std::string &password() { return password_; }
+  operator tcp::endpoint() const { return endpoint; }
+  std::string &getUsername() { return username; }
+  std::string &getPassword() { return password; }
   void swap(custom_endpoint_t &);
 };
 
 template <typename T> class vector_wrapper_t {
-  std::mutex mutex_{};
-  std::vector<T> container_{};
+  mutable std::mutex m_mutex{};
+  std::vector<T> m_container{};
   using underlying_type = typename T::element_type;
 
 public:
   using value_type = T;
 
-  vector_wrapper_t() {}
+  vector_wrapper_t() = default;
   bool empty() {
-    std::lock_guard<std::mutex> lock_g{mutex_};
-    return container_.empty();
+    std::lock_guard<std::mutex> lock_g{m_mutex};
+    return m_container.empty();
   }
   T back() {
-    std::lock_guard<std::mutex> lock_g{mutex_};
-    return container_.back();
+    std::lock_guard<std::mutex> lock_g{m_mutex};
+    return m_container.back();
   }
 
   template <
@@ -93,61 +88,64 @@ public:
       typename = std::enable_if_t<std::is_convertible_v<
           typename decltype(std::declval<Container>().begin())::value_type,
           underlying_type>>>
-  void push_back(Container const &eps) {
-    std::lock_guard<std::mutex> lock_g{mutex_};
+  void append(Container const &eps) {
+    std::lock_guard<std::mutex> lock_g{m_mutex};
     for (auto const &elem : eps) {
-      container_.push_back(std::make_shared<underlying_type>(elem));
+      m_container.push_back(std::make_shared<underlying_type>(elem));
     }
   }
 
-  void push_back(underlying_type &&ep) {
-    container_.push_back(std::make_shared<underlying_type>(std::move(ep)));
+  void append(underlying_type &&ep) {
+    m_container.push_back(std::make_shared<underlying_type>(std::move(ep)));
   }
 
-  typename std::vector<T>::size_type size() { return container_.size(); }
+  typename std::vector<T>::size_type size() { return m_container.size(); }
 
   T &operator[](typename std::vector<T>::size_type const index) {
-    std::lock_guard<std::mutex> lock_g{mutex_};
-    return container_[index];
+    std::lock_guard<std::mutex> lock_g{m_mutex};
+    return m_container[index];
   }
+
   T const &operator[](typename std::vector<T>::size_type const index) const {
-    std::lock_guard<std::mutex> lock_g{mutex_};
-    return container_[index];
+    std::lock_guard<std::mutex> lock_g{m_mutex};
+    return m_container[index];
   }
-  void remove_first_n(std::size_t const count) {
-    std::lock_guard<std::mutex> lock_g{mutex_};
-    if (container_.size() < count) {
-      return container_.clear();
+
+  void removeFirstN(std::size_t const count) {
+    std::lock_guard<std::mutex> lock_g{m_mutex};
+    if (m_container.size() < count) {
+      return m_container.clear();
     }
-    container_.erase(container_.begin(), container_.begin() + count);
+    m_container.erase(m_container.begin(), m_container.begin() + count);
   }
-  template <typename Func> void remove_if(Func &&func) {
-    std::lock_guard<std::mutex> lock_g{mutex_};
-    container_.erase(std::remove_if(container_.begin(), container_.end(), func),
-                     container_.end());
+  template <typename Func> void removeIf(Func &&func) {
+    std::lock_guard<std::mutex> lock_g{m_mutex};
+    m_container.erase(
+        std::remove_if(m_container.begin(), m_container.end(), func),
+        m_container.end());
   }
-  template <typename Func> void for_each(Func &&func) {
-    std::lock_guard<std::mutex> lock_g{mutex_};
-    for (auto &elem : container_) {
+  template <typename Func> void forEach(Func &&func) {
+    std::lock_guard<std::mutex> lock_g{m_mutex};
+    for (auto &elem : m_container) {
       std::forward<Func>(func)(elem);
     }
   }
 };
 
-using endpoint_ptr = std::shared_ptr<custom_endpoint_t>;
-using endpoint_ptr_list = vector_wrapper_t<endpoint_ptr>;
+using endpoint_ptr_t = std::shared_ptr<custom_endpoint_t>;
+using endpoint_ptr_list_t = vector_wrapper_t<endpoint_ptr_t>;
 
 struct shared_data_t {
-  std::thread::id thread_id{};
-  std::uint32_t web_id{};
-  proxy_type_e proxy_type;
-  mutable std::set<uint32_t> shared_web_ids{};
-  std::vector<custom_endpoint_t> eps{};
+  std::thread::id threadID{};
+  std::uint32_t webID{};
+  proxy_type_e proxyType;
+  mutable std::set<uint32_t> sharedWebIDs{};
+  std::vector<custom_endpoint_t> endpoints{};
 };
 
 struct http_result_t {
-  std::string response_body{};
-  std::size_t status_code{};
+  std::string responseBody{};
+  std::size_t statusCode{};
 };
 
 struct posted_data_t {
@@ -155,82 +153,79 @@ struct posted_data_t {
   std::promise<http_result_t> promise;
 };
 
-using NewProxySignal = signals2::signal<void(shared_data_t const &)>;
-using promise_container = utilities::threadsafe_cv_container<posted_data_t>;
+using new_proxy_signal_t = signals2::signal<void(shared_data_t const &)>;
+using promise_container_t = threadsafe_list_t<posted_data_t>;
 
 void swap(custom_endpoint_t &a, custom_endpoint_t &b);
 
 class global_proxy_repo_t {
-  struct proxy_unique_info {
-    std::size_t web_id{};
-    std::size_t proxy_count{};
+  struct proxy_unique_info_t {
+    std::size_t webID{};
+    std::size_t proxyCount{};
   };
 
 public:
-  using proxy_info_map_t = std::map<std::thread::id, proxy_unique_info>;
+  using proxy_info_map_t = std::map<std::thread::id, proxy_unique_info_t>;
 
-  NewProxySignal *new_ep_signal() { return &new_endpoints_signal_; }
-  proxy_info_map_t *get_thread_proxy_info() { return &proxy_info_set_; }
+  new_proxy_signal_t *newEndpointSignal() { return &m_newEndpointsSignal; }
+  proxy_info_map_t *getThreadProxyInfo() { return &m_proxyInfoSet; }
 
-  static promise_container &get_promise_container();
-  static void background_proxy_fetcher(net::io_context &);
+  static promise_container_t &getPromiseContainer();
+  [[noreturn]] static void backgroundProxyFetcher(net::io_context &);
 
 private:
-  NewProxySignal new_endpoints_signal_;
-  proxy_info_map_t proxy_info_set_{};
+  new_proxy_signal_t m_newEndpointsSignal;
+  proxy_info_map_t m_proxyInfoSet{};
 };
 
 using proxy_info_map_t = global_proxy_repo_t::proxy_info_map_t;
 
 struct proxy_base_params_t {
-  net::io_context &io_;
-  NewProxySignal &signal_;
-  proxy_configuration_t &config_;
-  proxy_info_map_t &proxy_info_map;
-  std::thread::id thread_id;
-  std::uint32_t web_id;
+  net::io_context &m_ioContext;
+  new_proxy_signal_t &m_signal;
+  proxy_configuration_t &m_config;
+  proxy_info_map_t &proxyInfoMap;
+  std::thread::id threadID;
+  std::uint32_t webID;
   std::string filename{};
 };
 
 class proxy_base_t {
 protected:
-  proxy_base_params_t &param_;
-  std::size_t proxies_used_{};
+  proxy_base_params_t &m_proxyParam;
+  std::size_t m_proxiesUsed{};
 
-  extraction_data_t current_extracted_data_;
-  std::mutex mutex_{};
-  std::size_t count_{};
-  endpoint_ptr_list endpoints_;
-  std::atomic_bool has_error_ = false;
-  std::atomic_bool confirm_count_ = !param_.config_.count_target.empty();
+  extraction_data_t m_currentExtractedData{};
+  std::mutex m_mutex{};
+  std::size_t m_count{};
+  endpoint_ptr_list_t m_endpoints{};
+  std::atomic_bool m_hasError = false;
+  std::atomic_bool m_confirmCount = !m_proxyParam.m_config.countTarget.empty();
 
 protected:
-  void load_proxy_file();
-  void save_proxies_to_file();
-  virtual extraction_data_t get_remain_count();
-  virtual void get_more_proxies();
+  void loadProxyFile();
+  void saveProxiesToFile();
+  virtual extraction_data_t getRemainCount();
+  virtual void getMoreProxies();
 
 public:
-  using Property = proxy_property_e;
-  using value_type = endpoint_ptr;
-
+  using value_type = endpoint_ptr_t;
   proxy_base_t(proxy_base_params_t &, std::string const &);
   virtual ~proxy_base_t();
-
-  endpoint_ptr next_endpoint();
+  endpoint_ptr_t nextEndpoint();
   proxy_type_e type() const;
-  void add_more(shared_data_t const &);
-  auto total_used() const { return proxies_used_; }
-  void total_used(int val) { proxies_used_ += val; }
+  void addMore(shared_data_t const &);
+  auto totalUsed() const { return m_proxiesUsed; }
+  void totalUsed(int val) { m_proxiesUsed += val; }
 };
 
 struct http_proxy_t final : proxy_base_t {
-  http_proxy_t(proxy_base_params_t &);
-  ~http_proxy_t() {}
+  explicit http_proxy_t(proxy_base_params_t &);
+  ~http_proxy_t() override = default;
 };
 
 struct socks5_proxy_t final : proxy_base_t {
-  socks5_proxy_t(proxy_base_params_t &);
-  ~socks5_proxy_t() {}
+  explicit socks5_proxy_t(proxy_base_params_t &);
+  ~socks5_proxy_t() override = default;
 };
-} // namespace wudi_server
+} // namespace woody_server

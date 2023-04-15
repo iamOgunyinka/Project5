@@ -1,17 +1,25 @@
 #pragma once
 
-#include "fields_alloc.hpp"
-#include <boost/asio.hpp>
-#include <boost/beast.hpp>
+#include <boost/beast/core/flat_buffer.hpp>
+#include <boost/beast/core/tcp_stream.hpp>
+#include <boost/beast/http/empty_body.hpp>
+#include <boost/beast/http/file_body.hpp>
+#include <boost/beast/http/message.hpp>
+#include <boost/beast/http/parser.hpp>
+#include <boost/beast/http/string_body.hpp>
+
 #include <filesystem>
 #include <memory>
-#include <nlohmann/json.hpp>
 #include <optional>
+
+#include "enumerations.hpp"
+#include "fields_alloc.hpp"
+#include "json_utils.hpp"
 
 std::vector<uint32_t> operator+(std::vector<uint32_t> const &a,
                                 std::vector<uint32_t> const &b);
 
-namespace wudi_server {
+namespace woody_server {
 namespace asio = boost::asio;
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -43,16 +51,6 @@ public:
   std::optional<rule_iterator> get_rules(boost::string_view const &target);
 };
 
-enum class error_type_e {
-  NoError,
-  ResourceNotFound,
-  RequiresUpdate,
-  BadRequest,
-  ServerError,
-  MethodNotAllowed,
-  Unauthorized
-};
-
 using url_query = std::map<boost::string_view, boost::string_view>;
 using nlohmann::json;
 
@@ -63,7 +61,7 @@ class session_t {
   using alloc_t = fields_alloc<char>;
 
   asio::io_context &io_context_;
-  beast::tcp_stream tcp_stream_;
+  beast::tcp_stream m_tcpStream;
   beast::flat_buffer buffer_{};
   std::optional<http::request_parser<http::empty_body>> empty_body_parser_{};
   dynamic_body_ptr dynamic_body_parser{nullptr};
@@ -130,9 +128,9 @@ private:
   static string_response_t method_not_allowed(string_request_t const &request);
   static string_response_t successful_login(int const id, int const role,
                                             string_request_t const &req);
-  static string_response_t server_error(std::string const &, error_type_e,
+  static string_response_t server_error(std::string const &, session_error_e,
                                         string_request_t const &);
-  static string_response_t get_error(std::string const &, error_type_e,
+  static string_response_t get_error(std::string const &, session_error_e,
                                      http::status, string_request_t const &);
   static url_query split_optional_queries(boost::string_view const &args);
   template <typename Func>
@@ -158,7 +156,7 @@ void session_t::send_file(std::filesystem::path const &file_path,
   file.open(file_path.string().c_str(), beast::file_mode::read, ec);
   if (ec) {
     return error_handler(server_error("unable to open file specified",
-                                      error_type_e::ServerError, request));
+                                      session_error_e::ServerError, request));
   }
   file_response_.emplace(std::piecewise_construct, std::make_tuple(),
                          std::make_tuple(alloc_));
@@ -169,7 +167,7 @@ void session_t::send_file(std::filesystem::path const &file_path,
   file_response_->body() = std::move(file);
   file_response_->prepare_payload();
   file_serializer_.emplace(*file_response_);
-  http::async_write(tcp_stream_, *file_serializer_,
+  http::async_write(m_tcpStream, *file_serializer_,
                     [func, self = shared_from_this()](
                         beast::error_code ec, std::size_t const size_written) {
                       self->file_serializer_.reset();
@@ -178,4 +176,4 @@ void session_t::send_file(std::filesystem::path const &file_path,
                       self->on_data_written(ec, size_written);
                     });
 }
-} // namespace wudi_server
+} // namespace woody_server

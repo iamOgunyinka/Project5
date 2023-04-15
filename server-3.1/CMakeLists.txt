@@ -42,7 +42,7 @@ if(WIN32)
 else()
   # set stuff for other systems
   link_directories(/usr/lib)
-  link_libraries(stdc++fs pthread odbc)
+  link_libraries(pthread ssl crypto odbc z stdc++fs)
 endif()
 
 # Outputs
@@ -79,10 +79,6 @@ message("${PROJECT_NAME}: CURR BIN DIR: ${CMAKE_CURRENT_BINARY_DIR}")
 ############### Files & Targets ############################
 # Files of project and target to build                     #
 ############################################################
-
-
-link_directories(/usr/lib)
-link_libraries(pthread ssl crypto odbc z stdc++fs)
 
 # Outputs
 set(OUTPUT_DEBUG ${PROJECT_DIR}/bin)
@@ -125,44 +121,61 @@ message("${PROJECT_NAME}: CURR BIN DIR: ${CMAKE_CURRENT_BINARY_DIR}")
 
 # Source Files
 set(SRC_FILES
-    ./src/http/auto_home_http_sock.cpp
-    ./src/http/digit_casinos_http_base.cpp
-    ./src/http/digit_casinos_socks5_http.cpp
-    ./src/http/pp_sports.cpp
-    ./src/https/auto_home_socks5_sock.cpp
-    ./src/https/fafa77_socks5_socket_t.cpp
-    ./src/https/chinese_macau_socket.cpp
-    ./src/https/digit_casinos_socks5_https.cpp
-    ./src/https/jjgames_socket.cpp
-    ./src/https/pc_auto_socket.cpp
-    ./src/https/qunar_socket.cpp
-    ./src/https/sun_city_socket.cpp
-    ./src/backgroundworker.cpp
-    ./src/database_connector.cpp
-    ./src/number_stream.cpp
-    ./src/safe_proxy.cpp
-    ./src/server.cpp
-    ./src/session.cpp
-    ./src/utilities.cpp
-    ./src/worker.cpp
-    ./src/sockets_instantiator.cpp
-    ./src/https/socks_https_initiator.cpp
-    ./src/http/socks_http_initiator.cpp
-    ./main.cpp
-)
+        ./src/http/http_socket_base.cpp
+        ./src/http/lazada_http.cpp
+        ./src/http/socks5_http_socket_base.cpp
+        ./src/http/socks_http_initiator.cpp
+        ./src/https/lazada_socks5.cpp
+        ./src/https/socks_https_initiator.cpp
+        ./src/backgroundworker.cpp
+        ./src/database_connector.cpp
+        ./src/file_utils.cpp
+        ./src/http_uri.cpp
+        ./src/json_utils.cpp
+        ./src/number_stream.cpp
+        ./src/random.cpp
+        ./src/request_handler.cpp
+        ./src/safe_proxy.cpp
+        ./src/server.cpp
+        ./src/session.cpp
+        ./src/sockets_instantiator.cpp
+        ./src/socks5_https_socket_base.cpp
+        ./src/string_utils.cpp
+        ./src/task_data.cpp
+        ./src/worker.cpp
+        ./main.cpp)
 source_group("Sources" FILES ${SRC_FILES})
 
 # Header Files
 set(HEADERS_FILES
-    ./include/backgroundworker.hpp
-    ./include/database_connector.hpp
-    ./include/number_stream.hpp
-    ./include/safe_proxy.hpp
-    ./include/server.hpp
-    ./include/session.hpp
-    ./include/utilities.hpp
-    ./include/worker.hpp
-)
+        ./include/http/custom_timed_socket.hpp
+        ./include/http/http_socket_base.hpp
+        include/http/lazada_http.hpp
+        ./include/http/socks5_http_socket_base.hpp
+        include/https/lazada_socks5.hpp
+        ./include/https/socks5_https_socket_base.hpp
+        ./include/backgroundworker.hpp
+        ./include/database_connector.hpp
+        ./include/fields_alloc.hpp
+        ./include/number_stream.hpp
+        include/socks5_protocol.hpp
+        ./include/safe_proxy.hpp
+        ./include/server.hpp
+        ./include/session.hpp
+        ./include/sockets_instantiator.hpp
+        ./include/sockets_interface.hpp
+        include/random.hpp
+        ./include/worker.hpp
+        include/container.hpp
+        include/http_uri.hpp
+        include/enumerations.hpp
+        include/task_data.hpp
+        include/upload_data.hpp
+        include/request_handler.hpp
+        include/file_utils.hpp
+        include/string_utils.hpp
+        include/json_utils.hpp)
+
 source_group("Headers" FILES ${HEADERS_FILES})
 
 # Add executable to build.
@@ -203,3 +216,4 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
                 MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Release>:Release>")
     endif()
 endif()
+

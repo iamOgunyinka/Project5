@@ -4,7 +4,7 @@
 #include <list>
 #include <memory>
 
-namespace wudi_server {
+namespace woody_server {
 namespace utilities {
 struct command_line_interface_t {
   uint16_t port{3456};
@@ -36,4 +36,4 @@ private:
   void on_connection_accepted(beast::error_code const &ec,
                               asio::ip::tcp::socket socket);
 };
-} // namespace wudi_server
+} // namespace woody_server

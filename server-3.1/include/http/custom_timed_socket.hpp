@@ -1,10 +1,18 @@
 #pragma once
 
-#include "utilities.hpp"
-#include <boost/asio.hpp>
-#include <boost/beast.hpp>
+#include "http_uri.hpp"
+#include "request_handler.hpp"
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/strand.hpp>
+#include <boost/beast/core/flat_buffer.hpp>
+#include <boost/beast/core/tcp_stream.hpp>
+#include <boost/beast/http/empty_body.hpp>
+#include <boost/beast/http/message.hpp>
+#include <boost/beast/http/read.hpp>
+#include <boost/beast/http/string_body.hpp>
+#include <boost/beast/http/write.hpp>
 
-namespace wudi_server {
+namespace woody_server {
 namespace net = boost::asio;
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -12,86 +20,85 @@ namespace http = beast::http;
 using net::ip::tcp;
 
 template <typename T> class custom_timed_socket_t {
-  beast::tcp_stream http_tcp_socket_;
-  net::ip::tcp::resolver resolver_;
-  int const timeout_sec_;
-  std::promise<T> promise_;
-  beast::flat_buffer buffer_;
-  utilities::uri const uri_;
-  http::request<http::empty_body> http_request_;
-  http::response<http::string_body> http_response_;
+  beast::tcp_stream m_tcpStream;
+  net::ip::tcp::resolver m_resolver;
+  int const m_timeoutSec;
+  std::promise<T> m_promise;
+  beast::flat_buffer m_buffer;
+  http_uri_t const m_uri;
+  http::request<http::empty_body> m_httpRequest;
+  http::response<http::string_body> m_httpResponse;
 
 public:
-  custom_timed_socket_t(net::io_context &io_context, std::string url,
-                        int const timeout_sec, std::promise<T> &&prom)
-      : http_tcp_socket_(net::make_strand(io_context)), resolver_{io_context},
-        timeout_sec_{timeout_sec},
-        promise_(std::move(prom)), uri_{std::move(url)} {}
+  custom_timed_socket_t(net::io_context &ioContext, std::string const &url,
+                        int const timeoutSec, std::promise<T> &&promise)
+      : m_tcpStream(net::make_strand(ioContext)), m_resolver(ioContext),
+        m_timeoutSec(timeoutSec), m_promise(std::move(promise)), m_uri{url} {}
 
-  void start() { return get(); }
+  void start() { get(); }
 
 private:
   void connect(net::ip::tcp::resolver::results_type const &resolves) {
-    http_tcp_socket_.expires_after(std::chrono::seconds(timeout_sec_));
-    http_tcp_socket_.async_connect(
+    m_tcpStream.expires_after(std::chrono::seconds(m_timeoutSec));
+    m_tcpStream.async_connect(
         resolves, [=](beast::error_code ec, auto const &) {
           if (ec) {
             try {
               throw std::runtime_error(ec.message());
             } catch (std::runtime_error const &) {
-              return promise_.set_exception(std::current_exception());
+              return m_promise.set_exception(std::current_exception());
             }
           }
-          return send_request();
+          return sendRequest();
         });
   }
 
-  void receive_data() {
-    http_tcp_socket_.expires_after(std::chrono::seconds(timeout_sec_));
-    http::async_read(http_tcp_socket_, buffer_, http_response_,
+  void receiveData() {
+    m_tcpStream.expires_after(std::chrono::seconds(m_timeoutSec));
+    http::async_read(m_tcpStream, m_buffer, m_httpResponse,
                      [=](beast::error_code ec, std::size_t const) {
                        if (ec) {
-                         return promise_.set_value(T{});
+                         return m_promise.set_value(T{});
                        }
-                       return promise_.set_value(T{
-                           http_response_.body(), http_response_.result_int()});
+                       return m_promise.set_value(T{
+                           m_httpResponse.body(), m_httpResponse.result_int()});
                      });
   }
 
-  void send_request() {
-    http_request_.method(http::verb::get);
-    http_request_.target(uri_.target());
-    http_request_.version(11);
-    http_request_.set(http::field::host, uri_.host());
-    http_request_.set(http::field::user_agent, utilities::get_random_agent());
+  void sendRequest() {
+    m_httpRequest.method(http::verb::get);
+    m_httpRequest.target(m_uri.target());
+    m_httpRequest.version(11);
+    m_httpRequest.set(http::field::host, m_uri.host());
+    m_httpRequest.set(http::field::user_agent, utilities::getRandomUserAgent());
 
-    http_tcp_socket_.expires_after(std::chrono::seconds(5));
-    http::async_write(http_tcp_socket_, http_request_,
+    m_tcpStream.expires_after(std::chrono::seconds(5));
+    http::async_write(m_tcpStream, m_httpRequest,
                       [=](beast::error_code ec, std::size_t const) {
                         if (ec) {
                           try {
                             throw std::runtime_error(ec.message());
                           } catch (std::runtime_error const &) {
-                            return promise_.set_exception(
+                            return m_promise.set_exception(
                                 std::current_exception());
                           }
                         }
-                        return receive_data();
+                        return receiveData();
                       });
   }
   void get() {
-    resolver_.async_resolve(uri_.host(), uri_.protocol(),
-                            [=](auto const &ec, auto const &resolves) {
-                              if (ec) {
-                                try {
-                                  throw std::runtime_error(ec.message());
-                                } catch (std::runtime_error const &) {
-                                  return promise_.set_exception(
-                                      std::current_exception());
-                                }
-                              }
-                              connect(resolves);
-                            });
+    m_resolver.async_resolve(m_uri.host(), m_uri.protocol(),
+                             [=](auto const &ec, auto const &resolves) {
+                               if (ec) {
+                                 try {
+                                   throw std::runtime_error(ec.message());
+                                 } catch (std::runtime_error const &) {
+                                   return m_promise.set_exception(
+                                       std::current_exception());
+                                 }
+                               }
+                               connect(resolves);
+                             });
   }
 };
-} // namespace wudi_server
+} // namespace woody_server

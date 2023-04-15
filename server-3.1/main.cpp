@@ -1,4 +1,9 @@
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+
 #include "database_connector.hpp"
+#include "random.hpp"
 #include "safe_proxy.hpp"
 #include "server.hpp"
 #include "worker.hpp"
@@ -8,14 +13,13 @@
 
 enum constant_e { WorkerThreadCount = 15 };
 
-int WUDI_SOFTWARE_VERSION = 316;
+int WOODY_SOFTWARE_VERSION = 316;
 
-using wudi_server::global_proxy_repo_t;
+using woody_server::global_proxy_repo_t;
 
 int main(int argc, char *argv[]) {
-  CLI::App cli_parser{
-      "Wu-di: an asynchronous web server for Kiaowa Trading LLC"};
-  wudi_server::command_line_interface_t args{};
+  CLI::App cli_parser{"Woody an asynchronous web server for scanning websites"};
+  woody_server::command_line_interface_t args{};
   auto const thread_count = std::thread::hardware_concurrency();
 
   cli_parser.add_option("-p", args.port, "port to bind server to", true);
@@ -27,9 +31,9 @@ int main(int argc, char *argv[]) {
   CLI11_PARSE(cli_parser, argc, argv);
 
   auto database_connector{
-      wudi_server::database_connector_t::s_get_db_connector()};
+      woody_server::database_connector_t::s_get_db_connector()};
 
-  auto db_config = wudi_server::parse_database_file(
+  auto db_config = woody_server::parse_database_file(
       args.database_config_filename, args.launch_type);
   if (!db_config) {
     std::cerr << "Unable to get database configuration values\n";
@@ -42,19 +46,18 @@ int main(int argc, char *argv[]) {
   ssl_context.set_default_verify_paths();
   ssl_context.set_verify_mode(boost::asio::ssl::verify_none);
   {
-    auto proxy_config = wudi_server::read_proxy_configuration();
+    auto proxy_config = woody_server::readProxyConfiguration();
     if (!proxy_config) {
       std::cerr << "Unable to read proxy configuration file\n";
       return -1;
     }
-    wudi_server::utilities::proxy_fetch_interval() =
-        proxy_config->fetch_interval;
-    WUDI_SOFTWARE_VERSION = proxy_config->software_version;
+    woody_server::utilities::proxyFetchInterval() = proxy_config->fetchInterval;
+    WOODY_SOFTWARE_VERSION = proxy_config->softwareVersion;
   }
-  wudi_server::asio::io_context io_context{static_cast<int>(thread_count)};
+  woody_server::asio::io_context io_context{static_cast<int>(thread_count)};
   std::atomic_bool stop = false;
   {
-    using wudi_server::background_task_executor;
+    using woody_server::background_task_executor;
     auto thread_callback = [&] {
       background_task_executor(stop, ssl_context, global_proxy_provider);
     };
@@ -63,8 +66,8 @@ int main(int argc, char *argv[]) {
       t.detach();
     }
 
-    std::thread safe_proxy_executor{
-        global_proxy_repo_t::background_proxy_fetcher, std::ref(io_context)};
+    std::thread safe_proxy_executor{global_proxy_repo_t::backgroundProxyFetcher,
+                                    std::ref(io_context)};
     safe_proxy_executor.detach();
   }
   database_connector->username(db_config.username)
@@ -75,7 +78,7 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
   auto server_instance =
-      std::make_shared<wudi_server::server_t>(io_context, args);
+      std::make_shared<woody_server::server_t>(io_context, args);
   server_instance->run();
 
   std::vector<std::thread> threads{};

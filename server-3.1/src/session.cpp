@@ -1,14 +1,23 @@
 #include "session.hpp"
 #include "database_connector.hpp"
-#include <boost/algorithm/string.hpp>
+#include "file_utils.hpp"
+#include "random.hpp"
+#include "upload_data.hpp"
+
 #include <fstream>
 #include <gzip/decompress.hpp>
+#include <spdlog/spdlog.h>
 #include <zip_file.hpp>
 
-extern int WUDI_SOFTWARE_VERSION;
+#include <boost/beast/http/read.hpp>
+#include <boost/beast/http/write.hpp>
 
-namespace wudi_server {
+extern int WOODY_SOFTWARE_VERSION;
+
+namespace woody_server {
+using nlohmann::json;
 using namespace fmt::v6::literals;
+
 enum constant_e { RequestBodySize = 1024 * 1024 * 50 };
 
 std::filesystem::path const download_path =
@@ -45,7 +54,7 @@ endpoint_t::get_rules(boost::string_view const &target) {
 }
 
 session_t::session_t(asio::io_context &io, asio::ip::tcp::socket &&socket)
-    : io_context_{io}, tcp_stream_{std::move(socket)} {
+    : io_context_{io}, m_tcpStream{std::move(socket)} {
   add_endpoint_interfaces();
 }
 
@@ -135,8 +144,8 @@ void session_t::http_read_data() {
   buffer_.clear();
   empty_body_parser_.emplace();
   empty_body_parser_->body_limit(RequestBodySize);
-  beast::get_lowest_layer(tcp_stream_).expires_after(std::chrono::minutes(5));
-  http::async_read_header(tcp_stream_, buffer_, *empty_body_parser_,
+  beast::get_lowest_layer(m_tcpStream).expires_after(std::chrono::minutes(5));
+  http::async_read_header(m_tcpStream, buffer_, *empty_body_parser_,
                           beast::bind_front_handler(&session_t::on_header_read,
                                                     shared_from_this()));
 }
@@ -146,21 +155,21 @@ void session_t::on_header_read(beast::error_code ec, std::size_t const) {
     return shutdown_socket();
   if (ec) {
     return error_handler(
-        server_error(ec.message(), error_type_e::ServerError, {}), true);
+        server_error(ec.message(), session_error_e::ServerError, {}), true);
   } else {
     content_type_ = empty_body_parser_->get()[http::field::content_type];
     if (content_type_ == "application/json") {
       client_request_ =
           std::make_unique<http::request_parser<http::string_body>>(
               std::move(*empty_body_parser_));
-      http::async_read(tcp_stream_, buffer_, *client_request_,
+      http::async_read(m_tcpStream, buffer_, *client_request_,
                        beast::bind_front_handler(&session_t::on_data_read,
                                                  shared_from_this()));
     } else if (content_type_ == "application/gzip") {
       dynamic_body_parser =
           std::make_unique<dynamic_request>(std::move(*empty_body_parser_));
       dynamic_body_parser->body_limit(RequestBodySize);
-      http::async_read(tcp_stream_, buffer_, *dynamic_body_parser,
+      http::async_read(m_tcpStream, buffer_, *dynamic_body_parser,
                        beast::bind_front_handler(&session_t::binary_data_read,
                                                  shared_from_this()));
     } else {
@@ -171,13 +180,13 @@ void session_t::on_header_read(beast::error_code ec, std::size_t const) {
 }
 
 void session_t::handle_requests(string_request_t const &request) {
-  std::string const request_target{utilities::decode_url(request.target())};
+  std::string const request_target{utilities::decodeUrl(request.target())};
   if (request_target.empty())
     return index_page_handler(request, {});
 
   auto const method = request.method();
   boost::string_view request_target_view = request_target;
-  auto split = utilities::split_string_view(request_target_view, "?");
+  auto split = utilities::splitStringView(request_target_view, "?");
   if (auto iter = endpoint_apis_.get_rules(split[0]); iter.has_value()) {
     auto iter_end =
         iter.value()->second.verbs_.cbegin() + iter.value()->second.num_verbs_;
@@ -209,11 +218,13 @@ void session_t::on_data_read(beast::error_code ec, std::size_t const) {
   if (ec == http::error::end_of_stream) { // end of connection
     return shutdown_socket();
   } else if (ec == http::error::body_limit) {
-    return error_handler(server_error(ec.message(), error_type_e::ServerError,
+    return error_handler(server_error(ec.message(),
+                                      session_error_e::ServerError,
                                       string_request_t{}),
                          true);
   } else if (ec) {
-    return error_handler(server_error(ec.message(), error_type_e::ServerError,
+    return error_handler(server_error(ec.message(),
+                                      session_error_e::ServerError,
                                       string_request_t{}),
                          true);
   } else {
@@ -222,29 +233,29 @@ void session_t::on_data_read(beast::error_code ec, std::size_t const) {
 }
 
 bool session_t::is_closed() {
-  return !beast::get_lowest_layer(tcp_stream_).socket().is_open();
+  return !beast::get_lowest_layer(m_tcpStream).socket().is_open();
 }
 
 void session_t::shutdown_socket() {
   beast::error_code ec{};
-  beast::get_lowest_layer(tcp_stream_)
+  beast::get_lowest_layer(m_tcpStream)
       .socket()
       .shutdown(asio::socket_base::shutdown_send, ec);
   ec = {};
-  beast::get_lowest_layer(tcp_stream_).socket().close(ec);
-  beast::get_lowest_layer(tcp_stream_).close();
+  beast::get_lowest_layer(m_tcpStream).socket().close(ec);
+  beast::get_lowest_layer(m_tcpStream).close();
 }
 
 void session_t::error_handler(string_response_t &&response, bool close_socket) {
   auto resp = std::make_shared<string_response_t>(std::move(response));
   resp_ = resp;
   if (!close_socket) {
-    http::async_write(tcp_stream_, *resp,
+    http::async_write(m_tcpStream, *resp,
                       beast::bind_front_handler(&session_t::on_data_written,
                                                 shared_from_this()));
   } else {
     http::async_write(
-        tcp_stream_, *resp,
+        m_tcpStream, *resp,
         [self = shared_from_this()](auto const err_c, std::size_t const) {
           self->shutdown_socket();
         });
@@ -272,7 +283,7 @@ void session_t::login_handler(string_request_t const &request,
       return error_handler(upgrade_required(request));
     }
     int const version_number = std::stoi(software_version);
-    if (version_number < WUDI_SOFTWARE_VERSION) {
+    if (version_number < WOODY_SOFTWARE_VERSION) {
       return error_handler(upgrade_required(request));
     }
   } catch (std::exception const &) {
@@ -282,7 +293,7 @@ void session_t::login_handler(string_request_t const &request,
   // respond to POST request
   try {
     json json_body = json::parse(request.body());
-    json::object_t login_info = json_body.get<json::object_t>();
+    auto login_info = json_body.get<json::object_t>();
     auto username = login_info["username"].get<json::string_t>();
     auto password = login_info["password"].get<json::string_t>();
     auto [id, role] =
@@ -291,7 +302,7 @@ void session_t::login_handler(string_request_t const &request,
     if (id == -1) {
       spdlog::error("[login.POST] {} {} is invalid", username, password);
       return error_handler(get_error("invalid username or password",
-                                     error_type_e::Unauthorized,
+                                     session_error_e::Unauthorized,
                                      http::status::unauthorized, request));
     }
     return send_response(successful_login(id, role, request));
@@ -304,7 +315,7 @@ void session_t::login_handler(string_request_t const &request,
 void session_t::index_page_handler(string_request_t const &request,
                                    url_query const &) {
   return error_handler(
-      get_error("login", error_type_e::NoError, http::status::ok, request));
+      get_error("login", session_error_e::NoError, http::status::ok, request));
 }
 
 void session_t::upload_handler(string_request_t const &request,
@@ -326,8 +337,8 @@ void session_t::upload_handler(string_request_t const &request,
     auto total_iter = optional_query.find("total");
     auto uploader_iter = optional_query.find("uploader");
     auto time_iter = optional_query.find("time");
-    if (filename_view.empty() || utilities::any_of(optional_query, total_iter,
-                                                   uploader_iter, time_iter)) {
+    if (filename_view.empty() || utilities::anyOf(optional_query, total_iter,
+                                                  uploader_iter, time_iter)) {
       return error_handler(bad_request("key parameters is missing", request));
     }
 
@@ -344,7 +355,7 @@ void session_t::upload_handler(string_request_t const &request,
     std::ofstream out_file{file_path};
     if (!out_file)
       return error_handler(server_error("unable to save file",
-                                        error_type_e::ServerError, request));
+                                        session_error_e::ServerError, request));
     try {
       if (is_zipped) {
         counter = std::stol(total_iter->second.to_string());
@@ -354,7 +365,7 @@ void session_t::upload_handler(string_request_t const &request,
         counter = 0;
         json json_root =
             json::parse(std::string_view(body.data(), body.size()));
-        json::array_t list_of_numbers = json_root.get<json::array_t>();
+        auto list_of_numbers = json_root.get<json::array_t>();
         for (auto const &number : list_of_numbers) {
           out_file << number.get<json::string_t>() << "\n";
           ++counter;
@@ -363,20 +374,21 @@ void session_t::upload_handler(string_request_t const &request,
       out_file.close();
       std::string time_str{};
       std::size_t const t{std::stoul(time_iter->second.to_string())};
-      if (std::size_t const count = utilities::timet_to_string(time_str, t);
+      if (std::size_t const count = utilities::unixTimeToString(time_str, t);
           count > 0) {
         time_str.resize(count);
       } else {
         time_str = time_iter->second.to_string();
       }
-      utilities::upload_request_t upload_request{
+      upload_request_t upload_request{
           filename_view, file_path, uploader_iter->second,
           boost::string_view(time_str.data(), time_str.size()), counter};
       if (!db_connector->add_upload(upload_request)) {
         std::error_code ec{};
         std::filesystem::remove(file_path, ec);
         return error_handler(server_error("unable to save file to database",
-                                          error_type_e::ServerError, request));
+                                          session_error_e::ServerError,
+                                          request));
       }
       return send_response(success("ok", request));
     } catch (std::exception const &e) {
@@ -389,8 +401,7 @@ void session_t::upload_handler(string_request_t const &request,
     std::vector<boost::string_view> ids{};
     auto const id_iter = optional_query.find("id");
     if (id_iter != optional_query.cend()) {
-      using utilities::split_string_view;
-      ids = split_string_view(id_iter->second, "|");
+      ids = utilities::splitStringView(id_iter->second, "|");
     }
     // GET method
     if (method == http::verb::get) {
@@ -404,18 +415,18 @@ void session_t::upload_handler(string_request_t const &request,
       return send_response(json_success(json_result, request));
     } else {
       // a DELETE request
-      std::vector<utilities::upload_result_t> uploads;
+      std::vector<upload_result_t> uploads;
       if (!ids.empty() && ids[0] == "all") { // remove all
         if (!db_connector->remove_uploads({})) {
           return error_handler(server_error("unable to delete any record",
-                                            error_type_e::ServerError,
+                                            session_error_e::ServerError,
                                             request));
         }
       } else {
         uploads = db_connector->get_uploads(ids);
         if (!db_connector->remove_uploads(ids)) {
           return error_handler(server_error("unable to delete specified IDs",
-                                            error_type_e::ServerError,
+                                            session_error_e::ServerError,
                                             request));
         }
       }
@@ -478,13 +489,10 @@ void session_t::download_handler(string_request_t const &request,
   }
   try {
     json json_root = json::parse(request.body());
-    json::object_t task_object = json_root.get<json::object_t>();
-    json::array_t const user_task_ids =
-        task_object["tasks"].get<json::array_t>();
-    json::array_t const user_website_ids =
-        task_object["websites"].get<json::array_t>();
-    json::array_t const user_download_types =
-        task_object["type"].get<json::array_t>();
+    auto task_object = json_root.get<json::object_t>();
+    auto const user_task_ids = task_object["tasks"].get<json::array_t>();
+    auto const user_website_ids = task_object["websites"].get<json::array_t>();
+    auto const user_download_types = task_object["type"].get<json::array_t>();
     json::number_integer_t user_from = 0;
     json::number_integer_t user_to = 0;
     if (auto iter = task_object.find("from"); iter != task_object.end()) {
@@ -507,11 +515,11 @@ void session_t::download_handler(string_request_t const &request,
     if (!(db_connector->get_stopped_tasks(task_ids, tasks) &&
           db_connector->get_completed_tasks(task_ids, tasks))) {
       return error_handler(
-          server_error("failed", error_type_e::ServerError, request));
+          server_error("failed", session_error_e::ServerError, request));
     }
     bool needs_ok = false, needs_not_ok = false, needs_unknown = false;
-    for (std::size_t index = 0; index != user_download_types.size(); ++index) {
-      std::string const str = user_download_types[index].get<json::string_t>();
+    for (const auto &user_download_type : user_download_types) {
+      std::string const str = user_download_type.get<json::string_t>();
       if (str == "ok")
         needs_ok = true;
       else if (str == "not_ok")
@@ -525,7 +533,7 @@ void session_t::download_handler(string_request_t const &request,
     if (ec) {
       spdlog::error("Unable to get temp path: {}", ec.message());
       return error_handler(server_error("unable to get temp path",
-                                        error_type_e::ServerError, request));
+                                        session_error_e::ServerError, request));
     }
     ec = {};
     std::vector<std::filesystem::path> paths{};
@@ -534,10 +542,11 @@ void session_t::download_handler(string_request_t const &request,
                     stopped_task.website_id) == website_ids.cend()) {
         continue;
       }
-      utilities::normalize_paths(stopped_task.not_ok_filename);
-      utilities::normalize_paths(stopped_task.ok_filename);
-      utilities::normalize_paths(stopped_task.ok2_filename);
-      utilities::normalize_paths(stopped_task.unknown_filename);
+      using utilities::normalizePaths;
+      normalizePaths(stopped_task.not_ok_filename);
+      normalizePaths(stopped_task.ok_filename);
+      normalizePaths(stopped_task.ok2_filename);
+      normalizePaths(stopped_task.unknown_filename);
       if (needs_ok) { // provides numbers that are OK.
         std::string const ok_filename = "task_{}_website_{}_ok.txt"_format(
             stopped_task.task_id, stopped_task.website_id);
@@ -562,7 +571,7 @@ void session_t::download_handler(string_request_t const &request,
                                        filename, user_from, user_to));
       }
     }
-    // remove all empty files from the `paths`
+    // remove all isEmpty files from the `paths`
     paths.erase(std::remove_if(paths.begin(), paths.end(),
                                [](std::filesystem::path const &path) {
                                  return path.string().empty() ||
@@ -570,19 +579,19 @@ void session_t::download_handler(string_request_t const &request,
                                }),
                 paths.end());
     if (paths.empty())
-      return send_response(success("empty", request));
+      return send_response(success("isEmpty", request));
     std::filesystem::path const czip_file_path =
         temp_path / "{}.zip"_format(std::time(nullptr));
     miniz_cpp::zip_file zip_file{};
     for (auto const &path : paths) {
       zip_file.write(path.string());
-      std::error_code ec{};
-      std::filesystem::remove(path, ec);
+      std::error_code errorCode{};
+      std::filesystem::remove(path, errorCode);
     }
     zip_file.save(czip_file_path.string());
     if (!std::filesystem::exists(download_path)) {
-      std::error_code ec{};
-      std::filesystem::create_directories(download_path, ec);
+      std::error_code errorCode{};
+      std::filesystem::create_directories(download_path, errorCode);
     }
     ec = {};
     std::filesystem::copy(czip_file_path, download_path, ec);
@@ -590,7 +599,7 @@ void session_t::download_handler(string_request_t const &request,
       spdlog::error("Unable to copy zip file from temp to download path: {}",
                     ec.message());
       return error_handler(server_error("unable to copy zip",
-                                        error_type_e::ServerError, request));
+                                        session_error_e::ServerError, request));
     }
     std::filesystem::remove(czip_file_path);
     json::object_t json_url;
@@ -608,16 +617,15 @@ void session_t::remove_tasks_handler(string_request_t const &req,
   if (content_type_ != "application/json")
     return error_handler(bad_request("invalid content-type", req));
   try {
-    using utilities::task_status_e;
     auto user_id_iter = optional_query.find("id");
     if (user_id_iter == optional_query.cend())
       return error_handler(bad_request("user id is missing", req));
     json json_root = json::parse(req.body());
-    json::object_t task_type_object = json_root.get<json::object_t>();
+    auto task_type_object = json_root.get<json::object_t>();
     if (task_type_object.empty()) {
-      return error_handler(bad_request("empty task list", req));
+      return error_handler(bad_request("isEmpty task list", req));
     }
-    json::array_t const user_specified_tasks =
+    auto const user_specified_tasks =
         task_type_object["id"].get<json::array_t>();
     std::vector<uint32_t> tasks{};
     tasks.reserve(user_specified_tasks.size());
@@ -649,17 +657,17 @@ void session_t::proxy_config_handler(string_request_t const &request,
   try {
     {
       // if this throws, the JSON file is not valid.
-      json::object_t root = json::parse(request.body()).get<json::object_t>();
-      json::object_t proxy_object = root["proxy"].get<json::object_t>();
+      auto root = json::parse(request.body()).get<json::object_t>();
+      auto proxy_object = root["proxy"].get<json::object_t>();
       int const interval_between_fetch = static_cast<int>(
           proxy_object["fetch_interval"].get<json::number_integer_t>());
       int const software_version = static_cast<int>(
           root["client_version"].get<json::number_integer_t>());
-      auto &current_interval = utilities::proxy_fetch_interval();
+      auto &current_interval = utilities::proxyFetchInterval();
       if (current_interval != interval_between_fetch) {
         current_interval = interval_between_fetch;
       }
-      if (software_version < WUDI_SOFTWARE_VERSION) {
+      if (software_version < WOODY_SOFTWARE_VERSION) {
         return error_handler(upgrade_required(request));
       }
     }
@@ -667,7 +675,7 @@ void session_t::proxy_config_handler(string_request_t const &request,
                            std::ios::out | std::ios::trunc};
     if (!out_file) {
       return error_handler(server_error("unable to open config file for write",
-                                        error_type_e::ServerError, request));
+                                        session_error_e::ServerError, request));
     }
     out_file << request.body() << "\n";
   } catch (std::exception const &e) {
@@ -679,17 +687,16 @@ void session_t::proxy_config_handler(string_request_t const &request,
 
 void session_t::delete_stopped_tasks_impl(
     std::vector<uint32_t> const &user_stopped_tasks) {
-  using utilities::atomic_task_t;
-  using utilities::remove_file;
+  using utilities::removeFile;
   auto db_connector = database_connector_t::s_get_db_connector();
   std::vector<atomic_task_t> tasks{};
   db_connector->get_stopped_tasks(user_stopped_tasks, tasks);
   for (auto &stopped_task : tasks) {
-    remove_file(stopped_task.input_filename);
-    remove_file(stopped_task.not_ok_filename);
-    remove_file(stopped_task.ok_filename);
-    remove_file(stopped_task.ok2_filename);
-    remove_file(stopped_task.unknown_filename);
+    removeFile(stopped_task.input_filename);
+    removeFile(stopped_task.not_ok_filename);
+    removeFile(stopped_task.ok_filename);
+    removeFile(stopped_task.ok2_filename);
+    removeFile(stopped_task.unknown_filename);
   }
   return db_connector->delete_stopped_tasks(user_stopped_tasks);
 }
@@ -698,7 +705,7 @@ void session_t::delete_other_tasks_impl(
     boost::string_view const user_id, std::vector<uint32_t> const &all_tasks) {
   auto db_connector = database_connector_t::s_get_db_connector();
   db_connector->remove_filtered_tasks(user_id, all_tasks);
-  auto &response_queue = utilities::get_response_queue();
+  auto &response_queue = utilities::getResponseQueue();
   for (auto const &task : all_tasks) {
     response_queue.erase(task);
   }
@@ -707,9 +714,7 @@ void session_t::delete_other_tasks_impl(
 std::vector<uint32_t>
 session_t::stop_running_tasks_impl(std::vector<uint32_t> const &task_id_list,
                                    bool const saving_state) {
-  using utilities::task_status_e;
-
-  auto &running_tasks = utilities::get_response_queue();
+  auto &running_tasks = utilities::getResponseQueue();
   std::vector<uint32_t> stopped_tasks{};
   stopped_tasks.reserve(task_id_list.size());
   for (std::size_t index = 0; index != task_id_list.size(); ++index) {
@@ -719,7 +724,7 @@ session_t::stop_running_tasks_impl(std::vector<uint32_t> const &task_id_list,
       stopped_tasks.push_back(task_id);
       for (auto beg = iter.first; beg != iter.second; ++beg) {
         if (beg->second->operation_status == task_status_e::Ongoing) {
-          beg->second->saving_state() = saving_state;
+          beg->second->savingState() = saving_state;
           beg->second->stop();
         }
       }
@@ -762,7 +767,8 @@ void session_t::software_update_handler(string_request_t const &request,
     std::filesystem::create_directories(download_path, ec);
     if (ec) {
       return error_handler(server_error("server encountered an error",
-                                        error_type_e::RequiresUpdate, request));
+                                        session_error_e::RequiresUpdate,
+                                        request));
     }
   }
   std::filesystem::path const file_path = download_path / "woody_latest.zip";
@@ -774,30 +780,29 @@ void session_t::stop_tasks_handler(string_request_t const &request,
   if (content_type_ != "application/json")
     return error_handler(bad_request("invalid content-type", request));
   try {
-    using utilities::atomic_task_t;
-    using utilities::task_status_e;
     json json_root = json::parse(request.body());
-    json::array_t const task_id_list = json_root.get<json::array_t>();
+    auto const task_id_list = json_root.get<json::array_t>();
     if (task_id_list.empty()) {
-      return error_handler(bad_request("empty task list", request));
-    };
+      return error_handler(bad_request("isEmpty task list", request));
+    }
     std::vector<uint32_t> tasks{};
     tasks.reserve(task_id_list.size());
     for (auto const &task : task_id_list) {
       tasks.emplace_back(task.get<json::number_integer_t>());
     }
-    auto &queued_task = utilities::get_scheduled_tasks();
-    auto interesting_tasks = queued_task.remove_value(
+    auto &queued_task = utilities::getScheduledTasks();
+    auto interesting_tasks = queued_task.removeValue(
         tasks, [](atomic_task_t &task, std::vector<uint32_t> const &ids) {
-          for (auto const &id : ids)
+          for (auto const &id : ids) {
             if (task.task_id == id)
               return true;
+          }
           return false;
         });
     auto db_connector = database_connector_t::s_get_db_connector();
     for (auto const &task : interesting_tasks) {
       atomic_task_t unstarted_task{};
-      unstarted_task.type_ = atomic_task_t::task_type::fresh;
+      unstarted_task.task_type = task_type_e::fresh;
       unstarted_task.task_id = task.task_id;
       unstarted_task.website_id = task.website_id;
       unstarted_task.processed = 0;
@@ -807,7 +812,7 @@ void session_t::stop_tasks_handler(string_request_t const &request,
               "{free}";
 
       unstarted_task.input_filename =
-          utilities::intlist_to_string(unstarted_task.number_ids);
+          utilities::integerListToString(unstarted_task.number_ids);
       db_connector->save_unstarted_task(unstarted_task);
     }
     return send_response(json_success(stop_running_tasks_impl(tasks), request));
@@ -822,11 +827,10 @@ void session_t::restart_tasks_handler(string_request_t const &request,
   if (content_type_ != "application/json")
     return error_handler(bad_request("invalid content-type", request));
   try {
-    using utilities::task_status_e;
     json json_root = json::parse(request.body());
-    json::array_t user_task_list = json_root.get<json::array_t>();
+    auto user_task_list = json_root.get<json::array_t>();
     if (user_task_list.empty()) {
-      return error_handler(bad_request("empty task list", request));
+      return error_handler(bad_request("isEmpty task list", request));
     }
     std::vector<uint32_t> task_list{};
     task_list.reserve(user_task_list.size());
@@ -834,13 +838,13 @@ void session_t::restart_tasks_handler(string_request_t const &request,
       task_list.push_back(
           static_cast<uint32_t>(user_task_id.get<json::number_integer_t>()));
     }
-    using utilities::restart_tasks;
+    using utilities::restartTasks;
 
-    if (auto stopped_tasks = restart_tasks(task_list); !stopped_tasks.empty()) {
+    if (auto stopped_tasks = restartTasks(task_list); !stopped_tasks.empty()) {
       return send_response(json_success(stopped_tasks, request));
     }
     return error_handler(server_error("not able to restart tasks",
-                                      error_type_e::ServerError, request));
+                                      session_error_e::ServerError, request));
   } catch (std::exception const &e) {
     spdlog::error("exception in restart_tasks: {}", e.what());
     return error_handler(bad_request("unable to restarts tasks", request));
@@ -850,7 +854,7 @@ void session_t::restart_tasks_handler(string_request_t const &request,
 void session_t::schedule_task_handler(string_request_t const &request,
                                       url_query const &optional_query) {
   using http::verb;
-  using wudi_server::utilities::get_scheduled_tasks;
+  using utilities::getScheduledTasks;
 
   auto const method = request.method();
   if (method == verb::post) {
@@ -860,14 +864,14 @@ void session_t::schedule_task_handler(string_request_t const &request,
     std::vector<uint32_t> task_ids{};
     try {
       json json_root = json::parse(request.body());
-      json::object_t task_object = json_root.get<json::object_t>();
+      auto task_object = json_root.get<json::object_t>();
       auto const websites_ids = task_object["websites"].get<json::array_t>();
       auto const number_ids = task_object["numbers"].get<json::array_t>();
       auto const total = task_object["total"].get<json::number_integer_t>();
       auto const per_ip = task_object["per_ip"].get<json::number_integer_t>();
-      auto &tasks{get_scheduled_tasks()};
-      using utilities::atomic_task_t;
-      utilities::scheduled_task_t task{};
+      auto &tasks{getScheduledTasks()};
+
+      scheduled_task_t task{};
       task.total_numbers = static_cast<uint32_t>(total);
       task.scans_per_ip = static_cast<uint32_t>(per_ip);
       task.scheduled_dt =
@@ -882,21 +886,22 @@ void session_t::schedule_task_handler(string_request_t const &request,
         task.website_id =
             static_cast<uint32_t>(website_id.get<json::number_integer_t>());
         if (!database_connector_t::s_get_db_connector()->add_task(task)) {
-          return error_handler(server_error(
-              "unable to schedule task", error_type_e::ServerError, request));
+          return error_handler(server_error("unable to schedule task",
+                                            session_error_e::ServerError,
+                                            request));
         }
         // an hack to make sure DB don't reject duplicate insertion
         ++task.scheduled_dt;
 
         atomic_task_t atom_task;
-        atom_task.type_ = atomic_task_t::task_type::fresh;
+        atom_task.task_type = task_type_e::fresh;
         atom_task.task_id = task.task_id;
         atom_task.total = task.total_numbers;
         atom_task.website_id = task.website_id;
         atom_task.number_ids = task.number_ids;
         atom_task.scans_per_ip = task.scans_per_ip;
         task_ids.push_back(task.task_id);
-        tasks.push_back(std::move(atom_task));
+        tasks.append(std::move(atom_task));
       }
 
       json::object_t obj;
@@ -909,7 +914,7 @@ void session_t::schedule_task_handler(string_request_t const &request,
     }
   } else if (method == http::verb::delete_) {
     return error_handler(server_error("not implemented yet",
-                                      error_type_e::ServerError, request));
+                                      session_error_e::ServerError, request));
   } else {
     auto const user_id_iter = optional_query.find("user_id");
     auto const task_ids_iter = optional_query.find("task_id");
@@ -919,11 +924,10 @@ void session_t::schedule_task_handler(string_request_t const &request,
       }
       std::vector<boost::string_view> task_ids{};
       if (task_ids_iter != optional_query.cend()) {
-        task_ids = utilities::split_string_view(task_ids_iter->second, "|");
+        task_ids = utilities::splitStringView(task_ids_iter->second, "|");
       }
       auto const user_id = user_id_iter->second;
-      auto db_connector =
-          wudi_server::database_connector_t::s_get_db_connector();
+      auto db_connector = database_connector_t::s_get_db_connector();
       return send_response(json_success(
           db_connector->get_all_tasks(user_id, task_ids), request));
     } catch (std::exception const &e) {
@@ -935,7 +939,7 @@ void session_t::schedule_task_handler(string_request_t const &request,
 
 void session_t::website_handler(string_request_t const &request,
                                 url_query const &) {
-  auto db_connector = wudi_server::database_connector_t::s_get_db_connector();
+  auto db_connector = database_connector_t::s_get_db_connector();
   if (request.method() == http::verb::get) {
     json j = db_connector->get_websites({});
     return send_response(json_success(j, request));
@@ -945,13 +949,13 @@ void session_t::website_handler(string_request_t const &request,
   }
   try {
     json json_root = json::parse(request.body());
-    json::object_t obj = json_root.get<json::object_t>();
+    auto obj = json_root.get<json::object_t>();
     auto address = obj["address"].get<json::string_t>();
     auto alias = obj["alias"].get<json::string_t>();
     if (!db_connector->add_website(address, alias)) {
       spdlog::error("[website_handler] could not add website");
       return error_handler(server_error("could not add website",
-                                        error_type_e::ServerError, request));
+                                        session_error_e::ServerError, request));
     }
     return send_response(success("ok", request));
   } catch (std::exception const &e) {
@@ -961,37 +965,37 @@ void session_t::website_handler(string_request_t const &request,
 }
 
 string_response_t session_t::not_found(string_request_t const &request) {
-  return get_error("url not found", error_type_e::ResourceNotFound,
+  return get_error("url not found", session_error_e::ResourceNotFound,
                    http::status::not_found, request);
 }
 
 string_response_t session_t::upgrade_required(string_request_t const &request) {
   return get_error("you need to upgrade your client software",
-                   error_type_e::ResourceNotFound,
+                   session_error_e::ResourceNotFound,
                    http::status::upgrade_required, request);
 }
 
 string_response_t session_t::server_error(std::string const &message,
-                                          error_type_e type,
+                                          session_error_e type,
                                           string_request_t const &request) {
   return get_error(message, type, http::status::internal_server_error, request);
 }
 
 string_response_t session_t::bad_request(std::string const &message,
                                          string_request_t const &request) {
-  return get_error(message, error_type_e::BadRequest, http::status::bad_request,
-                   request);
+  return get_error(message, session_error_e::BadRequest,
+                   http::status::bad_request, request);
 }
 
 string_response_t session_t::method_not_allowed(string_request_t const &req) {
-  return get_error("method not allowed", error_type_e::MethodNotAllowed,
+  return get_error("method not allowed", session_error_e::MethodNotAllowed,
                    http::status::method_not_allowed, req);
 }
 
 string_response_t session_t::successful_login(int const id, int const role,
                                               string_request_t const &req) {
   json::object_t result_obj;
-  result_obj["status"] = error_type_e::NoError;
+  result_obj["status"] = session_error_e::NoError;
   result_obj["message"] = "success";
   result_obj["id"] = id;
   result_obj["role"] = role;
@@ -1006,7 +1010,8 @@ string_response_t session_t::successful_login(int const id, int const role,
 }
 
 string_response_t session_t::get_error(std::string const &error_message,
-                                       error_type_e type, http::status status,
+                                       session_error_e type,
+                                       http::status status,
                                        string_request_t const &req) {
   json::object_t result_obj;
   result_obj["status"] = type;
@@ -1034,7 +1039,7 @@ string_response_t session_t::json_success(json const &body,
 string_response_t session_t::success(char const *message,
                                      string_request_t const &req) {
   json::object_t result_obj;
-  result_obj["status"] = error_type_e::NoError;
+  result_obj["status"] = session_error_e::NoError;
   result_obj["message"] = message;
   json result{result_obj};
 
@@ -1049,7 +1054,7 @@ string_response_t session_t::success(char const *message,
 void session_t::send_response(string_response_t &&response) {
   auto resp = std::make_shared<string_response_t>(std::move(response));
   resp_ = resp;
-  http::async_write(tcp_stream_, *resp,
+  http::async_write(m_tcpStream, *resp,
                     beast::bind_front_handler(&session_t::on_data_written,
                                               shared_from_this()));
 }
@@ -1058,9 +1063,9 @@ url_query
 session_t::split_optional_queries(boost::string_view const &optional_query) {
   url_query result{};
   if (!optional_query.empty()) {
-    auto queries = utilities::split_string_view(optional_query, "&");
+    auto queries = utilities::splitStringView(optional_query, "&");
     for (auto const &q : queries) {
-      auto split = utilities::split_string_view(q, "=");
+      auto split = utilities::splitStringView(q, "=");
       if (split.size() < 2)
         continue;
       result.emplace(split[0], split[1]);
@@ -1070,21 +1075,20 @@ session_t::split_optional_queries(boost::string_view const &optional_query) {
 }
 
 namespace utilities {
-std::vector<utilities::atomic_task_t>
-restart_tasks(std::vector<uint32_t> const &task_ids) {
-  auto db_connector = wudi_server::database_connector_t::s_get_db_connector();
-  std::vector<utilities::atomic_task_t> stopped_tasks{};
-  auto &task_queue = utilities::get_scheduled_tasks();
+std::vector<atomic_task_t> restartTasks(std::vector<uint32_t> const &task_ids) {
+  auto db_connector = database_connector_t::s_get_db_connector();
+  std::vector<atomic_task_t> stopped_tasks{};
+  auto &task_queue = utilities::getScheduledTasks();
   if (db_connector->get_stopped_tasks(task_ids, stopped_tasks)) {
     for (auto &stopped_task : stopped_tasks) {
-      task_queue.push_back(std::move(stopped_task));
+      task_queue.append(std::move(stopped_task));
     }
     return stopped_tasks;
   }
   return {};
 }
 } // namespace utilities
-} // namespace wudi_server
+} // namespace woody_server
 
 std::vector<uint32_t> operator+(std::vector<uint32_t> const &a,
                                 std::vector<uint32_t> const &b) {

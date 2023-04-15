@@ -5,7 +5,7 @@
 #include <memory>
 #include <stdexcept>
 
-namespace wudi_server {
+namespace woody_server {
 namespace detail {
 struct static_pool {
   std::size_t size_;
@@ -108,7 +108,7 @@ public:
   void deallocate(value_type *, size_type) { pool_->dealloc(); }
 
 #if defined(BOOST_LIBSTDCXX_VERSION) && BOOST_LIBSTDCXX_VERSION < 60000
-  template <class U, class... Args> void construct(U *ptr, Args &&... args) {
+  template <class U, class... Args> void construct(U *ptr, Args &&...args) {
     ::new (static_cast<void *>(ptr)) U(std::forward<Args>(args)...);
   }
 
@@ -125,4 +125,4 @@ public:
     return !(lhs == rhs);
   }
 };
-} // namespace wudi_server
+} // namespace woody_server

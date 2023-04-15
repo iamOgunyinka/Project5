@@ -2,7 +2,7 @@
 #include "session.hpp"
 #include <spdlog/spdlog.h>
 
-namespace wudi_server {
+namespace woody_server {
 server_t::server_t(asio::io_context &context,
                    command_line_interface_t const &args)
     : io_context_{context}, endpoint_{asio::ip::make_address(args.ip_address),
@@ -64,4 +64,4 @@ void server_t::accept_connections() {
       beast::bind_front_handler(&server_t::on_connection_accepted,
                                 shared_from_this()));
 }
-} // namespace wudi_server
+} // namespace woody_server
