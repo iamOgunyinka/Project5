@@ -1,7 +1,5 @@
 #include "session.hpp"
 #include "database_connector.hpp"
-#include "file_utils.hpp"
-#include "random.hpp"
 #include "upload_data.hpp"
 
 #include <fstream>
@@ -10,11 +8,16 @@
 #include <zip_file.hpp>
 
 #include <boost/beast/http/read.hpp>
-#include <boost/beast/http/write.hpp>
 
 extern int WOODY_SOFTWARE_VERSION;
 
 namespace woody_server {
+namespace utilities {
+std::time_t &proxyFetchInterval();
+void normalizePaths(std::string &);
+void removeFile(std::string &);
+} // namespace utilities
+
 using nlohmann::json;
 using namespace fmt::v6::literals;
 

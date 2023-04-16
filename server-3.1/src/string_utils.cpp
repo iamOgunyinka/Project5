@@ -98,30 +98,32 @@ std::string md5Hash(std::string const &input_data) {
 }
 
 bool isValidMobileNumber(std::string_view const number, std::string &buffer) {
-  if (number.size() < 11 || number.size() > 14)
+  if (number.size() < 12 || number.size() > 13)
     return false;
 
   std::size_t from = 2;
   if (number[0] == '+') { // international format
-    if (number.size() != 14)
+    if (number.size() != 13)
       return false;
-    if (number[1] != '8' && number[2] != '6' && number[3] != '1')
+    if (number[1] != '6' && number[2] != '3')
       return false;
-    if (number[4] < '3' || number[4] > '9')
+    from = 3;
+    buffer = std::string(number);
+  } else if (number[0] == '6') { // international format, without the +
+    if (number.size() != 12)
       return false;
-    from = 5;
-  } else if (number[0] == '1') { // local format
-    if (number.size() != 11)
+    if (number[1] != '3')
       return false;
-    if (number[1] < '3' || number[1] > '9')
-      return false;
+    from = 2;
+    buffer = "+" + std::string(number);
   } else
     return false;
   for (std::size_t index = from; index < number.length(); ++index) {
-    if (number[index] < '0' || number[index] > '9')
+    if (number[index] < '0' || number[index] > '9') {
+      buffer.clear();
       return false;
+    }
   }
-  buffer = number.substr(from - 2);
   return true;
 }
 

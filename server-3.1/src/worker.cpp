@@ -1,13 +1,18 @@
 #include "worker.hpp"
 #include "backgroundworker.hpp"
 #include "database_connector.hpp"
-#include "file_utils.hpp"
 #include "number_stream.hpp"
-#include "random.hpp"
 #include <boost/asio/ssl/context.hpp>
 #include <spdlog/spdlog.h>
 
 namespace woody_server {
+namespace utilities {
+void normalizePaths(std::string &str);
+void replaceSpecialChars(std::string &str);
+bool createFileDirectory(std::filesystem::path const &path);
+std::string getRandomString(size_t);
+std::size_t getRandomInteger();
+} // namespace utilities
 
 void on_task_ran(task_status_e status, atomic_task_t &,
                  std::shared_ptr<database_connector_t> &db_connector,

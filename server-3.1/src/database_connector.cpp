@@ -237,7 +237,7 @@ bool database_connector_t::update_task_progress(
 bool database_connector_t::save_stopped_task(atomic_task_t const &task) {
   std::string const sql_statement =
       "UPDATE tb_tasks SET ok_file='{}', ok2_file='{}', not_ok_file='{}', "
-      "unknown_file='{}', inputFilename='{}', ok_count={}, not_ok_count={},"
+      "unknown_file='{}', input_filename='{}', ok_count={}, not_ok_count={},"
       "unknown_count={} WHERE id={}"_format(
           task.ok_filename, task.ok2_filename, task.not_ok_filename,
           task.unknown_filename, task.input_filename, task.ok_count,
@@ -275,7 +275,7 @@ bool database_connector_t::change_task_status(uint32_t const task_id,
 
 bool database_connector_t::add_erred_task(atomic_task_t &task) {
   std::string const task_sql_statement =
-      "UPDATE tb_tasks SET ok_file='{}', inputFilename='{}',"
+      "UPDATE tb_tasks SET ok_file='{}', input_filename='{}',"
       "not_ok_file='{}', unknown_file='{}', status={}, processed={}, "
       "ok2_file='{}' WHERE id={}"_format(
           task.ok_filename, task.input_filename, task.not_ok_filename,
@@ -326,7 +326,7 @@ std::vector<task_result_t> database_connector_t::get_all_tasks(
 bool database_connector_t::save_unstarted_task(
     atomic_task_t const &stopped_task) {
   std::string const task_sql_stement =
-      "UPDATE tb_tasks SET status={}, inputFilename='{}', ok_file='{}', "
+      "UPDATE tb_tasks SET status={}, input_filename='{}', ok_file='{}', "
       "unknown_file='{}', not_ok_file='{}', ok2_file='{}' WHERE id={}"_format(
           task_status_e::NotStarted, stopped_task.input_filename,
           stopped_task.ok_filename, stopped_task.unknown_filename,
@@ -356,7 +356,7 @@ bool database_connector_t::set_input_files(std::string input_filename,
   replaceSpecialChars(unknown_filename);
 
   std::string const sql_statement =
-      "UPDATE tb_tasks SET inputFilename='{}', ok_file='{}', not_ok_file='{}',"
+      "UPDATE tb_tasks SET input_filename='{}', ok_file='{}', not_ok_file='{}',"
       "unknown_file='{}', ok2_file='{}' WHERE id={}"_format(
           input_filename, ok_filename, not_ok_filename, unknown_filename,
           ok2_filename, task_id);
@@ -388,7 +388,7 @@ bool database_connector_t::get_stopped_tasks(
     std::vector<uint32_t> const &tasks,
     std::vector<atomic_task_t> &stopped_tasks) {
   std::string const sql_statement =
-      "SELECT id, website_id, processed, total_numbers, inputFilename, "
+      "SELECT id, website_id, processed, total_numbers, input_filename, "
       "ok_file, not_ok_file, unknown_file, ok2_file, ok_count, not_ok_count, "
       "unknown_count, per_ip, ip_used FROM tb_tasks WHERE id IN ({})"_format(
           utilities::integerListToString(tasks));

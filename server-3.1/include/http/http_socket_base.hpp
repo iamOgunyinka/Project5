@@ -43,7 +43,7 @@ protected:
   void sendNext();
 
   virtual void prepareRequestData(bool use_auth) = 0;
-  virtual void onDataReceived(beast::error_code, size_t) const = 0;
+  virtual void onDataReceived(beast::error_code, size_t) = 0;
 
 public:
   http_socket_base_t(bool &stopped, net::io_context &, proxy_base_t &,

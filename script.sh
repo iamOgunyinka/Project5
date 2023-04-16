@@ -26,6 +26,7 @@ mysql -u root<<EOFMYSQL
 CREATE USER 'iamOgunyinka'@'localhost' IDENTIFIED BY '12345678zxcvbnm()';
 create database wudi_db_develop;
 GRANT ALL ON wudi_db_develop.* TO 'iamOgunyinka'@'localhost';
+use 
 EOFMYSQL
 
 git clone https://github.com/iamOgunyinka/Project5.git
@@ -86,3 +87,13 @@ echo start the reverse proxy server
 echo ================================
 
 service nginx start
+
+echo ================================
+echo populate the database
+echo ================================
+
+mysql -u root<<EOFMYSQL
+use wudi_db_develop;
+insert into tb_users (role, username, password) values (0, 'admin', '123456');
+insert into tb_websites (nickname, address) values ('Lazada Phillipines', 'lazada.com.ph');
+EOFMYSQL
